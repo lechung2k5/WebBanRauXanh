@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Đăng nhập')}"></head>
+<body class="bg-light d-flex flex-column min-vh-100">
+
+<div class="container my-auto py-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-sm-10 col-md-8 col-lg-5">
+            <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+                <div class="card-header bg-dark text-white text-center py-4">
+                    <i class="bi bi-shield-lock-fill text-warning display-5"></i>
+                    <h4 class="mt-2 mb-0 fw-bold">HỆ THỐNG QUẢN TRỊ</h4>
+                    <small class="text-light opacity-75">Vui lòng đăng nhập để tiếp tục</small>
+                </div>
+
+                <div class="card-body p-4 p-sm-5">
+                    <!-- Thông báo lỗi: Sai mật khẩu hoặc tài khoản bị khoá -->
+                    <div th:if="${errorMessage != null}" class="alert alert-danger alert-dismissible fade show d-flex align-items-center mb-4" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+                        <div>
+                            <strong th:text="${errorMessage}">Sai tên đăng nhập hoặc mật khẩu!</strong>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <!-- Thông báo đăng ký thành công -->
+                    <div th:if="${successMessage != null}" class="alert alert-success alert-dismissible fade show d-flex align-items-center mb-4" role="alert">
+                        <i class="bi bi-check-circle-fill fs-4 me-3"></i>
+                        <div>
+                            <strong th:text="${successMessage}">Đăng ký thành công!</strong>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <!-- Thông báo đăng xuất -->
+                    <div th:if="${infoMessage != null}" class="alert alert-info alert-dismissible fade show d-flex align-items-center mb-4" role="alert">
+                        <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                        <div>
+                            <span th:text="${infoMessage}">Bạn đã đăng xuất.</span>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <!-- Thông báo hết hạn phiên đăng nhập (Concurrent Session Management) -->
+                    <div th:if="${warningMessage != null}" class="alert alert-warning alert-dismissible fade show d-flex align-items-center mb-4" role="alert">
+                        <i class="bi bi-exclamation-circle-fill fs-4 me-3"></i>
+                        <div>
+                            <span th:text="${warningMessage}">Phiên đăng nhập đã hết hạn.</span>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <!-- Form đăng nhập bám chuẩn Spring Security: POST /login, name="username", name="password", name="remember-me" -->
+                    <form th:action="@{/login}" method="post">
+                        <div class="mb-3">
+                            <label for="username" class="form-label fw-semibold">
+                                <i class="bi bi-person-fill text-secondary me-1"></i> Tên đăng nhập
+                            </label>
+                            <input type="text" class="form-control form-control-lg rounded-3" id="username" name="username" required autofocus placeholder="Nhập username...">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="password" class="form-label fw-semibold">
+                                <i class="bi bi-key-fill text-secondary me-1"></i> Mật khẩu
+                            </label>
+                            <input type="password" class="form-control form-control-lg rounded-3" id="password" name="password" required placeholder="Nhập mật khẩu...">
+                        </div>
+
+                        <!-- Checkbox Remember-me 7 ngày (lưu token vào MariaDB bảng persistent_logins) -->
+                        <div class="mb-4 form-check">
+                            <input type="checkbox" class="form-check-input" id="remember-me" name="remember-me">
+                            <label class="form-check-label text-muted" for="remember-me">
+                                Ghi nhớ đăng nhập (7 ngày)
+                            </label>
+                        </div>
+
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-dark btn-lg fw-bold rounded-3 shadow-sm">
+                                <i class="bi bi-box-arrow-in-right me-2"></i> Đăng nhập
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="text-center mt-4 pt-3 border-top">
+                        <span class="text-muted">Chưa có tài khoản?</span>
+                        <a th:href="@{/register}" class="fw-bold text-decoration-none text-dark ms-1">
+                            Đăng ký tài khoản mới <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Gợi ý tài khoản mẫu để test -->
+                <div class="card-footer bg-light p-3 text-muted text-center small">
+                    <div><strong>Tài khoản mẫu:</strong></div>
+                    <div>Admin: <code>admin / admin123</code> | User: <code>user / user123</code></div>
+                    <div>Tài khoản bị khoá: <code>locked / user123</code></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>

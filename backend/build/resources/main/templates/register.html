@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Đăng ký tài khoản')}"></head>
+<body class="bg-light d-flex flex-column min-vh-100">
+
+<div class="container my-auto py-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-sm-10 col-md-8 col-lg-6">
+            <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+                <div class="card-header bg-dark text-white text-center py-4">
+                    <i class="bi bi-person-plus-fill text-warning display-5"></i>
+                    <h4 class="mt-2 mb-0 fw-bold">ĐĂNG KÝ TÀI KHOẢN</h4>
+                    <small class="text-light opacity-75">Tạo tài khoản để truy cập hệ thống</small>
+                </div>
+
+                <div class="card-body p-4 p-sm-5">
+                    <!-- Thông báo lỗi chung từ service nếu có -->
+                    <div th:if="${errorMessage != null}" class="alert alert-danger alert-dismissible fade show d-flex align-items-center mb-4" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+                        <div>
+                            <strong th:text="${errorMessage}">Lỗi đăng ký!</strong>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
+                    <!-- Form đăng ký -->
+                    <form th:action="@{/register}" th:object="${registerForm}" method="post">
+                        <!-- Tên đăng nhập -->
+                        <div class="mb-3">
+                            <label for="username" class="form-label fw-semibold">
+                                <i class="bi bi-person-badge text-secondary me-1"></i> Tên đăng nhập *
+                            </label>
+                            <input type="text" th:field="*{username}" class="form-control rounded-3"
+                                   th:classappend="${#fields.hasErrors('username')} ? 'is-invalid' : ''"
+                                   id="username" placeholder="Ví dụ: nguyenvanb">
+                            <div class="invalid-feedback" th:if="${#fields.hasErrors('username')}" th:errors="*{username}"></div>
+                        </div>
+
+                        <!-- Họ và tên -->
+                        <div class="mb-3">
+                            <label for="fullName" class="form-label fw-semibold">
+                                <i class="bi bi-card-text text-secondary me-1"></i> Họ và tên *
+                            </label>
+                            <input type="text" th:field="*{fullName}" class="form-control rounded-3"
+                                   th:classappend="${#fields.hasErrors('fullName')} ? 'is-invalid' : ''"
+                                   id="fullName" placeholder="Ví dụ: Nguyễn Văn B">
+                            <div class="invalid-feedback" th:if="${#fields.hasErrors('fullName')}" th:errors="*{fullName}"></div>
+                        </div>
+
+                        <!-- Email -->
+                        <div class="mb-3">
+                            <label for="email" class="form-label fw-semibold">
+                                <i class="bi bi-envelope-fill text-secondary me-1"></i> Địa chỉ Email *
+                            </label>
+                            <input type="email" th:field="*{email}" class="form-control rounded-3"
+                                   th:classappend="${#fields.hasErrors('email')} ? 'is-invalid' : ''"
+                                   id="email" placeholder="Ví dụ: vanb@example.com">
+                            <div class="invalid-feedback" th:if="${#fields.hasErrors('email')}" th:errors="*{email}"></div>
+                        </div>
+
+                        <!-- Mật khẩu -->
+                        <div class="mb-3">
+                            <label for="password" class="form-label fw-semibold">
+                                <i class="bi bi-key-fill text-secondary me-1"></i> Mật khẩu *
+                            </label>
+                            <input type="password" th:field="*{password}" class="form-control rounded-3"
+                                   th:classappend="${#fields.hasErrors('password')} ? 'is-invalid' : ''"
+                                   id="password" placeholder="Tối thiểu 6 ký tự...">
+                            <div class="invalid-feedback" th:if="${#fields.hasErrors('password')}" th:errors="*{password}"></div>
+                        </div>
+
+                        <!-- Xác nhận mật khẩu -->
+                        <div class="mb-4">
+                            <label for="confirmPassword" class="form-label fw-semibold">
+                                <i class="bi bi-check2-circle text-secondary me-1"></i> Xác nhận mật khẩu *
+                            </label>
+                            <input type="password" th:field="*{confirmPassword}" class="form-control rounded-3"
+                                   th:classappend="${#fields.hasErrors('confirmPassword')} ? 'is-invalid' : ''"
+                                   id="confirmPassword" placeholder="Nhập lại mật khẩu...">
+                            <div class="invalid-feedback" th:if="${#fields.hasErrors('confirmPassword')}" th:errors="*{confirmPassword}"></div>
+                        </div>
+
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-warning btn-lg fw-bold rounded-3 shadow-sm text-dark">
+                                <i class="bi bi-check-lg me-2"></i> Hoàn tất Đăng ký
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="text-center mt-4 pt-3 border-top">
+                        <span class="text-muted">Đã có tài khoản?</span>
+                        <a th:href="@{/login}" class="fw-bold text-decoration-none text-dark ms-1">
+                            Đăng nhập ngay <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>
