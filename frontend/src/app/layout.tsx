@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Quicksand, Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
+import { AppProvider } from "@/context/AppContext";
 
 const quicksand = Quicksand({
   subsets: ["latin", "vietnamese"],
@@ -34,11 +35,14 @@ export default function RootLayout({
   return (
     <html lang="vi" className="scroll-smooth">
       <head>
+        <meta name="referrer" content="no-referrer" />
         <link rel="icon" href="/assets/logo/logo_rutGon.png" type="image/png" />
         <link rel="apple-touch-icon" href="/assets/logo/logo_rutGon.png" />
       </head>
       <body className={`${beVietnamPro.variable} ${quicksand.variable} antialiased font-body bg-[#F9F9F5] text-[#2C3E2E]`}>
-        {children}
+        <AppProvider>
+          {children}
+        </AppProvider>
       </body>
     </html>
   );

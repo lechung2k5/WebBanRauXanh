@@ -36,6 +36,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           alt={product.name}
           className="w-full h-full object-cover group-hover:scale-106 transition-transform duration-500 ease-out"
           loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (!target.src.includes('unsplash')) {
+              target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+            }
+          }}
         />
 
         {/* Top Badges (RuleLayout B.4: Tag xanh lá "VietGAP"/"Organic" hoặc đỏ "-20%") */}

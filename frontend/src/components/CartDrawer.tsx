@@ -107,6 +107,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     src={item.product.imageUrl}
                     alt={item.product.name}
                     className="w-16 h-16 object-cover rounded-xl bg-[#F9F9F5] border border-[#EAECE8]"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.src.includes('unsplash')) {
+                        target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+                      }
+                    }}
                   />
                   <div className="flex-1 flex flex-col justify-between">
                     <div>

@@ -93,110 +93,31 @@ const FALLBACK_CATEGORIES: Category[] = [
   { id: 4, name: 'Rau Gia Vị & Thảo Mộc', slug: 'rau-gia-vi', description: 'Rau thơm, húng quế, ngò rí đậm vị Việt', imageUrl: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop&q=80', productCount: 1 },
 ];
 
-const FALLBACK_PRODUCTS: Product[] = [
-  {
-    id: 1,
-    name: 'Rau Xà Lách Mỡ Đà Lạt',
-    slug: 'rau-xa-lach-mo-da-lat',
-    description: 'Rau xà lách mỡ canh tác thủy canh chuẩn VietGAP, lá mềm ngọt giòn tan thích hợp làm salad tươi ngon.',
-    price: 25000,
-    originalPrice: 32000,
-    stockQuantity: 150,
-    unit: 'gói 500g',
-    imageUrl: 'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=600&auto=format&fit=crop&q=80',
-    origin: 'Đà Lạt Farm',
-    isOrganic: true,
-    isFeatured: true,
-    isActive: true,
-    categoryId: 1,
-    categoryName: 'Rau Ăn Lá',
-  },
-  {
-    id: 2,
-    name: 'Cải Bó Xôi Hữu Cơ (Spinach)',
-    slug: 'cai-bo-xoi-huu-co-spinach',
-    description: 'Cải bó xôi giàu sắt và vitamin, trồng hữu cơ không dùng phân bón hóa học hay thuốc trừ sâu.',
-    price: 35000,
-    originalPrice: 42000,
-    stockQuantity: 80,
-    unit: 'bó 400g',
-    imageUrl: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&auto=format&fit=crop&q=80',
-    origin: 'Mộc Châu Farm',
-    isOrganic: true,
-    isFeatured: true,
-    isActive: true,
-    categoryId: 1,
-    categoryName: 'Rau Ăn Lá',
-  },
-  {
-    id: 3,
-    name: 'Cà Chua Cherry Đỏ Đà Lạt',
-    slug: 'ca-chua-cherry-do-da-lat',
-    description: 'Cà chua bi ngọt thanh, mọng nước, nhiều vitamin C và chất chống oxy hóa tự nhiên.',
-    price: 45000,
-    originalPrice: 55000,
-    stockQuantity: 100,
-    unit: 'hộp 500g',
-    imageUrl: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600&auto=format&fit=crop&q=80',
-    origin: 'Đà Lạt',
-    isOrganic: true,
-    isFeatured: true,
-    isActive: true,
-    categoryId: 2,
-    categoryName: 'Củ & Quả Tươi',
-  },
-  {
-    id: 4,
-    name: 'Cà Rốt Hữu Cơ Tươi',
-    slug: 'ca-rot-huu-co-tuoi',
-    description: 'Cà rốt trồng tại Đà Lạt theo tiêu chuẩn Organic, màu sắc cam tươi tự nhiên, ngọt đậm vị.',
-    price: 28000,
-    originalPrice: 35000,
-    stockQuantity: 120,
-    unit: 'kg',
-    imageUrl: 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=600&auto=format&fit=crop&q=80',
-    origin: 'Đà Lạt',
-    isOrganic: true,
-    isFeatured: false,
-    isActive: true,
-    categoryId: 2,
-    categoryName: 'Củ & Quả Tươi',
-  },
-  {
-    id: 5,
-    name: 'Nấm Đùi Gà Tươi Thượng Hạng',
-    slug: 'nam-dui-ga-tuoi-thuong-hang',
-    description: 'Nấm đùi gà thân mập trắng muốt, vị giòn dai ngọt bùi, giàu dinh dưỡng và chất xơ.',
-    price: 48000,
-    originalPrice: 60000,
-    stockQuantity: 60,
-    unit: 'khay 300g',
-    imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80',
-    origin: 'Việt Nam',
-    isOrganic: true,
-    isFeatured: true,
-    isActive: true,
-    categoryId: 3,
-    categoryName: 'Nấm Tươi & Hữu Cơ',
-  },
-  {
-    id: 6,
-    name: 'Húng Quế & Ngò Rí Tươi Sạch',
-    slug: 'hung-que-ngo-ri-tuoi-sach',
-    description: 'Combo rau thơm húng quế và ngò thơm ngát, hái tươi trong ngày giữ trọn hương vị ẩm thực.',
-    price: 15000,
-    originalPrice: 18000,
-    stockQuantity: 200,
-    unit: 'combo 200g',
-    imageUrl: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop&q=80',
-    origin: 'Hà Nội',
-    isOrganic: true,
-    isFeatured: false,
-    isActive: true,
-    categoryId: 4,
-    categoryName: 'Rau Gia Vị & Thảo Mộc',
-  },
-];
+import bhxProductsRaw from '../../public/data/bhx_products.json';
+
+const FALLBACK_PRODUCTS: Product[] = (bhxProductsRaw as any[]).map((p, index) => ({
+  id: p.id || index + 1,
+  name: p.name,
+  slug: p.slug,
+  description: p.description,
+  price: Number(p.price) || 0,
+  originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
+  discountPercent: p.discountPercent ? Number(p.discountPercent) : undefined,
+  stockQuantity: p.stockQuantity || 100,
+  unit: p.unit || 'gói',
+  imageUrl: p.imageUrl,
+  origin: p.origin || 'Việt Nam',
+  brand: p.brand || 'Bách Hóa XANH',
+  category: p.category,
+  categorySlug: p.categorySlug,
+  isOrganic: p.isOrganic ?? true,
+  isFeatured: index < 8,
+  isActive: true,
+  rating: p.rating || 4.8,
+  reviewCount: p.reviewCount || 100,
+  categoryId: p.categorySlug === 'nam-tuoi' ? 3 : p.categorySlug === 'cu' ? 2 : 1,
+  categoryName: p.category || (p.categorySlug === 'nam-tuoi' ? 'Nấm Tươi' : p.categorySlug === 'cu' ? 'Củ & Quả' : 'Rau Sạch'),
+}));
 
 export const getCategories = async (): Promise<Category[]> => {
   try {
@@ -213,6 +134,7 @@ export const getProducts = async (
   params?: {
     keyword?: string;
     categoryId?: number;
+    categorySlug?: string;
     minPrice?: number;
     maxPrice?: number;
     isOrganic?: boolean;
@@ -220,10 +142,37 @@ export const getProducts = async (
     size?: number;
   }
 ): Promise<{ products: Product[]; totalElements: number; totalPages: number }> => {
+  // Normalize categoryId and categorySlug
+  let resolvedCategoryId = params?.categoryId;
+  let resolvedCategorySlug = params?.categorySlug;
+
+  if (!resolvedCategoryId && resolvedCategorySlug) {
+    if (resolvedCategorySlug === '1' || resolvedCategorySlug === 'rau-sach' || resolvedCategorySlug === 'rau-an-la') {
+      resolvedCategoryId = 1;
+      resolvedCategorySlug = 'rau-sach';
+    } else if (resolvedCategorySlug === '2' || resolvedCategorySlug === 'cu' || resolvedCategorySlug === 'cu-qua-tuoi') {
+      resolvedCategoryId = 2;
+      resolvedCategorySlug = 'cu';
+    } else if (resolvedCategorySlug === '3' || resolvedCategorySlug === 'nam-tuoi' || resolvedCategorySlug === 'nam-tuoi-huu-co') {
+      resolvedCategoryId = 3;
+      resolvedCategorySlug = 'nam-tuoi';
+    } else if (resolvedCategorySlug === '4' || resolvedCategorySlug === 'rau-gia-vi' || resolvedCategorySlug === 'combo') {
+      resolvedCategoryId = 4;
+      resolvedCategorySlug = 'rau-gia-vi';
+    } else if (!isNaN(Number(resolvedCategorySlug))) {
+      resolvedCategoryId = Number(resolvedCategorySlug);
+    }
+  } else if (resolvedCategoryId && !resolvedCategorySlug) {
+    if (resolvedCategoryId === 1) resolvedCategorySlug = 'rau-sach';
+    else if (resolvedCategoryId === 2) resolvedCategorySlug = 'cu';
+    else if (resolvedCategoryId === 3) resolvedCategorySlug = 'nam-tuoi';
+    else if (resolvedCategoryId === 4) resolvedCategorySlug = 'rau-gia-vi';
+  }
+
   try {
     const query = new URLSearchParams();
     if (params?.keyword) query.append('keyword', params.keyword);
-    if (params?.categoryId) query.append('categoryId', params.categoryId.toString());
+    if (resolvedCategoryId) query.append('categoryId', resolvedCategoryId.toString());
     if (params?.minPrice) query.append('minPrice', params.minPrice.toString());
     if (params?.maxPrice) query.append('maxPrice', params.maxPrice.toString());
     if (params?.isOrganic !== undefined) query.append('isOrganic', params.isOrganic.toString());
@@ -244,14 +193,37 @@ export const getProducts = async (
       const kw = params.keyword.toLowerCase();
       filtered = filtered.filter(p => p.name.toLowerCase().includes(kw) || p.description.toLowerCase().includes(kw));
     }
-    if (params?.categoryId) {
-      filtered = filtered.filter(p => p.categoryId === params.categoryId);
+    if (resolvedCategoryId) {
+      filtered = filtered.filter(p => p.categoryId === resolvedCategoryId);
+    } else if (resolvedCategorySlug) {
+      filtered = filtered.filter(p => p.categorySlug === resolvedCategorySlug);
     }
+    if (params?.minPrice !== undefined) {
+      filtered = filtered.filter(p => p.price >= params.minPrice!);
+    }
+    if (params?.maxPrice !== undefined) {
+      filtered = filtered.filter(p => p.price <= params.maxPrice!);
+    }
+    if (params?.isOrganic !== undefined) {
+      filtered = filtered.filter(p => p.isOrganic === params.isOrganic);
+    }
+
     return {
       products: filtered,
       totalElements: filtered.length,
-      totalPages: 1,
+      totalPages: Math.ceil(filtered.length / (params?.size || 12)),
     };
+  }
+};
+
+export const getProductBySlug = async (slug: string): Promise<Product | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/products/slug/${slug}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Network error');
+    const data: ApiResponse<Product> = await res.json();
+    return data.result;
+  } catch {
+    return FALLBACK_PRODUCTS.find(p => p.slug === slug) || null;
   }
 };
 

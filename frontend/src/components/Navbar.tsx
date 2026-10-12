@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
 import {
   ShoppingBag,
@@ -252,15 +253,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
                 </div>
               ) : (
-                /* Dành cho Khách (Guest): Nút "Đăng ký / Đăng nhập" viền mảnh, bo góc 8px */
-                <button
-                  type="button"
-                  onClick={onOpenAuth}
+                /* Dành cho Khách (Guest): Nút "Đăng ký / Đăng nhập" liên kết trực tiếp tới /dang-nhap */
+                <Link
+                  href="/dang-nhap"
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] border border-[#10542C]/40 hover:bg-[#10542C]/5 rounded-[8px] transition-colors cursor-pointer"
                 >
                   <UserIcon className="w-4 h-4 text-[#10542C]" />
                   <span className="hidden sm:inline">Đăng ký / Đăng nhập</span>
-                </button>
+                </Link>
               )}
             </div>
           </div>

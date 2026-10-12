@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Category, Product, CartItem, OrderResponse, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
@@ -386,6 +387,13 @@ export default function HomePage() {
                     src={flashSaleProduct.imageUrl}
                     alt={flashSaleProduct.name}
                     className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.src.includes('unsplash')) {
+                        target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+                      }
+                    }}
                   />
                   <span className="absolute top-1 left-1 bg-[#E53935] text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
                     -40%
@@ -873,15 +881,15 @@ export default function HomePage() {
           <span className="text-[10px] font-bold">Giỏ hàng</span>
         </button>
 
-        <button
-          onClick={() => setIsAuthOpen(true)}
+        <Link
+          href={currentUser ? "/admin" : "/dang-nhap"}
           className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <UserIcon className="w-5 h-5" />
           <span className="text-[10px] font-bold max-w-[60px] truncate">
             {currentUser ? (currentUser.fullName || currentUser.username) : 'Tài khoản'}
           </span>
-        </button>
+        </Link>
       </nav>
 
       {/* Modals & Drawers */}

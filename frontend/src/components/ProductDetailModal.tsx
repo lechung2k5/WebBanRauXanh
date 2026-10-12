@@ -76,6 +76,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 src={product.imageUrl}
                 alt={product.name}
                 className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('unsplash')) {
+                    target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+                  }
+                }}
               />
               {/* Badges */}
               <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start">
