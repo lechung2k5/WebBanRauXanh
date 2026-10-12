@@ -1,0 +1,22 @@
+# Backend build & cache
+backend/.gradle/
+backend/build/
+backend/target/
+.gradle/
+*.class
+
+# Frontend build & dependencies
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# IDE & Editor
+.idea/
+.vscode/
+*.iml
+*.log
+
+# Temp / OS
+.DS_Store
+Thumbs.db
+scratch/

@@ -22,6 +22,11 @@ public class ProductResponse {
     private String unit;
     private String imageUrl;
     private String origin;
+    private String brand;
+    private Integer discountPercent;
+    private String categorySlug;
+    private Double rating;
+    private Integer reviewCount;
     private Boolean isOrganic;
     private Boolean isFeatured;
     private Boolean isActive;

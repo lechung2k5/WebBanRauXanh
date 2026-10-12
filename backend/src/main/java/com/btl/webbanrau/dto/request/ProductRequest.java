@@ -31,6 +31,11 @@ public class ProductRequest {
     private String unit;
     private String imageUrl;
     private String origin;
+    private String brand;
+    private Integer discountPercent;
+    private String categorySlug;
+    private Double rating;
+    private Integer reviewCount;
 
     @Builder.Default
     private Boolean isOrganic = true;
@@ -41,6 +46,5 @@ public class ProductRequest {
     @Builder.Default
     private Boolean isActive = true;
 
-    @NotNull(message = "Danh mục không được để trống")
     private Long categoryId;
 }

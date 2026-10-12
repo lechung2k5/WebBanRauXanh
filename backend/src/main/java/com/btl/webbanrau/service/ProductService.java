@@ -75,8 +75,11 @@ public class ProductService {
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public ProductResponse createProduct(ProductRequest request) {
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy danh mục!"));
+        Category category = null;
+        if (request.getCategoryId() != null) {
+            category = categoryRepository.findById(request.getCategoryId())
+                    .orElse(null);
+        }
 
         String baseSlug = SlugUtil.toSlug(request.getName());
         String slug = baseSlug;
@@ -85,16 +88,30 @@ public class ProductService {
             slug = baseSlug + "-" + count++;
         }
 
+        Integer discount = request.getDiscountPercent();
+        if (discount == null && request.getOriginalPrice() != null && request.getPrice() != null
+                && request.getOriginalPrice().compareTo(request.getPrice()) > 0) {
+            BigDecimal diff = request.getOriginalPrice().subtract(request.getPrice());
+            discount = diff.multiply(BigDecimal.valueOf(100))
+                    .divide(request.getOriginalPrice(), 0, java.math.RoundingMode.HALF_UP)
+                    .intValue();
+        }
+
         Product product = Product.builder()
                 .name(request.getName().trim())
                 .slug(slug)
                 .description(request.getDescription())
                 .price(request.getPrice())
                 .originalPrice(request.getOriginalPrice())
+                .discountPercent(discount)
                 .stockQuantity(request.getStockQuantity())
                 .unit(request.getUnit() != null ? request.getUnit() : "kg")
                 .imageUrl(request.getImageUrl())
                 .origin(request.getOrigin())
+                .brand(request.getBrand())
+                .categorySlug(request.getCategorySlug())
+                .rating(request.getRating() != null ? request.getRating() : 5.0)
+                .reviewCount(request.getReviewCount() != null ? request.getReviewCount() : 0)
                 .isOrganic(request.getIsOrganic() != null ? request.getIsOrganic() : true)
                 .isFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false)
                 .isActive(request.getIsActive() != null ? request.getIsActive() : true)
@@ -110,21 +127,28 @@ public class ProductService {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm!"));
 
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy danh mục!"));
+        if (request.getCategoryId() != null) {
+            Category category = categoryRepository.findById(request.getCategoryId())
+                    .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy danh mục!"));
+            product.setCategory(category);
+        }
 
         product.setName(request.getName().trim());
         product.setDescription(request.getDescription());
         product.setPrice(request.getPrice());
         product.setOriginalPrice(request.getOriginalPrice());
+        product.setDiscountPercent(request.getDiscountPercent());
         product.setStockQuantity(request.getStockQuantity());
         product.setUnit(request.getUnit());
         product.setImageUrl(request.getImageUrl());
         product.setOrigin(request.getOrigin());
+        if (request.getBrand() != null) product.setBrand(request.getBrand());
+        if (request.getCategorySlug() != null) product.setCategorySlug(request.getCategorySlug());
+        if (request.getRating() != null) product.setRating(request.getRating());
+        if (request.getReviewCount() != null) product.setReviewCount(request.getReviewCount());
         if (request.getIsOrganic() != null) product.setIsOrganic(request.getIsOrganic());
         if (request.getIsFeatured() != null) product.setIsFeatured(request.getIsFeatured());
         if (request.getIsActive() != null) product.setIsActive(request.getIsActive());
-        product.setCategory(category);
 
         return mapToResponse(productRepository.save(product));
     }
@@ -143,10 +167,15 @@ public class ProductService {
                 .description(p.getDescription())
                 .price(p.getPrice())
                 .originalPrice(p.getOriginalPrice())
+                .discountPercent(p.getDiscountPercent())
                 .stockQuantity(p.getStockQuantity())
                 .unit(p.getUnit())
                 .imageUrl(p.getImageUrl())
                 .origin(p.getOrigin())
+                .brand(p.getBrand())
+                .categorySlug(p.getCategorySlug())
+                .rating(p.getRating())
+                .reviewCount(p.getReviewCount())
                 .isOrganic(p.getIsOrganic())
                 .isFeatured(p.getIsFeatured())
                 .isActive(p.getIsActive())
