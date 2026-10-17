@@ -20,6 +20,8 @@ import {
   Leaf,
 } from 'lucide-react';
 
+import { resolveProductImageUrl } from '@/services/imageService';
+
 interface Recipe {
   id: string;
   name: string;
@@ -56,8 +58,8 @@ const RECIPES: Recipe[] = [
       'Nêm nếm gia vị vừa ăn, trút thịt cua lại vào nồi rồi tắt bếp thưởng thức.'
     ],
     ingredients: [
-      { name: 'Rau mồng tơi', amount: '1 gói 400g', price: 8000, productId: 'Rau-3', imageUrl: 'https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Mướp hương', amount: '1 trái 400g', price: 13000, productId: 'Cu-9', imageUrl: 'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Rau mồng tơi', amount: '1 gói 400g', price: 8000, productId: 'Rau-3', imageUrl: resolveProductImageUrl('Rau mồng tơi') },
+      { name: 'Mướp hương', amount: '1 trái 400g', price: 13000, productId: 'Cu-9', imageUrl: resolveProductImageUrl('Mướp hương') },
     ],
   },
   {
@@ -67,7 +69,7 @@ const RECIPES: Recipe[] = [
     time: '20 phút',
     servings: '4 người',
     difficulty: 'Dễ',
-    image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80',
+    image: 'https://images.unsplash.com/photo-1504545102780-26774c1bb073?w=600&auto=format&fit=crop&q=80',
     description: 'Thanh lọc cơ thể với canh nấm đông cô tươi kết hợp nấm kim châm ngọt giòn tự nhiên.',
     steps: [
       'Nấm kim châm cắt gốc, rửa sạch để ráo. Nấm đông cô thái lát vừa ăn.',
@@ -76,9 +78,9 @@ const RECIPES: Recipe[] = [
       'Thả nấm kim châm vào nấu thêm 2 phút, rắc ngò rí và tiêu xay thơm nức.'
     ],
     ingredients: [
-      { name: 'Nấm kim châm', amount: '1 gói 150g', price: 12000, productId: 'Nam-1', imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Nấm hương tươi', amount: '1 gói 150g', price: 22000, productId: 'Nam-5', imageUrl: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Cà rốt Đà Lạt', amount: '1 củ', price: 14000, productId: 'Cu-8', imageUrl: 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Nấm kim châm', amount: '1 gói 150g', price: 12000, productId: 'Nam-1', imageUrl: resolveProductImageUrl('Nấm kim châm') },
+      { name: 'Nấm hương tươi', amount: '1 gói 150g', price: 22000, productId: 'Nam-5', imageUrl: resolveProductImageUrl('Nấm hương tươi') },
+      { name: 'Cà rốt Đà Lạt', amount: '1 củ', price: 14000, productId: 'Cu-8', imageUrl: resolveProductImageUrl('Cà rốt') },
     ],
   },
   {
@@ -88,7 +90,7 @@ const RECIPES: Recipe[] = [
     time: '12 phút',
     servings: '2-3 người',
     difficulty: 'Rất dễ',
-    image: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&auto=format&fit=crop&q=80',
+    image: 'https://images.unsplash.com/photo-1708798534031-3711ec8cc16e?w=600&auto=format&fit=crop&q=80',
     description: 'Cọng cải thìa xanh mướt, cắn giòn sần sật quyện nước sốt dầu hào bóng bẩy thơm nức tỏi phi.',
     steps: [
       'Cải thìa chẻ đôi, chần sơ qua nước sôi có pha chút muối và dầu ăn rồi vớt ngâm nước đá.',
@@ -97,8 +99,8 @@ const RECIPES: Recipe[] = [
       'Đảo nhanh cải thìa trên lửa lớn với nước sốt trong 1 phút, trút ra đĩa rắc tỏi phi.'
     ],
     ingredients: [
-      { name: 'Cải thìa VietGAP', amount: '1 gói 300g', price: 9500, productId: 'Rau-8', imageUrl: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Tỏi tím', amount: '1 túi 200g', price: 18000, productId: 'Cu-19', imageUrl: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Cải thìa VietGAP', amount: '1 gói 300g', price: 9500, productId: 'Rau-8', imageUrl: resolveProductImageUrl('Cải thìa') },
+      { name: 'Tỏi tím', amount: '1 túi 200g', price: 18000, productId: 'Cu-19', imageUrl: resolveProductImageUrl('Tỏi tím') },
     ],
   },
   {
@@ -108,7 +110,7 @@ const RECIPES: Recipe[] = [
     time: '15 phút',
     servings: '3-4 người',
     difficulty: 'Dễ',
-    image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=600&auto=format&fit=crop&q=80',
+    image: 'https://images.unsplash.com/photo-1573732064472-ea7fd2382d22?w=600&auto=format&fit=crop&q=80',
     description: 'Nấm đùi gà baby dai ngọt như thịt gà, vị cay nồng tiêu đen đậm đà đưa cơm.',
     steps: [
       'Nấm đùi gà baby rửa sạch, khía vảy rồng nhẹ trên thân nấm.',
@@ -117,8 +119,8 @@ const RECIPES: Recipe[] = [
       'Thêm hành lá và ớt chuông thái sợi đảo đều rồi tắt bếp.'
     ],
     ingredients: [
-      { name: 'Nấm đùi gà baby', amount: '1 gói 200g', price: 19000, productId: 'Nam-4', imageUrl: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Ớt chuông 3 màu', amount: '1 gói 300g', price: 25000, productId: 'Cu-15', imageUrl: 'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Nấm đùi gà baby', amount: '1 gói 200g', price: 19000, productId: 'Nam-4', imageUrl: resolveProductImageUrl('Nấm đùi gà baby') },
+      { name: 'Ớt chuông 3 màu', amount: '1 gói 300g', price: 25000, productId: 'Cu-15', imageUrl: resolveProductImageUrl('Ớt chuông') },
     ],
   },
   {
@@ -128,7 +130,7 @@ const RECIPES: Recipe[] = [
     time: '10 phút',
     servings: '2 người',
     difficulty: 'Rất dễ',
-    image: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+    image: 'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=600&auto=format&fit=crop&q=80',
     description: 'Món khai vị giòn tan thanh mát, dồi dào chất chống oxy hóa và vitamin tươi trẻ.',
     steps: [
       'Xà lách rửa sạch, xé miếng vừa ăn, để ráo nước.',
@@ -137,9 +139,9 @@ const RECIPES: Recipe[] = [
       'Trộn đều các loại rau củ với nước sốt ngay trước khi ăn để giữ trọn độ giòn.'
     ],
     ingredients: [
-      { name: 'Xà lách thủy tinh', amount: '1 cây 200g', price: 18000, productId: 'Rau-21', imageUrl: 'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Cà chua beef', amount: '1 túi 500g', price: 32000, productId: 'Cu-7', imageUrl: 'https://images.unsplash.com/photo-1582284540020-8acbe03f4924?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Dưa leo', amount: '1 túi 1kg', price: 15000, productId: 'Cu-10', imageUrl: 'https://images.unsplash.com/photo-1604977042946-1eecc30f269e?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Xà lách thủy tinh', amount: '1 cây 200g', price: 18000, productId: 'Rau-21', imageUrl: resolveProductImageUrl('Xà lách thủy tinh') },
+      { name: 'Cà chua beef', amount: '1 túi 500g', price: 32000, productId: 'Cu-7', imageUrl: resolveProductImageUrl('Cà chua beef') },
+      { name: 'Dưa leo', amount: '1 túi 1kg', price: 15000, productId: 'Cu-10', imageUrl: resolveProductImageUrl('Dưa leo') },
     ],
   },
   {
@@ -158,9 +160,9 @@ const RECIPES: Recipe[] = [
       'Nấu nước mắm, đường, tôm khô ngâm mềm liu riu đến khi sánh kẹo, thả ớt hiểm và tiêu xanh.'
     ],
     ingredients: [
-      { name: 'Đậu cove Đà Lạt', amount: '1 gói 300g', price: 16000, productId: 'Cu-14', imageUrl: 'https://images.unsplash.com/photo-1591857177580-dc82b9ac4e1e?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Bắp cải trái tim', amount: '1 trái 600g', price: 20000, productId: 'Cu-11', imageUrl: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=400&auto=format&fit=crop&q=80' },
-      { name: 'Khổ qua', amount: '1 túi 500g', price: 17000, productId: 'Cu-12', imageUrl: 'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce?w=400&auto=format&fit=crop&q=80' },
+      { name: 'Đậu cove Đà Lạt', amount: '1 gói 300g', price: 16000, productId: 'Cu-14', imageUrl: resolveProductImageUrl('Đậu cove') },
+      { name: 'Bắp cải trái tim', amount: '1 trái 600g', price: 20000, productId: 'Cu-11', imageUrl: resolveProductImageUrl('Bắp cải') },
+      { name: 'Khổ qua', amount: '1 túi 500g', price: 17000, productId: 'Cu-12', imageUrl: resolveProductImageUrl('Khổ qua') },
     ],
   },
 ];
@@ -357,8 +359,9 @@ export default function RecipesPage() {
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         const target = e.currentTarget;
-                        if (!target.src.includes('unsplash')) {
-                          target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&auto=format&fit=crop&q=80';
+                        const fallbackApi = `/api/product-image?name=${encodeURIComponent(ing.name)}`;
+                        if (!target.src.includes('/api/product-image')) {
+                          target.src = fallbackApi;
                         }
                       }}
                     />

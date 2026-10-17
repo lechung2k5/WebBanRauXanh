@@ -71,9 +71,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <ShoppingBag className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="font-heading text-lg font-bold text-[#10542C]">Giỏ hàng nông sản</h2>
+                <h2 className="font-heading text-lg font-bold text-[#10542C]">Lô hàng đặt cọc</h2>
                 <span className="text-xs text-[#6B7280]">
-                  {cartItems.reduce((acc, i) => acc + i.quantity, 0)} phần rau củ tươi sạch
+                  {cartItems.length} lô nông sản chuẩn bị ký quỹ
                 </span>
               </div>
             </div>
@@ -92,9 +92,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <div className="w-20 h-20 rounded-full bg-[#10542C]/10 flex items-center justify-center text-[#10542C] mb-4">
                   <ShoppingBag className="w-10 h-10 opacity-70" />
                 </div>
-                <h3 className="font-heading text-base font-bold text-[#2C3E2E]">Giỏ hàng đang trống</h3>
+                <h3 className="font-heading text-base font-bold text-[#2C3E2E]">Chưa chọn lô hàng nào</h3>
                 <p className="text-xs mt-1.5 text-[#6B7280] max-w-xs leading-relaxed">
-                  Hãy bổ sung các loại rau củ hữu cơ tươi non từ HoNa Fresh vào bữa cơm hôm nay nhé!
+                  Hãy khám phá các lô nông sản đang thu hoạch rộ từ các Hợp tác xã để đàm phán và đặt cọc bao tiêu!
                 </p>
               </div>
             ) : (
@@ -110,8 +110,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       const target = e.currentTarget;
-                      if (!target.src.includes('unsplash')) {
-                        target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+                      const fallbackApi = `/api/product-image?name=${encodeURIComponent(item.product.name)}`;
+                      if (!target.src.includes('/api/product-image')) {
+                        target.src = fallbackApi;
                       }
                     }}
                   />
@@ -124,35 +125,36 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           onClick={() => onRemoveItem(item.product.id)}
                           className="text-[#6B7280] hover:text-[#E53935] p-1 transition-colors"
-                          title="Xóa món"
+                          title="Hủy lô"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                       <div className="text-[11px] text-[#6B7280] mt-0.5">
-                        {formatVND(item.product.price)} / {item.product.unit || '500g'}
+                        Giá sỉ: {formatVND(item.product.price)} / kg • MOQ: {item.product.moq || 500}kg
                       </div>
+                      {item.product.farmName && (
+                        <div className="text-[10px] text-[#10542C] font-semibold">
+                          HTX: {item.product.farmName}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center border border-[#EAECE8] bg-[#F9F9F5] rounded-lg px-2 py-0.5 gap-2">
                         <button
-                          onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
+                          onClick={() => onUpdateQuantity(item.product.id, Math.max((item.product.moq || 1), item.quantity - 100))}
                           className="p-0.5 text-[#6B7280] hover:text-[#10542C] disabled:opacity-30 cursor-pointer"
-                          disabled={item.quantity <= 1}
+                          disabled={item.quantity <= (item.product.moq || 1)}
                         >
                           <Minus className="w-3.5 h-3.5" />
                         </button>
-                        <span className="text-xs font-bold text-[#2C3E2E] w-4 text-center">
-                          {item.quantity}
+                        <span className="text-xs font-bold text-[#2C3E2E] min-w-10 text-center">
+                          {item.quantity} kg
                         </span>
                         <button
                           onClick={() => {
-                            if (item.product.stockQuantity && item.quantity >= item.product.stockQuantity) {
-                              alert(`Chỉ còn ${item.product.stockQuantity} sản phẩm trong kho!`);
-                              return;
-                            }
-                            onUpdateQuantity(item.product.id, item.quantity + 1);
+                            onUpdateQuantity(item.product.id, item.quantity + 100);
                           }}
                           className="p-0.5 text-[#6B7280] hover:text-[#10542C] cursor-pointer"
                         >
@@ -169,7 +171,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             )}
           </div>
 
-          {/* Khung Tóm Tắt & Voucher (RuleLayout D.1) */}
+          {/* Khung Tóm Tắt & Voucher (B2B Checkout) */}
           {cartItems.length > 0 && (
             <div className="p-5 border-t border-[#EAECE8] bg-white space-y-3">
               {/* Ô nhập Voucher */}
@@ -178,7 +180,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div className="relative flex-1">
                     <input
                       type="text"
-                      placeholder="Nhập mã voucher (VD: HONAFRESH10)..."
+                      placeholder="Mã chiết khấu HTX..."
                       value={voucherCode}
                       onChange={(e) => setVoucherCode(e.target.value)}
                       className="w-full pl-8 pr-3 py-2 bg-[#F9F9F5] border border-[#EAECE8] rounded-xl text-xs text-[#2C3E2E] uppercase focus:outline-none focus:border-[#10542C]"
@@ -197,44 +199,47 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 )}
                 {appliedDiscount > 0 && (
                   <span className="text-[10px] text-[#4CAF50] font-bold flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Đã áp dụng giảm {formatVND(appliedDiscount)}!
+                    <Check className="w-3 h-3" /> Đã áp dụng chiết khấu {formatVND(appliedDiscount)}!
                   </span>
                 )}
               </form>
 
-              {/* Tạm tính & Phí ship */}
+              {/* Tạm tính & Tiền Cọc 30% */}
               <div className="space-y-1 pt-1 text-xs text-[#6B7280]">
                 <div className="flex justify-between items-center">
-                  <span>Tạm tính</span>
+                  <span>Tổng giá trị hợp đồng lô:</span>
                   <span className="font-bold text-[#2C3E2E]">{formatVND(rawAmount)}</span>
                 </div>
                 {appliedDiscount > 0 && (
                   <div className="flex justify-between items-center text-[#E53935] font-semibold">
-                    <span>Voucher giảm giá</span>
+                    <span>Chiết khấu số lượng:</span>
                     <span>-{formatVND(appliedDiscount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center">
-                  <span>Phí vận chuyển 2h</span>
+                  <span>Điều kiện vận chuyển:</span>
                   <span className="text-[11px] text-[#10542C] font-bold bg-[#8BC34A]/20 px-2 py-0.5 rounded-full">
-                    Miễn phí
+                    FOB Tại Vườn / Giao Chợ Đầu Mối
                   </span>
                 </div>
-                {/* Tổng thanh toán cỡ chữ to, màu #E53935 theo RuleLayout D.1 */}
+                {/* Tiền cọc bảo chứng 30% */}
                 <div className="border-t border-[#EAECE8] pt-2 flex justify-between items-center">
-                  <span className="font-heading text-sm font-bold text-[#2C3E2E]">Tổng thanh toán:</span>
+                  <div>
+                    <span className="font-heading text-sm font-bold text-[#2C3E2E] block">Ký quỹ đặt cọc (30%):</span>
+                    <span className="text-[10px] text-[#6B7280]">70% thanh toán khi giao nhận</span>
+                  </div>
                   <span className="font-heading text-xl font-black text-[#E53935]">
-                    {formatVND(totalAmount)}
+                    {formatVND(Math.round(totalAmount * 0.3))}
                   </span>
                 </div>
               </div>
 
-              {/* Nút chính "Tiến hành đặt hàng" (Nền #10542C, toàn bộ chiều rộng) */}
+              {/* Nút chính "Tiến hành Ký Quỹ & Đặt Cọc Lô" */}
               <button
                 onClick={() => onOpenCheckout(appliedDiscount)}
                 className="btn-primary w-full py-3.5 flex items-center justify-center gap-2 cursor-pointer text-xs font-bold"
               >
-                <span>Tiến hành Đặt Hàng</span>
+                <span>Tiến hành Ký Quỹ & Đặt Cọc Lô (30%)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>

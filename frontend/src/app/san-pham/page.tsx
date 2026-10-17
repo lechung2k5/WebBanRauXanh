@@ -7,8 +7,11 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import { ProductDetailModal } from '@/components/ProductDetailModal';
+import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import { getProducts } from '@/services/api';
+import { trackProductView, trackAddToCart } from '@/services/recommendationService';
 import { useApp } from '@/context/AppContext';
 import {
   Filter,
@@ -19,6 +22,8 @@ import {
   RotateCcw,
   Search,
   ArrowUpDown,
+  Building2,
+  Calendar,
 } from 'lucide-react';
 
 const normalizeCategory = (cat: string | null): string | null => {
@@ -44,12 +49,14 @@ function ProductListContent() {
   const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(initialCategory);
   const [priceRange, setPriceRange] = useState<number>(100000);
   const [selectedCert, setSelectedCert] = useState<string | null>(null);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc' | 'discount'>('default');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 12;
+  const pageSize = 16;
 
   useEffect(() => {
     setSelectedCategorySlug(normalizeCategory(searchParams.get('category')));
@@ -123,7 +130,7 @@ function ProductListContent() {
         <div className="flex items-center gap-2 text-xs text-[#6B7280] mb-6">
           <Link href="/" className="hover:text-[#10542C]">Trang chủ</Link>
           <ChevronRight className="w-3 h-3" />
-          <span className="text-[#10542C] font-bold">Danh sách nông sản sạch</span>
+          <span className="text-[#10542C] font-bold">Sàn lô nông sản xuất vườn (B2B)</span>
         </div>
 
         {/* Header Title & Sắp Xếp */}
@@ -131,10 +138,10 @@ function ProductListContent() {
           <div>
             <h1 className="font-heading text-2xl font-black text-[#10542C] flex items-center gap-2.5">
               <Leaf className="w-6 h-6 text-[#8BC34A]" />
-              Nông Sản Sạch & Tươi Mới HoNa Fresh
+              Sàn Giao Dịch Lô Nông Sản Số Lượng Lớn
             </h1>
             <p className="text-xs text-[#6B7280] mt-1">
-              Tìm thấy <strong className="text-[#10542C]">{products.length}</strong> sản phẩm hữu cơ & chuẩn VietGAP thu hoạch trong ngày
+              Tìm thấy <strong className="text-[#10542C]">{products.length}</strong> lô nông sản tận vườn từ các Hợp tác xã đạt chuẩn VietGAP & GlobalGAP
             </p>
           </div>
 
@@ -147,10 +154,10 @@ function ProductListContent() {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs font-bold text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
             >
-              <option value="default">Phổ biến nhất</option>
-              <option value="price-asc">Giá: Thấp đến Cao</option>
-              <option value="price-desc">Giá: Cao đến Thấp</option>
-              <option value="discount">Khuyến mãi tốt nhất</option>
+              <option value="default">Mới nhất theo vụ mùa</option>
+              <option value="price-asc">Giá sỉ: Thấp đến Cao</option>
+              <option value="price-desc">Giá sỉ: Cao đến Thấp</option>
+              <option value="discount">Chiết khấu lô cao nhất</option>
             </select>
           </div>
         </div>
@@ -161,7 +168,7 @@ function ProductListContent() {
           <aside className="bg-white rounded-2xl p-5 border border-[#EAECE8] shadow-xs space-y-6 lg:sticky lg:top-24">
             <div className="flex items-center justify-between border-b border-[#F0F2ED] pb-3">
               <span className="font-heading font-bold text-sm text-[#10542C] flex items-center gap-1.5">
-                <SlidersHorizontal className="w-4 h-4 text-[#8BC34A]" /> Bộ Lọc Nông Sản
+                <SlidersHorizontal className="w-4 h-4 text-[#8BC34A]" /> Bộ Lọc Thu Mua B2B
               </span>
               <button
                 type="button"
@@ -174,11 +181,11 @@ function ProductListContent() {
 
             {/* Tìm kiếm nhanh */}
             <div>
-              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tìm kiếm từ khóa</label>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tìm kiếm lô hàng / Vùng trồng</label>
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Ví dụ: nấm kim châm, cải thìa..."
+                  placeholder="Ví dụ: bắp cải Đà Lạt, HTX Mộc Châu..."
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
@@ -192,13 +199,13 @@ function ProductListContent() {
 
             {/* Danh Mục */}
             <div>
-              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Nhóm sản phẩm</label>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Ngành hàng nông sản</label>
               <div className="space-y-1.5">
                 {[
-                  { name: 'Tất cả nông sản', slug: null },
-                  { name: 'Rau ăn lá sạch', slug: 'rau-sach' },
-                  { name: 'Củ quả tươi ngon', slug: 'cu' },
-                  { name: 'Nấm tươi các loại', slug: 'nam-tuoi' },
+                  { name: 'Tất cả lô hàng xuất vườn', slug: null },
+                  { name: 'Rau ăn lá số lượng lớn', slug: 'rau-sach' },
+                  { name: 'Củ quả vụ mùa thu hái', slug: 'cu' },
+                  { name: 'Nấm & Dược liệu tươi', slug: 'nam-tuoi' },
                 ].map((cat) => (
                   <button
                     key={cat.name}
@@ -216,10 +223,36 @@ function ProductListContent() {
               </div>
             </div>
 
-            {/* Khoảng giá */}
+            {/* Tiến độ vụ mùa */}
+            <div>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tiến độ thu hái</label>
+              <div className="space-y-1 text-xs">
+                {[
+                  { label: 'Tất cả vụ mùa', val: null },
+                  { label: 'Đang thu hoạch rộ', val: 'Đang thu hoạch' },
+                  { label: 'Sắp thu hoạch (Đặt trước)', val: 'Sắp thu hoạch' },
+                  { label: 'Chào bán trước vụ', val: 'Chào bán trước vụ' },
+                ].map((st) => (
+                  <label key={st.label} className="flex items-center gap-2 cursor-pointer py-0.5">
+                    <input
+                      type="radio"
+                      name="stageFilter"
+                      checked={selectedStage === st.val}
+                      onChange={() => setSelectedStage(st.val)}
+                      className="accent-[#10542C]"
+                    />
+                    <span className={selectedStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
+                      {st.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Khoảng giá sỉ */}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-xs font-bold text-[#2C3E2E]">Mức giá tối đa</label>
+                <label className="text-xs font-bold text-[#2C3E2E]">Giá sỉ tối đa (đ/kg)</label>
                 <span className="text-xs font-black text-[#10542C]">{formatVND(priceRange)}</span>
               </div>
               <input
@@ -235,18 +268,18 @@ function ProductListContent() {
                 className="w-full h-1.5 bg-[#E5E7EB] rounded-lg appearance-none cursor-pointer accent-[#10542C]"
               />
               <div className="flex justify-between text-[10px] text-[#6B7280] mt-1 font-semibold">
-                <span>5.000đ</span>
-                <span>100.000đ+</span>
+                <span>5.000đ/kg</span>
+                <span>100.000đ+/kg</span>
               </div>
             </div>
 
             {/* Chứng nhận */}
             <div>
-              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tiêu chuẩn canh tác</label>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tiêu chuẩn kiểm định</label>
               <div className="flex flex-col gap-2">
                 {[
-                  { label: 'Hữu cơ (Organic)', val: 'organic' },
-                  { label: 'Chuẩn VietGAP', val: 'vietgap' },
+                  { label: 'Hữu cơ (Organic / PGS)', val: 'organic' },
+                  { label: 'Chuẩn VietGAP / GlobalGAP', val: 'vietgap' },
                 ].map((cert) => (
                   <label
                     key={cert.val}
@@ -269,18 +302,27 @@ function ProductListContent() {
             </div>
           </aside>
 
-          {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột) */}
+          {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột): 1 hàng 1 card trải rộng chiều ngang */}
           <div className="lg:col-span-3 space-y-6">
             {loading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-4">
                 {[...Array(6)].map((_, i) => (
-                  <div key={i} className="bg-white rounded-2xl h-72 animate-pulse border border-[#EAECE8]" />
+                  <div key={i} className="bg-white rounded-2xl p-4 border border-[#EAECE8] flex flex-col md:flex-row gap-4 animate-pulse">
+                    <div className="w-full md:w-64 h-48 bg-gray-100 rounded-xl shrink-0" />
+                    <div className="flex-1 space-y-3 py-2">
+                      <div className="h-4 bg-gray-100 rounded w-1/3" />
+                      <div className="h-6 bg-gray-100 rounded w-2/3" />
+                      <div className="h-4 bg-gray-100 rounded w-1/2" />
+                      <div className="h-3 bg-gray-100 rounded w-full" />
+                    </div>
+                    <div className="w-full md:w-60 bg-gray-50 rounded-xl p-3 space-y-3 shrink-0" />
+                  </div>
                 ))}
               </div>
             ) : paginatedProducts.length === 0 ? (
               <div className="bg-white rounded-2xl p-12 text-center border border-[#EAECE8]">
                 <Leaf className="w-12 h-12 text-[#6B7280]/40 mx-auto mb-3" />
-                <h3 className="font-heading font-bold text-base text-[#2C3E2E]">Không tìm thấy sản phẩm phù hợp</h3>
+                <h3 className="font-heading font-bold text-base text-[#2C3E2E]">Không tìm thấy lô hàng phù hợp</h3>
                 <p className="text-xs text-[#6B7280] mt-1">Hãy thử xóa bớt bộ lọc hoặc tìm với từ khóa khác</p>
                 <button
                   type="button"
@@ -292,55 +334,35 @@ function ProductListContent() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-4">
+                {/* Layout 1 hàng 1 lô nông sản - card chiều ngang to ra */}
+                <div id="product-list-container" className="flex flex-col gap-4">
                   {paginatedProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={product}
                       onAddToCart={(p) => {
-                        addToCart(p, 1);
+                        trackAddToCart(p);
+                        addToCart(p, p.moq || 1);
                         setIsCartOpen(true);
                       }}
-                      onViewDetail={(p) => setSelectedProduct(p)}
+                      onViewDetail={(p) => {
+                        trackProductView(p);
+                        setSelectedProduct(p);
+                      }}
+                      onNegotiate={(p) => setNegotiatingProduct(p)}
                     />
                   ))}
                 </div>
 
-                {/* Phân trang */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 pt-6">
-                    <button
-                      type="button"
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-3 py-1.5 rounded-lg border border-[#EAECE8] bg-white text-xs font-bold text-[#2C3E2E] disabled:opacity-30 cursor-pointer hover:bg-[#F9F9F5]"
-                    >
-                      Trước
-                    </button>
-                    {[...Array(totalPages)].map((_, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setCurrentPage(idx + 1)}
-                        className={`w-8 h-8 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                          currentPage === idx + 1
-                            ? 'bg-[#10542C] text-white shadow-2xs'
-                            : 'bg-white border border-[#EAECE8] text-[#2C3E2E] hover:bg-[#F9F9F5]'
-                        }`}
-                      >
-                        {idx + 1}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-3 py-1.5 rounded-lg border border-[#EAECE8] bg-white text-xs font-bold text-[#2C3E2E] disabled:opacity-30 cursor-pointer hover:bg-[#F9F9F5]"
-                    >
-                      Sau
-                    </button>
-                  </div>
-                )}
+                {/* Phân trang thông minh */}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={sortedProducts.length}
+                  pageSize={pageSize}
+                  onPageChange={(page) => setCurrentPage(page)}
+                  scrollTargetId="product-list-container"
+                />
               </>
             )}
           </div>
@@ -360,6 +382,13 @@ function ProductListContent() {
           addToCart(p, qty);
           window.location.href = '/thanh-toan';
         }}
+      />
+
+      {/* B2B RFQ Negotiation Modal */}
+      <B2BNegotiationModal
+        product={negotiatingProduct}
+        isOpen={!!negotiatingProduct}
+        onClose={() => setNegotiatingProduct(null)}
       />
 
       <Footer />

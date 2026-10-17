@@ -6,6 +6,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { Product, User } from '@/types';
 import { getProducts, getUsersApi, toggleUserStatusApi, createProductApi, deleteProductApi } from '@/services/api';
+import { resolveProductImageUrl } from '@/services/imageService';
 import { useApp } from '@/context/AppContext';
 import {
   LayoutDashboard,
@@ -169,7 +170,7 @@ export default function AdminPage() {
               <Package className="w-4 h-4 text-[#10542C]" />
             </div>
             <p className="font-heading font-black text-2xl text-[#10542C]">{products.length}</p>
-            <span className="text-[10px] text-[#4CAF50] font-bold mt-1 block">58 sản phẩm từ Bách Hóa XANH</span>
+            <span className="text-[10px] text-[#4CAF50] font-bold mt-1 block">Kho nông sản tươi sạch HoNa Fresh</span>
           </div>
 
           <div className="bg-white rounded-2xl p-5 border border-[#EAECE8] shadow-xs">
@@ -269,8 +270,9 @@ export default function AdminPage() {
                           referrerPolicy="no-referrer"
                           onError={(e) => {
                             const target = e.currentTarget;
-                            if (!target.src.includes('unsplash')) {
-                              target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&auto=format&fit=crop&q=80';
+                            const fallbackApi = `/api/product-image?name=${encodeURIComponent(p.name)}`;
+                            if (!target.src.includes('/api/product-image')) {
+                              target.src = fallbackApi;
                             }
                           }}
                         />
@@ -397,7 +399,14 @@ export default function AdminPage() {
                   required
                   placeholder="Ví dụ: Nấm hương tươi Đà Lạt"
                   value={newProduct.name}
-                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setNewProduct((prev) => ({
+                      ...prev,
+                      name,
+                      imageUrl: resolveProductImageUrl(name, prev.categorySlug),
+                    }));
+                  }}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 />
               </div>
@@ -459,13 +468,44 @@ export default function AdminPage() {
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Link hình ảnh</label>
-                <input
-                  type="text"
-                  value={newProduct.imageUrl}
-                  onChange={(e) => setNewProduct({ ...newProduct, imageUrl: e.target.value })}
-                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
-                />
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block font-bold">Link hình ảnh (Tự động cập nhật theo tên)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newProduct.name) {
+                        setNewProduct((prev) => ({
+                          ...prev,
+                          imageUrl: resolveProductImageUrl(prev.name, prev.categorySlug),
+                        }));
+                      }
+                    }}
+                    className="text-[10px] text-[#10542C] font-bold hover:underline cursor-pointer"
+                  >
+                    Lấy ảnh chuẩn theo tên
+                  </button>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={newProduct.imageUrl}
+                    onChange={(e) => setNewProduct({ ...newProduct, imageUrl: e.target.value })}
+                    className="flex-1 bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+                  />
+                  {newProduct.imageUrl && (
+                    <div className="w-9 h-9 rounded-xl overflow-hidden border border-[#EAECE8] shrink-0 bg-[#F9F9F5]">
+                      <img
+                        src={newProduct.imageUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.src = `/api/product-image?name=${encodeURIComponent(newProduct.name)}`;
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="pt-3 flex gap-3">

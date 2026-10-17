@@ -94,6 +94,138 @@ const FALLBACK_CATEGORIES: Category[] = [
 ];
 
 import bhxProductsRaw from '../../public/data/bhx_products.json';
+import { resolveProductImageUrl } from './imageService';
+import { FarmCooperative, B2BProcurementRequest, TieredPrice } from '@/types';
+
+export const MOCK_B2B_COOPERATIVES: FarmCooperative[] = [
+  {
+    id: 'coop-1',
+    name: 'HTX Nông Nghiệp Công Nghệ Cao Đơn Dương',
+    location: 'Đơn Dương, Tỉnh Lâm Đồng',
+    region: 'tay-nguyen',
+    cultivatedArea: '65 Hecta',
+    monthlyCapacity: '250 Tấn / Tháng',
+    establishedYear: 2017,
+    pucCode: 'VN-LDO-04-100',
+    certifications: ['VietGAP', 'GlobalGAP', 'OCOP 4 Sao'],
+    contactPerson: 'Ông Nguyễn Văn Hùng (Chủ tịch HTX)',
+    phone: '0988.100.222',
+    mainProduce: ['Bắp Cải', 'Cà Chua', 'Ớt Chuông', 'Cà Rốt', 'Cải Bó Xôi'],
+    avatarUrl: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=500&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'coop-2',
+    name: 'Liên Minh Hợp Tác Xã Rau Sạch Đà Lạt GAP',
+    location: 'TP. Đà Lạt, Tỉnh Lâm Đồng',
+    region: 'tay-nguyen',
+    cultivatedArea: '80 Hecta',
+    monthlyCapacity: '350 Tấn / Tháng',
+    establishedYear: 2015,
+    pucCode: 'VN-LDO-08-200',
+    certifications: ['VietGAP', 'Hữu cơ (Organic)', 'GlobalGAP'],
+    contactPerson: 'Bà Trần Thị Mai (Phụ trách Thương Mại)',
+    phone: '0912.456.789',
+    mainProduce: ['Xà Lách Lô Lô', 'Cải Kale', 'Bông Cải Xanh', 'Cải Thảo'],
+    avatarUrl: 'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=500&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'coop-3',
+    name: 'Hợp Tác Xã Nông Nghiệp Xanh Mộc Châu',
+    location: 'Thảo Nguyên Mộc Châu, Tỉnh Sơn La',
+    region: 'bac-bo',
+    cultivatedArea: '120 Hecta',
+    monthlyCapacity: '400 Tấn / Tháng',
+    establishedYear: 2018,
+    pucCode: 'VN-SLA-09-300',
+    certifications: ['VietGAP', 'OCOP 4 Sao'],
+    contactPerson: 'Ông Lò Văn Thắng (Giám đốc HTX)',
+    phone: '0978.333.888',
+    mainProduce: ['Bắp Cải Trái Tim', 'Su Su', 'Cải Mèo', 'Củ Cải Trắng'],
+    avatarUrl: 'https://images.unsplash.com/photo-1523741543316-beb7fc7023d8?w=500&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'coop-4',
+    name: 'HTX Nông Sản An Toàn Ba Tri',
+    location: 'Huyện Ba Tri, Tỉnh Bến Tre',
+    region: 'dong-bang-song-cuu-long',
+    cultivatedArea: '40 Hecta',
+    monthlyCapacity: '180 Tấn / Tháng',
+    establishedYear: 2019,
+    pucCode: 'VN-BTR-05-400',
+    certifications: ['VietGAP', 'Chuẩn Nông Sản An Toàn'],
+    contactPerson: 'Ông Lê Hoàng Nam (Trưởng Ban Thu Mua)',
+    phone: '0939.888.777',
+    mainProduce: ['Bầu', 'Mướp Hương', 'Khổ Qua', 'Đậu Bắp', 'Rau Muống Nước'],
+    avatarUrl: 'https://images.unsplash.com/photo-1589923188900-85dae523342b?w=500&auto=format&fit=crop&q=80',
+  },
+];
+
+export const MOCK_PROCUREMENT_REQUESTS: B2BProcurementRequest[] = [
+  {
+    id: 'rfq-1',
+    title: 'Cần thu mua 20 Tấn Bắp Cải Trắng Đà Lạt xuất kho Chợ Đầu Mối Thủ Đức',
+    category: 'Củ quả',
+    categorySlug: 'cu',
+    traderName: 'Đại lý Nông sản Quốc Cường',
+    traderCompany: 'Công ty TNHH Nông Sản Miền Nam',
+    volumeNeeded: '20 Tấn',
+    targetPriceRange: '8.500 - 10.000 đ/kg',
+    preferredRegion: 'Lâm Đồng / Đà Lạt',
+    destination: 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
+    deadline: 'Cần nhận trước 22/10/2026',
+    status: 'OPEN',
+    quoteCount: 6,
+    createdAt: 'Hôm nay',
+  },
+  {
+    id: 'rfq-2',
+    title: 'Tìm nguồn cung 15 Tấn Cà Rốt Đà Lạt đạt chuẩn VietGAP đóng sọt 50kg',
+    category: 'Củ quả',
+    categorySlug: 'cu',
+    traderName: 'Vựa Thu Mua Tuấn Trang',
+    traderCompany: 'Chuỗi Bán Lẻ Thực Phẩm Sạch GreenMart',
+    volumeNeeded: '15 Tấn',
+    targetPriceRange: '12.000 - 14.500 đ/kg',
+    preferredRegion: 'Đơn Dương, Lâm Đồng',
+    destination: 'Kho Logistics Sóng Thần, Dĩ An, Bình Dương',
+    deadline: 'Cần nhận trước 25/10/2026',
+    status: 'OPEN',
+    quoteCount: 4,
+    createdAt: 'Hôm qua',
+  },
+  {
+    id: 'rfq-3',
+    title: 'Cần 8 Tấn Cải Bó Xôi & Cải Thìa baby đóng thùng xốp lạnh chuyển Hà Nội',
+    category: 'Rau sạch',
+    categorySlug: 'rau-sach',
+    traderName: 'Thương lái Hoàng Minh',
+    traderCompany: 'Công ty Thực Phẩm Bắc Nam',
+    volumeNeeded: '8 Tấn',
+    targetPriceRange: '14.000 - 16.000 đ/kg',
+    preferredRegion: 'Mộc Châu hoặc Đà Lạt',
+    destination: 'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
+    deadline: 'Cần nhận trước 20/10/2026',
+    status: 'IN_NEGOTIATION',
+    quoteCount: 9,
+    createdAt: '2 ngày trước',
+  },
+  {
+    id: 'rfq-4',
+    title: 'Thu mua dài hạn 5 Tấn Nấm Kim Châm & Đùi Gà / Tuần cho hệ thống nhà hàng',
+    category: 'Nấm tươi',
+    categorySlug: 'nam-tuoi',
+    traderName: 'Phòng Thu Mua Central Kitchen',
+    traderCompany: 'Tập đoàn Ẩm Thực Golden Lotus',
+    volumeNeeded: '5 Tấn / Tuần',
+    targetPriceRange: 'Giá sỉ hợp đồng dài hạn',
+    preferredRegion: 'Đồng Nai / TP.HCM / Bắc Bộ',
+    destination: 'Kho tổng Cụm Công nghiệp Tân Bình, TP.HCM',
+    deadline: 'Ký hợp đồng quý 4/2026',
+    status: 'OPEN',
+    quoteCount: 8,
+    createdAt: '3 ngày trước',
+  },
+];
 
 const FALLBACK_PRODUCTS: Product[] = (bhxProductsRaw as any[]).map((p, index) => ({
   id: p.id || index + 1,
@@ -104,19 +236,42 @@ const FALLBACK_PRODUCTS: Product[] = (bhxProductsRaw as any[]).map((p, index) =>
   originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
   discountPercent: p.discountPercent ? Number(p.discountPercent) : undefined,
   stockQuantity: p.stockQuantity || 100,
-  unit: p.unit || 'gói',
-  imageUrl: p.imageUrl,
+  unit: p.unit || 'Kg (Sỉ)',
+  wholesaleUnit: p.wholesaleUnit || 'Tấn / Tạ',
+  imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
   origin: p.origin || 'Việt Nam',
-  brand: p.brand || 'Bách Hóa XANH',
+  brand: p.farmName || p.brand || 'HTX Nông Nghiệp Đơn Dương',
   category: p.category,
   categorySlug: p.categorySlug,
   isOrganic: p.isOrganic ?? true,
-  isFeatured: index < 8,
+  isFeatured: index < 12,
   isActive: true,
   rating: p.rating || 4.8,
   reviewCount: p.reviewCount || 100,
   categoryId: p.categorySlug === 'nam-tuoi' ? 3 : p.categorySlug === 'cu' ? 2 : 1,
-  categoryName: p.category || (p.categorySlug === 'nam-tuoi' ? 'Nấm Tươi' : p.categorySlug === 'cu' ? 'Củ & Quả' : 'Rau Sạch'),
+  categoryName: p.category || (p.categorySlug === 'nam-tuoi' ? 'Nấm Tươi Sỉ' : p.categorySlug === 'cu' ? 'Củ & Quả Lô' : 'Rau Ăn Lá Sỉ'),
+
+  // B2B Marketplace Attributes
+  moq: p.moq || 500,
+  totalLotVolume: p.totalLotVolume || 10000,
+  availableVolume: p.availableVolume || 8500,
+  farmName: p.farmName || 'HTX Nông Nghiệp Công Nghệ Cao Đơn Dương',
+  farmLocation: p.farmLocation || 'Đơn Dương, Lâm Đồng',
+  region: p.region || 'tay-nguyen',
+  regionName: p.regionName || 'Tây Nguyên & Lâm Đồng',
+  pucCode: p.pucCode || 'VN-LDO-04-100',
+  certification: p.certification || ['VietGAP'],
+  harvestStage: p.harvestStage || 'harvesting',
+  harvestDate: p.harvestDate || 'Đang thu hái rộ xuất vườn',
+  harvestDateRaw: p.harvestDateRaw || '14/10/2026',
+  tieredPricing: p.tieredPricing || [
+    { minQuantity: p.moq || 500, unitPrice: p.price, discountLabel: `Đơn tối thiểu (≥ ${p.moq || 500} kg)` },
+    { minQuantity: 2000, unitPrice: Math.round(p.price * 0.92), discountLabel: 'Lô vừa (≥ 2 Tấn) - Giảm 8%' },
+    { minQuantity: 5000, unitPrice: Math.round(p.price * 0.85), discountLabel: 'Lô lớn (≥ 5 Tấn) - Giảm 15%' },
+  ],
+  storageCondition: p.storageCondition || 'Kho lạnh bảo quản tiêu chuẩn 8 - 12°C',
+  shippingTerms: p.shippingTerms || 'Giao tại cổng nông trại (FOB) hoặc xe tải giao kho thương lái',
+  farmContactPhone: p.farmContactPhone || '0988.100.222',
 }));
 
 export const getCategories = async (): Promise<Category[]> => {
@@ -182,8 +337,12 @@ export const getProducts = async (
     const res = await fetch(`${API_BASE_URL}/products?${query.toString()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error('Network error');
     const data: ApiResponse<PageResponse<Product>> = await res.json();
+    const resolvedData = (data.result.data || []).map(p => ({
+      ...p,
+      imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
+    }));
     return {
-      products: data.result.data || [],
+      products: resolvedData,
       totalElements: data.result.totalElements,
       totalPages: data.result.totalPages,
     };
@@ -221,6 +380,9 @@ export const getProductBySlug = async (slug: string): Promise<Product | null> =>
     const res = await fetch(`${API_BASE_URL}/products/slug/${slug}`, { cache: 'no-store' });
     if (!res.ok) throw new Error('Network error');
     const data: ApiResponse<Product> = await res.json();
+    if (data.result) {
+      data.result.imageUrl = resolveProductImageUrl(data.result.name, data.result.categorySlug, data.result.imageUrl);
+    }
     return data.result;
   } catch {
     return FALLBACK_PRODUCTS.find(p => p.slug === slug) || null;

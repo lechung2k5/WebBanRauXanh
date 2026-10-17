@@ -30,6 +30,12 @@ export interface Category {
   productCount?: number;
 }
 
+export interface TieredPrice {
+  minQuantity: number;
+  unitPrice: number;
+  discountLabel: string;
+}
+
 export interface Product {
   id: number | string;
   name: string;
@@ -52,6 +58,77 @@ export interface Product {
   isActive?: boolean;
   categoryId?: number;
   categoryName?: string;
+
+  // B2B Agri-Trade Attributes
+  wholesaleUnit?: string;
+  moq?: number; // Minimum Order Quantity in kg
+  totalLotVolume?: number; // Total lot volume in kg
+  availableVolume?: number; // Remaining volume in kg
+  farmName?: string;
+  farmLocation?: string;
+  region?: string;
+  regionName?: string;
+  pucCode?: string; // Mã số vùng trồng kiểm định
+  certification?: string[] | string;
+  harvestStage?: 'harvesting' | 'upcoming' | 'pre_order' | 'Đang thu hoạch' | 'Sắp thu hoạch' | 'Chào bán trước vụ' | string;
+  harvestDate?: string;
+  harvestDateRaw?: string;
+  tieredPricing?: TieredPrice[];
+  storageCondition?: string;
+  shippingTerms?: string;
+  farmContactPhone?: string;
+}
+
+export interface B2BRFQNegotiation {
+  id: string;
+  productId: string | number;
+  productName: string;
+  productImageUrl?: string;
+  farmName: string;
+  traderName: string;
+  traderPhone: string;
+  traderCompany?: string;
+  requestedQuantity: number; // in kg
+  targetPrice: number; // in VND/kg
+  deliveryLocation: string;
+  deliveryDate: string;
+  shippingOption: 'farm_pickup' | 'farm_delivery' | 'cold_storage_truck';
+  notes?: string;
+  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  createdAt: string;
+}
+
+export interface B2BProcurementRequest {
+  id: string;
+  title: string;
+  category: string;
+  categorySlug: string;
+  traderName: string;
+  traderCompany: string;
+  volumeNeeded: string;
+  targetPriceRange: string;
+  preferredRegion: string;
+  destination: string;
+  deadline: string;
+  status: 'OPEN' | 'IN_NEGOTIATION' | 'CLOSED';
+  quoteCount: number;
+  createdAt: string;
+}
+
+export interface FarmCooperative {
+  id: string;
+  name: string;
+  location: string;
+  region: string;
+  cultivatedArea: string; // e.g. "45 Hecta"
+  monthlyCapacity: string; // e.g. "120 Tấn / Tháng"
+  establishedYear: number;
+  pucCode: string;
+  certifications: string[];
+  contactPerson: string;
+  phone: string;
+  mainProduce: string[];
+  avatarUrl: string;
 }
 
 export interface CartItem {

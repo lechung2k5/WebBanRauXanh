@@ -63,139 +63,125 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-xs transition-all">
-      {/* 1. TOP BAR (36px, Nền #10542C, chữ trắng, font 13px) - Thu gọn khi lướt xuống */}
+      {/* 1. TOP BAR (36px, Nền #10542C, chữ trắng, font 13px) */}
       <div
         className={`bg-[#10542C] text-white text-[13px] border-b border-[#0C3E20] transition-all duration-300 overflow-hidden ${
           isScrolled ? 'h-0 max-h-0 opacity-0 border-b-0' : 'h-9 max-h-9 opacity-100'
         }`}
       >
         <div className="max-w-[1240px] mx-auto px-4 h-full flex items-center justify-between">
-          {/* Trái: Slogan kèm icon lá mầm */}
+          {/* Trái: Slogan B2B Nông Sản */}
           <div className="flex items-center gap-2 font-medium">
             <Sprout className="w-4 h-4 text-[#8BC34A]" />
-            <span className="hidden sm:inline">Rau sạch từ nông trại đến bàn ăn</span>
-            <span className="text-white/60 hidden md:inline">• Giao siêu tốc 2 giờ</span>
+            <span className="hidden sm:inline font-bold">Sàn Thương Mại Nông Sản B2B Việt Nam</span>
+            <span className="text-white/70 hidden md:inline">• Cầu nối số trực tiếp Nông Trại & Thương Lái • 0% Phí Trung Gian</span>
           </div>
 
-          {/* Phải: Bộ chọn vị trí giao hàng */}
-          <div
-            onClick={onOpenLocation}
-            className="flex items-center gap-1.5 cursor-pointer hover:text-[#8BC34A] transition-colors py-1 group select-none"
-            title="Đổi địa chỉ giao hàng"
-          >
-            <MapPin className="w-3.5 h-3.5 text-[#8BC34A] shrink-0" />
-            <span className="text-white/80">Giao đến:</span>
-            <span className="font-bold underline decoration-[#8BC34A] decoration-1 underline-offset-2 max-w-[200px] truncate">
-              {currentLocation || 'TP. Hồ Chí Minh'}
-            </span>
-            <ChevronDown className="w-3 h-3 text-white/70 group-hover:translate-y-0.5 transition-transform" />
+          {/* Phải: Chuyển đổi đối tượng giao dịch & Điểm nhận hàng */}
+          <div className="flex items-center gap-4 text-xs">
+            <div className="hidden lg:flex items-center gap-1.5 text-emerald-200">
+              <span className="bg-emerald-800/80 px-2 py-0.5 rounded text-[11px] font-bold">500+ HTX & Vựa Nông Sản</span>
+            </div>
+
+            <div
+              onClick={onOpenLocation}
+              className="flex items-center gap-1.5 cursor-pointer hover:text-[#8BC34A] transition-colors py-1 group select-none"
+              title="Đổi địa chỉ giao kho / chợ đầu mối"
+            >
+              <MapPin className="w-3.5 h-3.5 text-[#8BC34A] shrink-0" />
+              <span className="text-white/80">Kho nhận hàng:</span>
+              <span className="font-bold underline decoration-[#8BC34A] decoration-1 underline-offset-2 max-w-[180px] truncate">
+                {currentLocation || 'Chợ Đầu Mối Thủ Đức'}
+              </span>
+              <ChevronDown className="w-3 h-3 text-white/70 group-hover:translate-y-0.5 transition-transform" />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 2. MAIN HEADER (76px, tự động thu gọn còn 64px khi lướt xuống) */}
+      {/* 2. MAIN HEADER (Chiều cao sạch sẽ, không bị đè hay tràn) */}
       <div className="border-b border-[#EAECE8] bg-white transition-all duration-300">
         <div className="max-w-[1240px] mx-auto px-4">
           <div
-            className={`flex items-center justify-between transition-all duration-300 gap-4 ${
-              isScrolled ? 'h-16' : 'h-[76px]'
+            className={`flex items-center justify-between transition-all duration-300 gap-4 sm:gap-6 ${
+              isScrolled ? 'h-16' : 'h-[72px]'
             }`}
           >
-            {/* Logo Thương hiệu (~20%) */}
+            {/* Logo Thương hiệu B2B */}
             <div
               onClick={() => {
                 onSelectCategory(null);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="flex items-center cursor-pointer select-none group shrink-0"
+              className="flex items-center gap-2.5 cursor-pointer select-none group shrink-0"
             >
-              <div className="relative h-12 w-44">
+              <div className="relative h-11 w-36 sm:w-44">
                 <Image
                   src="/assets/logo/Logo_full.png"
-                  alt="HoNa Fresh"
+                  alt="HoNa Fresh B2B"
                   fill
                   priority
                   className="object-contain object-left group-hover:scale-102 transition-transform duration-200"
                 />
               </div>
+              <span className="hidden sm:inline-block text-[10px] font-black uppercase tracking-wider bg-[#10542C] text-white px-2 py-0.5 rounded-md shadow-2xs">
+                SÀN B2B SỈ
+              </span>
             </div>
 
-            {/* Thanh Tìm kiếm Trung tâm (~50%) */}
-            <div className="hidden md:flex flex-col flex-1 max-w-xl mx-4">
-              <form onSubmit={onSearchSubmit} className="relative w-full">
+            {/* Thanh Tìm kiếm Lô Nông Sản B2B (Đơn giản, Rộng rãi, Tích hợp nút Tìm sỉ) */}
+            <div className="hidden md:flex flex-1 max-w-2xl mx-2">
+              <form onSubmit={onSearchSubmit} className="relative w-full flex items-center">
+                <Search className="w-4 h-4 text-[#4CAF50] absolute left-4 z-10" />
                 <input
                   type="text"
-                  placeholder="Tìm rau củ quả tươi sạch cho bữa cơm hôm nay..."
+                  placeholder="Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng, Nấm tươi..."
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  className="w-full bg-[#F9F9F5] hover:bg-white border-[1.5px] border-[#E5E7EB] rounded-full pl-11 pr-5 h-11 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none focus:border-[#10542C] focus:bg-white transition-all shadow-2xs"
+                  className="w-full bg-[#F9F9F5] hover:bg-white focus:bg-white border-[1.5px] border-[#E5E7EB] focus:border-[#10542C] rounded-full pl-11 pr-24 h-11 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none transition-all shadow-2xs"
                 />
-                <Search className="w-4 h-4 text-[#4CAF50] absolute left-4 top-1/2 -translate-y-1/2" />
+                <button
+                  type="submit"
+                  className="absolute right-1.5 h-8 px-4 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                >
+                  <span>Tìm sỉ</span>
+                </button>
               </form>
-
-              {/* Pill Tabs lọc nhanh ngay dưới thanh tìm kiếm (RuleLayout A.2) - Tự động ẩn khi lướt xuống */}
-              <div
-                className={`flex items-center gap-1.5 transition-all duration-300 overflow-hidden ${
-                  isScrolled
-                    ? 'max-h-0 opacity-0 mt-0 pointer-events-none'
-                    : 'max-h-8 opacity-100 mt-1.5'
-                }`}
-              >
-                {[
-                  { label: 'Tất cả', id: null },
-                  { label: 'Rau ăn lá', id: 1 },
-                  { label: 'Củ quả', id: 2 },
-                  { label: 'Nấm tươi', id: 3 },
-                  { label: 'Combo ưu đãi', id: 4 },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => onSelectCategory(item.id)}
-                    className={`text-[11px] px-2.5 py-0.5 rounded-full transition-all cursor-pointer font-bold ${
-                      selectedCategory === item.id
-                        ? 'bg-[#10542C] text-white shadow-2xs'
-                        : 'text-[#6B7280] hover:text-[#10542C] hover:bg-[#F4F5F1]'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            {/* Khối Tiện Ích & Tài Khoản (~30%) */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              {/* Nút Khuyến Mãi (Hộp quà + "Ưu đãi", hover #4CAF50) */}
-              <button
-                type="button"
-                onClick={onOpenPromo}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#2C3E2E] hover:text-[#4CAF50] hover:bg-[#F4F5F1] rounded-xl transition-colors cursor-pointer border border-[#EAECE8]"
+            {/* Khối Tiện Ích B2B & Tài Khoản */}
+            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+              {/* Nút Kho Lô Nông Sản */}
+              <Link
+                href="/san-pham"
+                className="hidden xl:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] bg-[#F4F7F4] hover:bg-[#EAF1EA] rounded-xl transition-colors border border-[#D7EED6]"
               >
-                <Gift className="w-4 h-4 text-[#FB8C00]" />
-                <span className="hidden sm:inline">Ưu đãi</span>
-              </button>
+                <span>Kho Lô Nông Sản</span>
+              </Link>
 
-              {/* Nút Theo dõi đơn */}
+              {/* Nút Theo dõi Hợp Đồng / Lô Đặt Cọc */}
               <button
                 type="button"
                 onClick={onOpenTracking}
-                className="hidden lg:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl transition-colors cursor-pointer border border-[#EAECE8]"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl transition-colors cursor-pointer border border-[#EAECE8]"
               >
                 <Clock className="w-4 h-4 text-[#4CAF50]" />
-                <span>Tra cứu</span>
+                <span className="hidden lg:inline">Hợp đồng & Lô cọc</span>
+                <span className="lg:hidden">Hợp đồng</span>
               </button>
 
-              {/* Giỏ Hàng với Badge Tomato Red #E53935 18x18px */}
+              {/* Giỏ Lô Hàng Đặt Cọc */}
               <button
                 type="button"
                 onClick={onOpenCart}
-                className="relative p-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer"
-                aria-label="Giỏ hàng"
+                className="relative px-3 py-2 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                aria-label="Lô hàng đặt cọc"
+                title="Danh sách lô hàng chuẩn bị đặt cọc"
               >
-                <ShoppingBag className="w-5 h-5" />
+                <ShoppingBag className="w-4 h-4 text-[#8BC34A]" />
+                <span className="text-xs font-bold hidden sm:inline">Lô đã chọn</span>
                 {cartCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-[#E53935] text-white text-[10px] font-black w-[18px] h-[18px] rounded-full flex items-center justify-center border-2 border-white animate-pulse">
+                  <span className="bg-[#E53935] text-white text-[10px] font-black px-1.5 py-0.2 rounded-full border-2 border-white animate-pulse">
                     {cartCount}
                   </span>
                 )}
@@ -266,16 +252,66 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Mobile Search Input */}
-          <form onSubmit={onSearchSubmit} className="md:hidden pb-3 relative">
+          <form onSubmit={onSearchSubmit} className="md:hidden pb-3 relative flex items-center">
+            <Search className="w-4 h-4 text-[#4CAF50] absolute left-3.5 z-10" />
             <input
               type="text"
-              placeholder="Tìm rau củ quả tươi sạch..."
+              placeholder="Tìm nguồn hàng sỉ: Bắp cải, Cà rốt..."
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full bg-[#F9F9F5] border-[1.5px] border-[#E5E7EB] rounded-full pl-10 pr-4 h-10 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none focus:border-[#10542C]"
+              className="w-full bg-[#F9F9F5] border-[1.5px] border-[#E5E7EB] rounded-full pl-10 pr-20 h-10 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none focus:border-[#10542C]"
             />
-            <Search className="w-4 h-4 text-[#4CAF50] absolute left-3.5 top-1/2 -translate-y-1/2 -mt-1.5" />
+            <button
+              type="submit"
+              className="absolute right-1 h-8 px-3 bg-[#10542C] text-white rounded-full text-[11px] font-bold"
+            >
+              Tìm sỉ
+            </button>
           </form>
+        </div>
+      </div>
+
+      {/* 3. TẦNG SUB-NAV: ĐIỀU HƯỚNG NGÀNH HÀNG NÔNG SẢN B2B (Riêng biệt, sạch sẽ, không bao giờ bị cắt chữ) */}
+      <div className="bg-[#FAFBF9] border-b border-[#EAECE8] py-2 transition-all">
+        <div className="max-w-[1240px] mx-auto px-4 flex items-center justify-between gap-4">
+          {/* Nhóm Tabs danh mục ngành hàng */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-0.5 flex-nowrap">
+            {[
+              { label: 'Tất cả lô xuất vườn', id: null },
+              { label: 'Rau ăn lá (≥ 500kg)', id: 1 },
+              { label: 'Củ & Quả theo tấn', id: 2 },
+              { label: 'Nấm tươi xuất xưởng', id: 3 },
+              { label: 'Rau gia vị & Khác', id: 4 },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => onSelectCategory(item.id)}
+                className={`text-xs px-3.5 py-1.5 rounded-full transition-all cursor-pointer font-bold shrink-0 whitespace-nowrap ${
+                  selectedCategory === item.id
+                    ? 'bg-[#10542C] text-white shadow-2xs'
+                    : 'text-[#4B5563] hover:text-[#10542C] hover:bg-[#EAECE8]/70 bg-white border border-[#EAECE8]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Hotline & Liên kết nhanh cho Thương lái */}
+          <div className="hidden lg:flex items-center gap-3 text-xs font-semibold text-[#10542C] shrink-0">
+            <Link
+              href="/san-pham"
+              className="hover:underline flex items-center gap-1.5 text-[#10542C] hover:text-[#0C3E20]"
+            >
+              <span className="w-2 h-2 rounded-full bg-[#4CAF50] animate-pulse" />
+              <span>Sàn Chào Mua B2B</span>
+            </Link>
+            <span className="text-[#D1D5DB]">•</span>
+            <span className="text-[#6B7280]">
+              Hotline sỉ: <strong className="text-[#10542C] font-bold">1900 6868</strong>
+            </span>
+          </div>
         </div>
       </div>
     </header>

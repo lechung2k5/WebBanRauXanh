@@ -343,8 +343,9 @@ export default function CheckoutPage() {
                         referrerPolicy="no-referrer"
                         onError={(e) => {
                           const target = e.currentTarget;
-                          if (!target.src.includes('unsplash')) {
-                            target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&auto=format&fit=crop&q=80';
+                          const fallbackApi = `/api/product-image?name=${encodeURIComponent(item.product.name)}`;
+                          if (!target.src.includes('/api/product-image')) {
+                            target.src = fallbackApi;
                           }
                         }}
                       />

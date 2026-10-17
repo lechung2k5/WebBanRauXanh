@@ -8,6 +8,7 @@ import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import { Product } from '@/types';
 import { getProductBySlug, getProducts } from '@/services/api';
+import { getProductGallery } from '@/services/imageService';
 import { useApp } from '@/context/AppContext';
 import {
   ChevronRight,
@@ -34,6 +35,7 @@ function ProductDetailContent() {
   const { addToCart, setIsCartOpen } = useApp();
 
   const [product, setProduct] = useState<Product | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
@@ -132,14 +134,15 @@ function ProductDetailContent() {
           <div className="space-y-4">
             <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-[#F9F9F5] border border-[#EAECE8]">
               <img
-                src={product.imageUrl}
+                src={selectedImage || product.imageUrl}
                 alt={product.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition-all duration-300"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
                   const target = e.currentTarget;
-                  if (!target.src.includes('unsplash')) {
-                    target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
+                  const fallbackApi = `/api/product-image?name=${encodeURIComponent(product.name)}`;
+                  if (!target.src.includes('/api/product-image')) {
+                    target.src = fallbackApi;
                   }
                 }}
               />
@@ -156,7 +159,7 @@ function ProductDetailContent() {
                   </span>
                 )}
                 <span className="bg-white/90 backdrop-blur-xs text-[#10542C] text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-[#D7EED6]">
-                  {product.brand || 'Bách Hóa XANH'}
+                  {product.brand || 'HoNa Fresh'}
                 </span>
               </div>
 
@@ -168,6 +171,30 @@ function ProductDetailContent() {
                 </div>
               )}
             </div>
+
+            {/* Gallery thumbnails */}
+            {(() => {
+              const gallery = getProductGallery(product.name, product.imageUrl);
+              const activeImg = selectedImage || product.imageUrl;
+              if (gallery.length <= 1) return null;
+              return (
+                <div className="flex gap-2.5 overflow-x-auto pb-1">
+                  {gallery.map((img, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => setSelectedImage(img)}
+                      className={`w-16 h-16 rounded-xl overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
+                        activeImg === img
+                          ? 'border-[#10542C] shadow-md scale-105'
+                          : 'border-[#10542C]/20 hover:border-[#10542C]'
+                      }`}
+                    >
+                      <img src={img} alt={`${product.name} ${idx + 1}`} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3 rounded-xl bg-[#F9F9F5] border border-[#EAECE8] flex items-center gap-2">
@@ -322,7 +349,7 @@ function ProductDetailContent() {
             {activeTab === 'origin' && (
               <div className="space-y-4">
                 <p>
-                  Sản phẩm <strong>{product.name}</strong> được cung cấp chính ngạch bởi thương hiệu <strong>{product.brand || 'Bách Hóa XANH'}</strong>, xuất xứ từ <strong>{product.origin || 'Việt Nam'}</strong>.
+                  Sản phẩm <strong>{product.name}</strong> được cung cấp chính ngạch bởi thương hiệu <strong>{product.brand || 'HoNa Fresh'}</strong>, xuất xứ từ <strong>{product.origin || 'Việt Nam'}</strong>.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div className="p-4 rounded-2xl bg-[#F9F9F5] border border-[#EAECE8]">

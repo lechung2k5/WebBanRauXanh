@@ -226,9 +226,16 @@ function OrderTrackingContent() {
                     <div key={idx} className="py-3 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-3">
                         <img
-                          src={item.productImageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300'}
+                          src={item.productImageUrl || `/api/product-image?name=${encodeURIComponent(item.productName)}`}
                           alt={item.productName}
                           className="w-12 h-12 object-cover rounded-xl bg-[#F9F9F5] border border-[#EAECE8]"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            const fallbackApi = `/api/product-image?name=${encodeURIComponent(item.productName)}`;
+                            if (!target.src.includes('/api/product-image')) {
+                              target.src = fallbackApi;
+                            }
+                          }}
                         />
                         <div>
                           <p className="font-bold text-[#2C3E2E]">{item.productName}</p>

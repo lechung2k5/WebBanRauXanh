@@ -187,7 +187,7 @@ public class DataInitializer implements CommandLineRunner {
                             .originalPrice(BigDecimal.valueOf(60000))
                             .stockQuantity(60)
                             .unit("khay 300g")
-                            .imageUrl("https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80")
+                            .imageUrl("https://images.unsplash.com/photo-1573732064472-ea7fd2382d22?w=600&auto=format&fit=crop&q=80")
                             .origin("Việt Nam")
                             .isOrganic(true)
                             .isFeatured(true)
