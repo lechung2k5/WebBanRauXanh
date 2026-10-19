@@ -296,7 +296,7 @@ export const getProducts = async (
     page?: number;
     size?: number;
   }
-): Promise<{ products: Product[]; totalElements: number; totalPages: number }> => {
+): Promise<{ products: Product[]; totalElements: number; totalPages: number; isSemanticSearch?: boolean }> => {
   // Normalize categoryId and categorySlug
   let resolvedCategoryId = params?.categoryId;
   let resolvedCategorySlug = params?.categorySlug;
@@ -337,14 +337,42 @@ export const getProducts = async (
     const res = await fetch(`${API_BASE_URL}/products?${query.toString()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error('Network error');
     const data: ApiResponse<PageResponse<Product>> = await res.json();
-    const resolvedData = (data.result.data || []).map(p => ({
+    let resolvedData = (data.result.data || []).map(p => ({
       ...p,
       imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
     }));
+
+    // Tự động kích hoạt Vector Search thông minh nếu tìm kiếm thông thường không có kết quả và từ khóa mang tính ngữ nghĩa
+    let isSemanticSearch = false;
+    if (resolvedData.length === 0 && params?.keyword && params.keyword.trim().length > 3) {
+      try {
+        const vectorRes = await semanticSearchApi(params.keyword.trim(), params?.size || 16);
+        if (vectorRes && vectorRes.items && vectorRes.items.length > 0) {
+          const validItems = vectorRes.items.filter(item => (item.similarity ?? 0) >= 0.35);
+          if (validItems.length > 0) {
+            resolvedData = validItems.map(item => ({
+              ...item.product,
+              imageUrl: resolveProductImageUrl(item.product.name, item.product.categorySlug, item.product.imageUrl),
+            }));
+            isSemanticSearch = true;
+            return {
+              products: resolvedData,
+              totalElements: resolvedData.length,
+              totalPages: 1,
+              isSemanticSearch: true,
+            };
+          }
+        }
+      } catch (vectorErr) {
+        console.warn('Vector search fallback error:', vectorErr);
+      }
+    }
+
     return {
       products: resolvedData,
-      totalElements: data.result.totalElements,
-      totalPages: data.result.totalPages,
+      totalElements: isSemanticSearch ? resolvedData.length : data.result.totalElements,
+      totalPages: isSemanticSearch ? 1 : data.result.totalPages,
+      isSemanticSearch,
     };
   } catch {
     let filtered = [...FALLBACK_PRODUCTS];

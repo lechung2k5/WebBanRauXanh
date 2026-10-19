@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Sparkles, MessageSquare, Search, Key, Send, X, Loader2, 
-  ShoppingBag, Flame, CheckCircle, AlertCircle, RefreshCw, ChevronRight, Tag
+  Sparkles, MessageSquare, Key, Send, X, Loader2, 
+  ShoppingBag, Flame, RefreshCw, RotateCcw, MapPin
 } from 'lucide-react';
-import { aiChatRagApi, semanticSearchApi, configGeminiKeyApi, getAiStatusApi, syncAiEmbeddingsApi } from '@/services/api';
-import { AiChatResponse, SemanticProductItem, Product } from '@/types';
+import { aiChatRagApi, configGeminiKeyApi, getAiStatusApi, syncAiEmbeddingsApi, getProducts } from '@/services/api';
+import { AiChatResponse, Product } from '@/types';
 import { useApp } from '@/context/AppContext';
 
 interface AiAssistantModalProps {
@@ -14,21 +14,97 @@ interface AiAssistantModalProps {
   onClose: () => void;
 }
 
+interface ChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  recommendedProducts?: Product[];
+  hotDeals?: Product[];
+  timestamp: string;
+}
+
+/**
+ * Component định dạng font chữ và trình bày văn bản câu trả lời từ AI
+ */
+function FormattedAnswer({ text }: { text: string }) {
+  const lines = text.split('\n');
+
+  const parseInlineStyles = (content: string) => {
+    // Tách bold **text** và inline code `text`
+    const parts = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={i} className="font-bold text-[#10542C]">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return (
+          <span
+            key={i}
+            className="inline-block px-2 py-0.5 mx-0.5 rounded-md bg-emerald-100 text-emerald-900 font-mono text-xs font-bold"
+          >
+            {part.slice(1, -1)}
+          </span>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
+  return (
+    <div className="space-y-2 text-xs sm:text-sm leading-relaxed text-[#2C3E2E] font-sans">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="h-1.5" />;
+        }
+        if (trimmed === '---') {
+          return <hr key={idx} className="my-3 border-emerald-200/60" />;
+        }
+        if (trimmed.startsWith('###')) {
+          const headerText = trimmed.replace(/^###\s*/, '');
+          return (
+            <div
+              key={idx}
+              className="font-heading font-black text-xs sm:text-sm text-[#10542C] pt-2 pb-1.5 border-b border-emerald-100/80 flex items-center gap-1.5"
+            >
+              {parseInlineStyles(headerText)}
+            </div>
+          );
+        }
+        if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+          const itemText = trimmed.replace(/^[\*\-]\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2.5 pl-1.5 py-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#10542C] mt-2 shrink-0"></span>
+              <div className="flex-1 text-xs sm:text-sm text-[#2C3E2E] leading-relaxed">
+                {parseInlineStyles(itemText)}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <p key={idx} className="text-xs sm:text-sm text-[#2C3E2E] leading-relaxed">
+            {parseInlineStyles(line)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalProps) {
   const { addToCart } = useApp();
-  const [activeTab, setActiveTab] = useState<'chat' | 'vector_search' | 'config'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'config'>('chat');
   
   // Chat state
   const [query, setQuery] = useState('');
-  const [userQuestion, setUserQuestion] = useState('');
   const [loading, setLoading] = useState(false);
-  const [chatResponse, setChatResponse] = useState<AiChatResponse | null>(null);
-  
-  // Vector search state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [lastSearchedKeyword, setLastSearchedKeyword] = useState('');
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [vectorItems, setVectorItems] = useState<SemanticProductItem[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   
   // Config state
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -36,13 +112,106 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
   const [configMsg, setConfigMsg] = useState('');
   const [syncing, setSyncing] = useState(false);
 
-  // Suggested quick prompts
+  // Suggested quick prompts B2B
   const quickPrompts = [
-    '🥦 Rau nào nấu canh ngọt giải nhiệt mùa hè?',
-    '🍲 Combo rau củ quả nhúng lẩu tươi ngon',
-    '🥗 Gợi ý rau củ ăn giảm cân giữ dáng',
-    '🏷️ Hôm nay có rau củ nào đang ưu đãi giá tốt?'
+    '🌾 Sắp tới nông sản nào tại Đà Lạt & Lâm Đồng vào mùa thu hoạch rầm rộ?',
+    '📦 Báo giá sỉ lô rau ăn lá số lượng lớn (≥ 2 Tấn) giao kho Chợ Đầu Mối?',
+    '🍄 Tôi muốn tìm các sản phẩm nông sản và nấm tại Đồng Nai',
+    '📜 Danh sách các Hợp tác xã đạt chuẩn VietGAP và có mã số vùng trồng PUC?'
   ];
+
+  // Danh sách các vùng trồng chuyên canh B2B thực tế trong CSDL HoNa Fresh (17 HTX)
+  const REGION_SHORTCUTS = [
+    { name: 'Đồng Nai', label: '📍 Đồng Nai', count: '10 lô Nấm', prompt: 'Tôi muốn tìm các sản phẩm nông sản và nấm tại Đồng Nai' },
+    { name: 'Đắk Lắk', label: '📍 Đắk Lắk', count: '108 lô Buôn Hồ', prompt: 'Tìm nguồn cung nông sản sỉ tại Buôn Hồ Đắk Lắk' },
+    { name: 'Đà Lạt & Lâm Đồng', label: '📍 Đà Lạt & Lâm Đồng', count: '317 lô rau củ', prompt: 'Sắp tới nông sản nào tại Đà Lạt & Lâm Đồng vào mùa thu hoạch rầm rộ?' },
+    { name: 'Gia Lai', label: '📍 Gia Lai', count: '100 lô Chư Prông', prompt: 'Báo giá sỉ nông sản hữu cơ tại Chư Prông Gia Lai' },
+    { name: 'Mộc Châu', label: '📍 Mộc Châu - Sơn La', count: '7 lô', prompt: 'Tìm nguồn su su, củ tỏi và cải mèo Mộc Châu Sơn La' },
+    { name: 'Hải Dương & Quảng Ninh', label: '📍 Hải Dương & Quảng Ninh', count: '43 lô', prompt: 'Tìm nguồn cà rốt và hành tỏi tại Hải Dương và Quảng Ninh' },
+    { name: 'Miền Tây', label: '📍 Miền Tây', count: '36 lô ĐBSCL', prompt: 'Tìm nguồn rau màu và nông sản tại các tỉnh Miền Tây' },
+  ];
+
+  // Từ điển nhận diện khu vực theo 17 vùng trồng thực tế
+  const REGION_DICTIONARY: { [key: string]: string } = {
+    'đồng nai': 'Đồng Nai',
+    'dong nai': 'Đồng Nai',
+    'long khánh': 'Long Khánh',
+    'long khanh': 'Long Khánh',
+    'đắk lắk': 'Đắk Lắk',
+    'dak lak': 'Đắk Lắk',
+    'daklak': 'Đắk Lắk',
+    'buôn hồ': 'Buôn Hồ',
+    'buon ho': 'Buôn Hồ',
+    'đà lạt': 'Đà Lạt',
+    'da lat': 'Đà Lạt',
+    'lâm đồng': 'Lâm Đồng',
+    'lam dong': 'Lâm Đồng',
+    'đơn dương': 'Đơn Dương',
+    'đức trọng': 'Đức Trọng',
+    'gia lai': 'Gia Lai',
+    'chư prông': 'Chư Prông',
+    'mộc châu': 'Mộc Châu',
+    'moc chau': 'Mộc Châu',
+    'sơn la': 'Sơn La',
+    'hải dương': 'Hải Dương',
+    'nam sách': 'Nam Sách',
+    'quảng ninh': 'Quảng Ninh',
+    'đông triều': 'Quảng Ninh',
+    'ba vì': 'Ba Vì',
+    'hà nội': 'Hà Nội',
+    'cần thơ': 'Cần Thơ',
+    'thốt nốt': 'Thốt Nốt',
+    'vĩnh long': 'Vĩnh Long',
+    'tiền giang': 'Tiền Giang',
+    'bến tre': 'Bến Tre',
+    'củ chi': 'Củ Chi',
+    'vũng tàu': 'Bà Rịa - Vũng Tàu',
+  };
+
+  // State gợi ý sản phẩm tức thì theo khu vực khi nhập liệu
+  const [liveSuggestions, setLiveSuggestions] = useState<Product[]>([]);
+  const [matchedRegionName, setMatchedRegionName] = useState<string | null>(null);
+  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
+
+  // Lắng nghe khi người dùng gõ vào query để tự động gợi ý sản phẩm của khu vực đó
+  useEffect(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed || trimmed.length < 2) {
+      setLiveSuggestions([]);
+      setMatchedRegionName(null);
+      return;
+    }
+
+    // Kiểm tra xem query có chứa địa danh nào không
+    let detectedLoc: string | null = null;
+    for (const [key, loc] of Object.entries(REGION_DICTIONARY)) {
+      if (trimmed.includes(key)) {
+        detectedLoc = loc;
+        break;
+      }
+    }
+
+    setMatchedRegionName(detectedLoc);
+
+    const timer = setTimeout(async () => {
+      setIsSearchingSuggestions(true);
+      try {
+        const keywordToSearch = detectedLoc || query.trim();
+        const res = await getProducts({ keyword: keywordToSearch, size: 8 });
+        if (res && res.products && res.products.length > 0) {
+          setLiveSuggestions(res.products);
+        } else {
+          setLiveSuggestions([]);
+        }
+      } catch (err) {
+        console.warn('Lỗi lấy gợi ý nhanh:', err);
+      } finally {
+        setIsSearchingSuggestions(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     const savedLocalKey = typeof window !== 'undefined' ? localStorage.getItem('hona_gemini_api_key') : null;
@@ -54,7 +223,6 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
       getAiStatusApi()
         .then(async res => {
           setHasGeminiKey(res.hasGeminiKey);
-          // Nếu backend chưa có key nhưng trong trình duyệt đã lưu trước đó, tự động đồng bộ lên backend
           if (!res.hasGeminiKey && savedLocalKey) {
             const ok = await configGeminiKeyApi(savedLocalKey);
             setHasGeminiKey(ok);
@@ -64,39 +232,51 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
     }
   }, [isOpen]);
 
+  // Tự động cuộn xuống tin nhắn mới nhất
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading, activeTab]);
+
   const handleSendChat = async (textToSend?: string) => {
     const text = textToSend || query;
     if (!text.trim() || loading) return;
 
     const trimmed = text.trim();
-    setUserQuestion(trimmed);
-    setQuery(''); // Tự động xóa text trong ô input ngay khi gửi
+    const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+    // 1. Thêm tin nhắn của User vào lịch sử
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      text: trimmed,
+      timestamp: timeNow,
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setQuery('');
     setLoading(true);
+
     try {
       const res = await aiChatRagApi(trimmed);
-      setChatResponse(res);
       setHasGeminiKey(res.hasGeminiKey);
+
+      // 2. Thêm phản hồi của AI vào lịch sử
+      const aiMsg: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        sender: 'assistant',
+        text: res.answer,
+        recommendedProducts: res.recommendedProducts,
+        hotDeals: res.hotDeals,
+        timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi kết nối với AI');
+      alert(err.message || 'Lỗi khi kết nối với Trợ Lý HoNa Fresh');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleVectorSearch = async () => {
-    if (!searchQuery.trim() || searchLoading) return;
-    const q = searchQuery.trim();
-    setLastSearchedKeyword(q);
-    setSearchQuery(''); // Tự động xóa text trong ô tìm kiếm khi bấm tìm
-    setSearchLoading(true);
-    try {
-      const res = await semanticSearchApi(q, 8);
-      setVectorItems(res.items);
-    } catch (err: any) {
-      alert(err.message || 'Lỗi khi tìm kiếm vector');
-    } finally {
-      setSearchLoading(false);
     }
   };
 
@@ -145,69 +325,76 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
       <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden border border-emerald-100">
         
         {/* Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-green-700 text-white flex items-center justify-between">
+        <div className="px-6 py-4 bg-gradient-to-r from-emerald-700 via-teal-700 to-green-800 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
-              <Sparkles className="w-6 h-6 text-yellow-300 animate-pulse" />
+              <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg tracking-wide">HoNa Fresh AI & Vector Search</h3>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/50 border border-emerald-300/40 text-emerald-100 flex items-center gap-1">
-                  PostgreSQL pgvector + Gemini
+                <h3 className="font-heading font-black text-lg tracking-wide">Trợ Lý HoNa Fresh</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/50 border border-emerald-300/40 text-emerald-100 flex items-center gap-1">
+                  Cố Vấn Sỉ B2B
                 </span>
               </div>
-              <p className="text-xs text-emerald-100/90">
-                Trợ lý ẩm thực RAG: Lọc vector nông sản → Gemini tư vấn & gợi ý giá tốt
+              <p className="text-xs text-emerald-100/90 font-medium">
+                Cố vấn thu mua nông sản số lượng lớn trực tiếp từ Trang trại & HTX (Tạ, Tấn, MOQ ≥ 200kg)
               </p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {messages.length > 0 && (
+              <button
+                onClick={() => setMessages([])}
+                className="px-2.5 py-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1.5 cursor-pointer font-semibold border border-white/20"
+                title="Bắt đầu phiên hội thoại mới"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Hội thoại mới</span>
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center px-6 bg-slate-50 border-b border-slate-200/80 text-sm font-medium">
+        {/* Navigation Tabs - Chỉ còn 2 Tab: Chat và Cấu hình */}
+        <div className="flex items-center px-6 bg-slate-50 border-b border-slate-200/80 text-xs sm:text-sm font-bold">
           <button
             onClick={() => setActiveTab('chat')}
-            className={`py-3.5 px-4 flex items-center gap-2 border-b-2 transition-all ${
+            className={`py-3.5 px-4 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
               activeTab === 'chat'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
+                ? 'border-[#10542C] text-[#10542C] font-extrabold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <MessageSquare className="w-4 h-4" />
-            Trợ Lý Ẩm Thực RAG
+            <MessageSquare className="w-4 h-4 text-[#10542C]" />
+            Trợ Lý HoNa Fresh
+            {messages.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 bg-[#10542C] text-white text-[10px] rounded-full">
+                {messages.length}
+              </span>
+            )}
           </button>
-          <button
-            onClick={() => setActiveTab('vector_search')}
-            className={`py-3.5 px-4 flex items-center gap-2 border-b-2 transition-all ${
-              activeTab === 'vector_search'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Search className="w-4 h-4" />
-            Tìm Kiếm Vector (pgvector)
-          </button>
+
           <button
             onClick={() => setActiveTab('config')}
-            className={`py-3.5 px-4 flex items-center gap-2 border-b-2 transition-all ml-auto ${
+            className={`py-3.5 px-4 flex items-center gap-2 border-b-2 transition-all ml-auto cursor-pointer ${
               activeTab === 'config'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
+                ? 'border-[#10542C] text-[#10542C] font-extrabold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Key className="w-4 h-4" />
             Cấu hình Gemini Key
             {hasGeminiKey ? (
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" title="Đã kích hoạt AI"></span>
             ) : (
-              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span className="w-2 h-2 rounded-full bg-amber-400" title="Chưa kích hoạt AI"></span>
             )}
           </button>
         </div>
@@ -215,275 +402,249 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           
-          {/* TAB 1: RAG CHAT */}
+          {/* TAB 1: CHAT */}
           {activeTab === 'chat' && (
             <div className="space-y-6">
               
-              {/* Prompt Suggestions */}
-              {!chatResponse && !loading && (
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    Gợi ý câu hỏi nhanh:
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {quickPrompts.map((p, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setQuery(p.replace(/^[^\s]+\s/, ''));
-                          handleSendChat(p.replace(/^[^\s]+\s/, ''));
-                        }}
-                        className="text-left text-xs sm:text-sm p-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/70 border border-slate-200/70 hover:border-emerald-300 text-slate-700 hover:text-emerald-800 transition-all shadow-sm"
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* User Question Bubble */}
-              {userQuestion && (
-                <div className="flex justify-end animate-in fade-in">
-                  <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-xs bg-emerald-700 text-white text-xs sm:text-sm font-medium shadow-sm flex items-center gap-2">
-                    <span>{userQuestion}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Chat Response Area */}
-              {loading && (
-                <div className="flex flex-col items-center justify-center py-10 text-slate-500 space-y-3">
-                  <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-                  <p className="text-sm font-medium animate-pulse">
-                    Đang tìm kiếm vector trong pgvector & tham vấn Gemini AI...
-                  </p>
-                </div>
-              )}
-
-              {chatResponse && !loading && (
-                <div className="space-y-6 animate-in fade-in duration-300">
-                  {/* AI Answer Bubble */}
-                  <div className="p-5 rounded-3xl bg-emerald-50/60 border border-emerald-200/70 text-slate-800 space-y-3 shadow-sm">
-                    <div className="flex items-center justify-between border-b border-emerald-200/50 pb-2">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-emerald-600" />
-                        <span className="font-bold text-sm text-emerald-900">Tư Vấn Từ HoNa Fresh AI</span>
-                      </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">
-                        {chatResponse.modelUsed}
-                      </span>
-                    </div>
-                    <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-slate-700">
-                      {chatResponse.answer}
-                    </div>
-                  </div>
-
-                  {/* Recommended Products via Vector Search */}
-                  {chatResponse.recommendedProducts?.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <ShoppingBag className="w-4 h-4 text-emerald-600" />
-                        <h4 className="font-bold text-sm text-slate-800">
-                          Nông Sản Phù Hợp Trích Xuất Bằng pgvector:
-                        </h4>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {chatResponse.recommendedProducts.map((p) => (
-                          <div
-                            key={p.id}
-                            className="p-3 bg-white rounded-2xl border border-slate-200 hover:border-emerald-400 hover:shadow-md transition-all flex flex-col justify-between"
-                          >
-                            <div className="flex gap-3">
-                              <img
-                                src={p.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300'}
-                                alt={p.name}
-                                className="w-16 h-16 rounded-xl object-cover border border-slate-100 flex-shrink-0"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <h5 className="font-semibold text-xs text-slate-800 line-clamp-1">{p.name}</h5>
-                                <p className="text-[11px] text-slate-500 line-clamp-1">{p.origin || 'Đà Lạt'}</p>
-                                <p className="text-emerald-700 font-bold text-xs mt-1">
-                                  {Number(p.price).toLocaleString('vi-VN')} đ <span className="text-[10px] font-normal text-slate-500">/{p.unit}</span>
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                addToCart(p, 1);
-                                alert(`Đã thêm ${p.name} vào giỏ hàng!`);
-                              }}
-                              className="mt-2.5 w-full py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                            >
-                              <ShoppingBag className="w-3.5 h-3.5" />
-                              Thêm vào giỏ
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Hot Deals Section */}
-                  {chatResponse.hotDeals?.length > 0 && (
-                    <div className="space-y-3 pt-2">
-                      <div className="flex items-center gap-2">
-                        <Flame className="w-4 h-4 text-orange-500" />
-                        <h4 className="font-bold text-sm text-slate-800">
-                          Ưu Đãi & Giá Tốt Kèm Theo Hôm Nay:
-                        </h4>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {chatResponse.hotDeals.map((d) => (
-                          <div
-                            key={d.id}
-                            className="p-3 bg-gradient-to-br from-amber-50/50 to-orange-50/40 rounded-2xl border border-orange-200/80 flex items-center justify-between"
-                          >
-                            <div className="min-w-0 pr-2">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 uppercase">
-                                Hot Deal
-                              </span>
-                              <h5 className="font-semibold text-xs text-slate-800 truncate mt-1">{d.name}</h5>
-                              <p className="text-orange-600 font-bold text-xs">
-                                {Number(d.price).toLocaleString('vi-VN')} đ
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                addToCart(d, 1);
-                                alert(`Đã thêm ${d.name} vào giỏ!`);
-                              }}
-                              className="p-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white flex-shrink-0 transition-colors shadow-sm"
-                            >
-                              <ShoppingBag className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: VECTOR SEARCH ONLY */}
-          {activeTab === 'vector_search' && (
-            <div className="space-y-6">
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1">
-                <p className="font-semibold text-slate-800">🔍 Tìm kiếm ngữ nghĩa bằng vector Cosine Similarity:</p>
-                <p>
-                  Bạn không cần nhớ chính xác tên sản phẩm! Hãy nhập tự do theo mục đích ẩm thực hoặc dinh dưỡng:
-                  <br />
-                  <span className="italic text-emerald-700">"rau giòn xào thịt bò"</span>, <span className="italic text-emerald-700">"rau mát nấu canh chua"</span>, <span className="italic text-emerald-700">"củ quả bùi ngọt cho bé ăn dặm"</span>.
-                </p>
-              </div>
-
-              {/* Vector Search Box */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleVectorSearch()}
-                  placeholder="Nhập nhu cầu ẩm thực (VD: rau giải nhiệt, nấm nhúng lẩu...)"
-                  className="flex-1 px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                />
-                <button
-                  onClick={handleVectorSearch}
-                  disabled={searchLoading}
-                  className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {searchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                  Tìm Vector
-                </button>
-              </div>
-
-              {/* Vector Results */}
-              {vectorItems.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h4 className="font-bold text-sm text-slate-800">
-                      Kết quả tương đồng ngữ nghĩa (pgvector Cosine Distance):
+              {/* Màn hình chào mừng & Gợi ý nhanh khi chưa có tin nhắn */}
+              {messages.length === 0 && !loading && (
+                <div className="space-y-5 py-4">
+                  <div className="p-5 rounded-2xl bg-[#F4F7F4] border border-[#D7EED6] text-center space-y-2">
+                    <h4 className="font-heading font-black text-base text-[#10542C]">
+                      Chào mừng bạn đến với Cố Vấn Nguồn Hàng Sỉ HoNa Fresh!
                     </h4>
-                    {lastSearchedKeyword && (
-                      <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium">
-                        Từ khóa: <strong>"{lastSearchedKeyword}"</strong>
-                      </span>
-                    )}
+                    <p className="text-xs text-[#2C3E2E] max-w-xl mx-auto leading-relaxed">
+                      Tôi được trang bị dữ liệu thời vụ, sản lượng lô và nguồn cung trực tiếp từ 17 Hợp tác xã trên toàn quốc. Hãy chọn khu vực hoặc đặt câu hỏi về mùa vụ, giá sỉ bạn cần nhập hàng.
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {vectorItems.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3.5 bg-white rounded-2xl border border-slate-200 hover:border-emerald-400 hover:shadow-md transition-all flex gap-3"
-                      >
-                        <img
-                          src={item.product.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300'}
-                          alt={item.product.name}
-                          className="w-16 h-16 rounded-xl object-cover border border-slate-100 flex-shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <h5 className="font-semibold text-xs text-slate-800 truncate">{item.product.name}</h5>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex-shrink-0">
-                              Khớp {Math.round(item.similarity * 100)}%
+
+                  {/* DANH SÁCH VÙNG TRỒNG & HỢP TÁC XÃ TRỰC TIẾP */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-[#10542C]" />
+                        Gợi ý nguồn hàng theo Vùng Trồng & Hợp Tác Xã:
+                      </p>
+                      <span className="text-[11px] text-[#10542C] font-semibold">17 HTX trực tiếp toàn quốc</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {REGION_SHORTCUTS.map((reg) => (
+                        <button
+                          key={reg.name}
+                          onClick={() => {
+                            setQuery(reg.prompt);
+                            handleSendChat(reg.prompt);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 hover:border-[#10542C] text-[#2C3E2E] hover:text-[#10542C] text-xs font-semibold transition-all shadow-2xs hover:shadow-xs flex items-center gap-2 cursor-pointer group"
+                        >
+                          <span className="text-xs group-hover:scale-110 transition-transform">📍</span>
+                          <span className="font-bold">{reg.name}</span>
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-full font-bold">
+                            {reg.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Gợi ý câu hỏi nhanh:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {quickPrompts.map((p, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const cleanQuery = p.replace(/^[^\s]+\s/, '');
+                            setQuery(cleanQuery);
+                            handleSendChat(cleanQuery);
+                          }}
+                          className="text-left text-xs sm:text-sm p-3.5 rounded-2xl bg-[#F9F9F5] hover:bg-[#D7EED6]/40 border border-[#EAECE8] hover:border-[#10542C]/40 text-[#2C3E2E] hover:text-[#10542C] transition-all shadow-2xs font-medium cursor-pointer"
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* LỊCH SỬ TIN NHẮN (Multi-turn Conversation History) */}
+              {messages.map((msg) => (
+                <div key={msg.id} className="space-y-3 animate-in fade-in duration-200">
+                  {/* Tin nhắn từ User */}
+                  {msg.sender === 'user' && (
+                    <div className="flex justify-end items-end gap-2">
+                      <span className="text-[10px] text-slate-400 mb-1">{msg.timestamp}</span>
+                      <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-xs bg-[#10542C] text-white text-xs sm:text-sm font-medium shadow-sm leading-relaxed">
+                        {msg.text}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tin nhắn từ Trợ lý AI */}
+                  {msg.sender === 'assistant' && (
+                    <div className="space-y-4">
+                      {/* Bong bóng trả lời văn bản */}
+                      <div className="p-5 rounded-3xl bg-gradient-to-b from-[#F4F7F4] to-white border border-[#D7EED6] text-[#2C3E2E] space-y-3 shadow-xs">
+                        <div className="flex items-center justify-between border-b border-emerald-100 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-[#10542C]" />
+                            <span className="font-heading font-black text-xs sm:text-sm text-[#10542C]">
+                              Cố Vấn Nguồn Hàng HoNa Fresh
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">{item.product.description}</p>
-                          <div className="flex items-center justify-between mt-2">
-                            <span className="text-emerald-700 font-bold text-xs">
-                              {Number(item.product.price).toLocaleString('vi-VN')} đ/{item.product.unit}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                              Nông Trại Trực Tiếp
                             </span>
-                            <button
-                              onClick={() => {
-                                addToCart(item.product, 1);
-                                alert(`Đã thêm ${item.product.name} vào giỏ!`);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-medium transition-colors"
-                            >
-                              Chọn mua
-                            </button>
+                            <span className="text-[10px] text-slate-400">{msg.timestamp}</span>
                           </div>
                         </div>
+
+                        {/* VĂN BẢN ĐƯỢC FORMAT TYPOGRAPHY CHUẨN */}
+                        <FormattedAnswer text={msg.text} />
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Danh sách Lô hàng sỉ đề xuất tương ứng cho câu trả lời này */}
+                      {msg.recommendedProducts && msg.recommendedProducts.length > 0 && (
+                        <div className="space-y-3 pt-1">
+                          <div className="flex items-center gap-2">
+                            <ShoppingBag className="w-4 h-4 text-[#10542C]" />
+                            <h4 className="font-heading font-bold text-xs sm:text-sm text-[#2C3E2E]">
+                              Lô Hàng Sỉ Đang Thu Hoạch Phù Hợp Nhu Cầu:
+                            </h4>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            {msg.recommendedProducts.map((p) => (
+                              <div
+                                key={p.id}
+                                className="p-3 bg-white rounded-2xl border border-[#EAECE8] hover:border-[#10542C] hover:shadow-md transition-all flex flex-col justify-between"
+                              >
+                                <div className="flex gap-3">
+                                  <img
+                                    src={p.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300'}
+                                    alt={p.name}
+                                    className="w-16 h-16 rounded-xl object-cover border border-[#EAECE8] shrink-0"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <h5 className="font-bold text-xs text-[#2C3E2E] line-clamp-1">{p.name}</h5>
+                                    <p className="text-[10px] text-[#4CAF50] font-semibold line-clamp-1 mt-0.5">
+                                      📍 {p.origin || p.farmLocation || 'Đà Lạt, Lâm Đồng'}
+                                    </p>
+                                    <div className="flex items-baseline gap-1.5 mt-1">
+                                      <p className="text-[#10542C] font-black text-xs">
+                                        {Number(p.price).toLocaleString('vi-VN')} đ <span className="text-[10px] font-normal text-[#6B7280]">/kg</span>
+                                      </p>
+                                      <span className="text-[10px] text-slate-500 font-medium">
+                                        • MOQ: {p.moq || 200}kg
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    addToCart(p, 1);
+                                    alert(`Đã thêm lô ${p.name} vào danh sách đặt cọc sỉ!`);
+                                  }}
+                                  className="mt-2.5 w-full py-1.5 px-3 rounded-xl bg-[#10542C] hover:bg-[#0C3E20] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <ShoppingBag className="w-3.5 h-3.5" />
+                                  Thêm vào lô đặt sỉ
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Ưu đãi chiết khấu đi kèm */}
+                      {msg.hotDeals && msg.hotDeals.length > 0 && (
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center gap-1.5">
+                            <Flame className="w-3.5 h-3.5 text-[#FB8C00]" />
+                            <h5 className="font-heading font-bold text-xs text-[#2C3E2E]">
+                              Lô Chiết Khấu Sỉ Tốt Nhất Khu Vực Này:
+                            </h5>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {msg.hotDeals.map((d) => (
+                              <div
+                                key={d.id}
+                                className="p-2.5 bg-gradient-to-br from-amber-50/60 to-orange-50/40 rounded-xl border border-orange-200/80 flex items-center justify-between"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <h6 className="font-bold text-xs text-[#2C3E2E] truncate">{d.name}</h6>
+                                  <p className="text-orange-600 font-black text-xs">
+                                    {Number(d.price).toLocaleString('vi-VN')} đ/kg
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    addToCart(d, 1);
+                                    alert(`Đã thêm lô ${d.name} vào danh sách đặt cọc sỉ!`);
+                                  }}
+                                  className="p-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white shrink-0 transition-colors shadow-xs cursor-pointer"
+                                  title="Thêm vào lô đặt cọc"
+                                >
+                                  <ShoppingBag className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Loading Indicator */}
+              {loading && (
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-[#F4F7F4] border border-[#D7EED6] text-slate-600 animate-in fade-in">
+                  <Loader2 className="w-5 h-5 text-[#10542C] animate-spin" />
+                  <span className="text-xs sm:text-sm font-bold text-[#10542C] animate-pulse">
+                    Cố Vấn HoNa Fresh đang kiểm tra nguồn hàng & tính toán sản lượng lô...
+                  </span>
                 </div>
               )}
+
+              {/* Anchor tự động cuộn xuống cuối */}
+              <div ref={messagesEndRef} />
             </div>
           )}
 
-          {/* TAB 3: CONFIG GEMINI API KEY */}
+          {/* TAB 2: CONFIG GEMINI API KEY */}
           {activeTab === 'config' && (
-            <div className="space-y-6 max-w-xl mx-auto">
-              <div className="p-5 rounded-3xl bg-slate-50 border border-slate-200/80 space-y-4">
+            <div className="space-y-6 max-w-xl mx-auto py-4">
+              <div className="p-6 rounded-3xl bg-[#F9F9F5] border border-[#EAECE8] space-y-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-[#10542C]">
                     <Key className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-slate-800">Cấu hình Google Gemini API Key</h4>
-                    <p className="text-xs text-slate-500">Mượn trí thông minh của Gemini 1.5 Flash & text-embedding-004</p>
+                    <h4 className="font-heading font-bold text-sm text-[#2C3E2E]">Cấu hình Google Gemini API Key</h4>
+                    <p className="text-xs text-[#6B7280]">Kích hoạt trí tuệ nhân tạo Gemini để hỗ trợ khách hàng</p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-700">Gemini API Key (Google AI Studio):</label>
+                  <label className="text-xs font-bold text-[#2C3E2E]">Gemini API Key (Google AI Studio):</label>
                   <input
                     type="password"
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="Dán AIzaSy... vào đây"
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-mono"
+                    placeholder="Dán AIzaSy... hoặc AQ.Ab8... vào đây"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-[#EAECE8] bg-white focus:outline-none focus:ring-2 focus:ring-[#10542C] text-xs sm:text-sm font-mono"
                   />
-                  <p className="text-[11px] text-slate-500">
-                    💡 Bạn có thể lấy 1 API Key <strong>hoàn toàn miễn phí</strong> tại:{' '}
+                  <p className="text-[11px] text-[#6B7280]">
+                    💡 Bạn có thể tạo 1 API Key <strong>hoàn toàn miễn phí</strong> tại:{' '}
                     <a
                       href="https://aistudio.google.com/app/apikey"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-emerald-700 font-semibold underline"
+                      className="text-[#10542C] font-bold underline"
                     >
                       Google AI Studio (aistudio.google.com)
                     </a>
@@ -493,14 +654,14 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
                 <div className="flex gap-2 pt-2">
                   <button
                     onClick={handleSaveApiKey}
-                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors"
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold text-xs transition-colors cursor-pointer"
                   >
                     Lưu & Kích Hoạt Key
                   </button>
                   <button
                     onClick={handleSyncVector}
                     disabled={syncing}
-                    className="py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    className="py-2.5 px-4 rounded-xl border border-[#EAECE8] bg-white hover:bg-[#F4F5F1] text-[#2C3E2E] font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
                     Đồng bộ lại Vector
@@ -508,7 +669,7 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
                 </div>
 
                 {configMsg && (
-                  <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-700 animate-in fade-in">
+                  <div className="p-3 rounded-xl bg-white border border-[#EAECE8] text-xs text-[#2C3E2E] font-medium animate-in fade-in">
                     {configMsg}
                   </div>
                 )}
@@ -520,20 +681,115 @@ export default function AiAssistantModal({ isOpen, onClose }: AiAssistantModalPr
 
         {/* Footer Input Bar (cho tab chat) */}
         {activeTab === 'chat' && (
-          <div className="p-4 bg-slate-50 border-t border-slate-200/80">
-            <div className="flex gap-2">
+          <div className="bg-slate-50 border-t border-slate-200/80">
+            {/* KHAY GỢI Ý NÔNG SẢN TỨC THÌ THEO KHU VỰC HOẶC TỪ KHÓA KHI NHẬP */}
+            {(liveSuggestions.length > 0 || isSearchingSuggestions) && (
+              <div className="px-5 py-3 bg-gradient-to-r from-emerald-50/95 via-[#F4F7F4] to-white border-b border-emerald-200/80 shadow-inner animate-in slide-in-from-bottom-2 duration-150">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-[#10542C] animate-pulse" />
+                    <span className="text-xs font-black text-[#10542C]">
+                      {matchedRegionName 
+                        ? `🌾 Gợi ý sản phẩm tại ${matchedRegionName} (${liveSuggestions.length} lô nông sản thực tế):`
+                        : `🌾 Sản phẩm khớp từ khóa "${query}" (${liveSuggestions.length} lô tìm thấy):`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {matchedRegionName && (
+                      <button
+                        onClick={() => {
+                          const fullPrompt = `Tôi muốn nhập sỉ các sản phẩm nông sản tại khu vực ${matchedRegionName}`;
+                          setQuery(fullPrompt);
+                          handleSendChat(fullPrompt);
+                        }}
+                        className="text-[11px] font-bold text-[#10542C] hover:underline cursor-pointer"
+                      >
+                        ⚡ Xem phân tích chi tiết vùng này →
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => setLiveSuggestions([])}
+                      className="text-slate-400 hover:text-slate-600 p-0.5 text-xs font-bold cursor-pointer"
+                      title="Đóng gợi ý nhanh"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* Danh sách thẻ card cuộn ngang */}
+                <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
+                  {liveSuggestions.map((prod) => (
+                    <div
+                      key={prod.id}
+                      className="shrink-0 w-60 p-2.5 bg-white rounded-2xl border border-emerald-100 hover:border-[#10542C] shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex gap-2.5">
+                        <img
+                          src={prod.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=200'}
+                          alt={prod.name}
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-100 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h6 className="font-bold text-xs text-[#2C3E2E] truncate" title={prod.name}>
+                            {prod.name}
+                          </h6>
+                          <p className="text-[10px] text-[#4CAF50] font-semibold truncate mt-0.5">
+                            📍 {prod.origin || prod.farmLocation || 'Đà Lạt, Lâm Đồng'}
+                          </p>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-[#10542C] font-black text-xs">
+                              {Number(prod.price).toLocaleString('vi-VN')} đ/kg
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-medium">
+                              MOQ: {prod.moq || 200}kg
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-1.5 mt-2">
+                        <button
+                          onClick={() => {
+                            const promptText = `Báo giá sỉ và thời vụ lô ${prod.name} tại ${prod.origin || 'vườn'}`;
+                            setQuery(promptText);
+                            handleSendChat(promptText);
+                          }}
+                          className="flex-1 py-1 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#10542C] text-[10px] font-bold text-center transition-colors cursor-pointer"
+                        >
+                          Hỏi AI lô này
+                        </button>
+                        <button
+                          onClick={() => {
+                            addToCart(prod, 1);
+                            alert(`Đã thêm lô ${prod.name} vào đơn đặt sỉ!`);
+                          }}
+                          className="py-1 px-2.5 rounded-lg bg-[#10542C] hover:bg-[#0C3E20] text-white text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                        >
+                          <ShoppingBag className="w-3 h-3" />
+                          Đặt sỉ
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Ô nhập liệu Input */}
+            <div className="p-4 flex gap-2">
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-                placeholder="Hỏi HoNa Fresh AI về món ăn, rau sạch hoặc giá tốt..."
-                className="flex-1 px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                placeholder="Nhập tên khu vực (Đồng Nai, Đắk Lắk, Gia Lai...) hoặc hỏi về mùa vụ, giá sỉ..."
+                className="w-full flex-1 px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#10542C] text-xs sm:text-sm bg-white text-[#2C3E2E]"
               />
               <button
                 onClick={() => handleSendChat()}
                 disabled={loading || !query.trim()}
-                className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50 shadow-md shadow-emerald-600/20"
+                className="px-5 py-3 rounded-2xl bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors disabled:opacity-50 shadow-md shadow-[#10542C]/20 shrink-0 cursor-pointer"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 Gửi câu hỏi

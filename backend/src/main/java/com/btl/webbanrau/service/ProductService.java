@@ -18,11 +18,65 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class ProductService {
+
+    public static final Map<String, String> LOCATION_PATTERNS = new LinkedHashMap<>();
+    static {
+        LOCATION_PATTERNS.put("đắk lắk", "Đắk Lắk");
+        LOCATION_PATTERNS.put("dak lak", "Đắk Lắk");
+        LOCATION_PATTERNS.put("đak lăk", "Đắk Lắk");
+        LOCATION_PATTERNS.put("daklak", "Đắk Lắk");
+        LOCATION_PATTERNS.put("buôn hồ", "Buôn Hồ");
+        LOCATION_PATTERNS.put("buon ho", "Buôn Hồ");
+        LOCATION_PATTERNS.put("đồng nai", "Đồng Nai");
+        LOCATION_PATTERNS.put("dong nai", "Đồng Nai");
+        LOCATION_PATTERNS.put("long khánh", "Long Khánh");
+        LOCATION_PATTERNS.put("long khanh", "Long Khánh");
+        LOCATION_PATTERNS.put("lâm đồng", "Lâm Đồng");
+        LOCATION_PATTERNS.put("lam dong", "Lâm Đồng");
+        LOCATION_PATTERNS.put("đà lạt", "Đà Lạt");
+        LOCATION_PATTERNS.put("da lat", "Đà Lạt");
+        LOCATION_PATTERNS.put("đơn dương", "Đơn Dương");
+        LOCATION_PATTERNS.put("don duong", "Đơn Dương");
+        LOCATION_PATTERNS.put("đức trọng", "Đức Trọng");
+        LOCATION_PATTERNS.put("duc trong", "Đức Trọng");
+        LOCATION_PATTERNS.put("gia lai", "Gia Lai");
+        LOCATION_PATTERNS.put("chư prông", "Chư Prông");
+        LOCATION_PATTERNS.put("chu prong", "Chư Prông");
+        LOCATION_PATTERNS.put("hải dương", "Hải Dương");
+        LOCATION_PATTERNS.put("hai duong", "Hải Dương");
+        LOCATION_PATTERNS.put("nam sách", "Nam Sách");
+        LOCATION_PATTERNS.put("quảng ninh", "Quảng Ninh");
+        LOCATION_PATTERNS.put("quang ninh", "Quảng Ninh");
+        LOCATION_PATTERNS.put("đông triều", "Đông Triều");
+        LOCATION_PATTERNS.put("hà nội", "Hà Nội");
+        LOCATION_PATTERNS.put("ha noi", "Hà Nội");
+        LOCATION_PATTERNS.put("ba vì", "Ba Vì");
+        LOCATION_PATTERNS.put("cần thơ", "Cần Thơ");
+        LOCATION_PATTERNS.put("can tho", "Cần Thơ");
+        LOCATION_PATTERNS.put("thốt nốt", "Thốt Nốt");
+        LOCATION_PATTERNS.put("mộc châu", "Mộc Châu");
+        LOCATION_PATTERNS.put("moc chau", "Mộc Châu");
+        LOCATION_PATTERNS.put("sơn la", "Sơn La");
+        LOCATION_PATTERNS.put("son la", "Sơn La");
+        LOCATION_PATTERNS.put("vũng tàu", "Vũng Tàu");
+        LOCATION_PATTERNS.put("châu đức", "Châu Đức");
+        LOCATION_PATTERNS.put("vĩnh long", "Vĩnh Long");
+        LOCATION_PATTERNS.put("vinh long", "Vĩnh Long");
+        LOCATION_PATTERNS.put("tiền giang", "Tiền Giang");
+        LOCATION_PATTERNS.put("tien giang", "Tiền Giang");
+        LOCATION_PATTERNS.put("củ chi", "Củ Chi");
+        LOCATION_PATTERNS.put("hồ chí minh", "Hồ Chí Minh");
+        LOCATION_PATTERNS.put("bến tre", "Bến Tre");
+        LOCATION_PATTERNS.put("ben tre", "Bến Tre");
+        LOCATION_PATTERNS.put("ba tri", "Ba Tri");
+    }
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -35,10 +89,72 @@ public class ProductService {
         Sort sort = "ASC".equalsIgnoreCase(sortDir) ? Sort.by(sortBy).ascending() : Sort.by(sortBy).descending();
         Pageable pageable = PageRequest.of(page, size, sort);
 
+        Page<Product> productPage;
         String searchKeyword = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
 
-        Page<Product> productPage = productRepository.searchProducts(
-                searchKeyword, categoryId, minPrice, maxPrice, isOrganic, pageable);
+        if (searchKeyword != null) {
+            String lower = searchKeyword.toLowerCase();
+            String matchedLocation = null;
+            String matchedKey = null;
+
+            // 1. Kiểm tra từ điển địa danh nông nghiệp thực tế trong CSDL
+            for (Map.Entry<String, String> entry : LOCATION_PATTERNS.entrySet()) {
+                if (lower.contains(entry.getKey())) {
+                    matchedKey = entry.getKey();
+                    matchedLocation = entry.getValue();
+                    break;
+                }
+            }
+
+            if (matchedLocation != null) {
+                // Tách từ khóa sản phẩm bằng cách loại bỏ địa danh và các hư từ
+                String productTerm = lower.replace(matchedKey, " ")
+                        .replaceAll("\\b(ở|tại|vùng|khu vực|tỉnh|thành phố|tp|huyện|thị xã|sản phẩm|nông sản|lô)\\b", " ")
+                        .replaceAll("\\s+", " ")
+                        .trim();
+
+                if (!productTerm.isEmpty()) {
+                    productPage = productRepository.searchProductsMultiTerms(
+                            productTerm, matchedLocation, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                    if (productPage.isEmpty()) {
+                        productPage = productRepository.searchProducts(
+                                matchedLocation, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                    }
+                } else {
+                    productPage = productRepository.searchProducts(
+                            matchedLocation, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                }
+            } else {
+                // 2. Nếu không trùng từ điển, kiểm tra các từ nối "ở", "tại"...
+                String[] delimiters = {" ở khu vực ", " khu vực ", " tại tỉnh ", " ở tỉnh ", " tại ", " ở ", " vùng "};
+                String term1 = null;
+                String term2 = null;
+
+                for (String delim : delimiters) {
+                    if (lower.contains(delim)) {
+                        int idx = lower.indexOf(delim);
+                        term1 = searchKeyword.substring(0, idx).trim();
+                        term2 = searchKeyword.substring(idx + delim.length()).trim();
+                        break;
+                    }
+                }
+
+                if (term1 != null && term2 != null && !term1.isEmpty() && !term2.isEmpty()) {
+                    productPage = productRepository.searchProductsMultiTerms(
+                            term1, term2, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                    if (productPage.isEmpty()) {
+                        productPage = productRepository.searchProducts(
+                                term2, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                    }
+                } else {
+                    productPage = productRepository.searchProducts(
+                            searchKeyword, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                }
+            }
+        } else {
+            productPage = productRepository.searchProducts(
+                    null, categoryId, minPrice, maxPrice, isOrganic, pageable);
+        }
 
         List<ProductResponse> list = productPage.getContent().stream()
                 .map(this::mapToResponse)

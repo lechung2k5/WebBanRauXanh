@@ -45,6 +45,7 @@ function ProductListContent() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSemanticResult, setIsSemanticResult] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(initialCategory);
   const [priceRange, setPriceRange] = useState<number>(100000);
@@ -76,6 +77,7 @@ function ProductListContent() {
           isOrganic: selectedCert === 'organic' ? true : undefined,
         });
         setProducts(res.products);
+        setIsSemanticResult(Boolean(res.isSemanticSearch));
       } catch (err) {
         console.error('Error fetching products:', err);
       } finally {
@@ -304,6 +306,24 @@ function ProductListContent() {
 
           {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột): 1 hàng 1 card trải rộng chiều ngang */}
           <div className="lg:col-span-3 space-y-6">
+            {isSemanticResult && !loading && products.length > 0 && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-emerald-950">
+                      Gợi ý nguồn hàng phù hợp: Đã tìm thấy {products.length} lô nông sản cho &quot;{searchQuery}&quot;
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 mt-0.5">
+                      Hệ thống tự động kết nối các nông trại &amp; HTX có nguồn cung đáp ứng từ khóa tìm kiếm của bạn.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <div className="flex flex-col gap-4">
                 {[...Array(6)].map((_, i) => (

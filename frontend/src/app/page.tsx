@@ -1017,13 +1017,13 @@ export default function HomePage() {
       <button
         onClick={() => setIsAiOpen(true)}
         className="fixed bottom-6 right-6 z-40 group flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-green-700 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all border border-emerald-300/40 cursor-pointer"
-        title="Mở Trợ lý Nông Sản AI & Tìm kiếm pgvector"
+        title="Mở Trợ Lý HoNa Fresh"
       >
         <div className="relative">
           <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
           <span className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-400 rounded-full animate-ping"></span>
         </div>
-        <span className="font-bold text-xs tracking-wide">Hỏi AI & Vector</span>
+        <span className="font-bold text-xs tracking-wide">Trợ Lý HoNa Fresh</span>
       </button>
     </div>
   );

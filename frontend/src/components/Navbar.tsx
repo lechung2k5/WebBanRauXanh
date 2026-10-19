@@ -16,7 +16,8 @@ import {
   ReceiptText,
   Sparkles,
 } from 'lucide-react';
-import { AuthResponse } from '@/types';
+import { AuthResponse, Product } from '@/types';
+import { getProducts } from '@/services/api';
 
 interface NavbarProps {
   cartCount: number;
@@ -55,6 +56,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [navbarSuggestions, setNavbarSuggestions] = useState<Product[]>([]);
+  const [navMatchedRegion, setNavMatchedRegion] = useState<string | null>(null);
+  const [isNavDropdownOpen, setIsNavDropdownOpen] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -63,6 +67,67 @@ export const Navbar: React.FC<NavbarProps> = ({
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed || trimmed.length < 2) {
+      setNavbarSuggestions([]);
+      setNavMatchedRegion(null);
+      setIsNavDropdownOpen(false);
+      return;
+    }
+
+    const REGION_MAP: { [key: string]: string } = {
+      'đồng nai': 'Đồng Nai',
+      'dong nai': 'Đồng Nai',
+      'long khánh': 'Long Khánh',
+      'đắk lắk': 'Đắk Lắk',
+      'dak lak': 'Đắk Lắk',
+      'buôn hồ': 'Buôn Hồ',
+      'đà lạt': 'Đà Lạt',
+      'lâm đồng': 'Lâm Đồng',
+      'đơn dương': 'Đơn Dương',
+      'đức trọng': 'Đức Trọng',
+      'gia lai': 'Gia Lai',
+      'chư prông': 'Chư Prông',
+      'mộc châu': 'Mộc Châu',
+      'hải dương': 'Hải Dương',
+      'quảng ninh': 'Quảng Ninh',
+      'ba vì': 'Ba Vì',
+      'hà nội': 'Hà Nội',
+      'cần thơ': 'Cần Thơ',
+      'vĩnh long': 'Vĩnh Long',
+      'tiền giang': 'Tiền Giang',
+      'bến tre': 'Bến Tre',
+    };
+
+    let matched: string | null = null;
+    for (const [k, v] of Object.entries(REGION_MAP)) {
+      if (trimmed.includes(k)) {
+        matched = v;
+        break;
+      }
+    }
+    setNavMatchedRegion(matched);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await getProducts({ keyword: matched || searchQuery.trim(), size: 5 });
+        if (res && res.products && res.products.length > 0) {
+          setNavbarSuggestions(res.products);
+          setIsNavDropdownOpen(true);
+        } else {
+          setNavbarSuggestions([]);
+          setIsNavDropdownOpen(false);
+        }
+      } catch {
+        setNavbarSuggestions([]);
+        setIsNavDropdownOpen(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-xs transition-all">
@@ -133,14 +198,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Thanh Tìm kiếm Lô Nông Sản B2B (Đơn giản, Rộng rãi, Tích hợp nút Tìm sỉ) */}
-            <div className="hidden md:flex flex-1 max-w-2xl mx-2">
-              <form onSubmit={onSearchSubmit} className="relative w-full flex items-center">
+            <div className="hidden md:flex flex-1 max-w-2xl mx-2 relative">
+              <form 
+                onSubmit={(e) => {
+                  setIsNavDropdownOpen(false);
+                  onSearchSubmit(e);
+                }} 
+                className="relative w-full flex items-center"
+              >
                 <Search className="w-4 h-4 text-[#4CAF50] absolute left-4 z-10" />
                 <input
                   type="text"
-                  placeholder="Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng, Nấm tươi..."
+                  placeholder="Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng, Nấm tươi Đồng Nai..."
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
+                  onFocus={() => navbarSuggestions.length > 0 && setIsNavDropdownOpen(true)}
                   className="w-full bg-[#F9F9F5] hover:bg-white focus:bg-white border-[1.5px] border-[#E5E7EB] focus:border-[#10542C] rounded-full pl-11 pr-24 h-11 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none transition-all shadow-2xs"
                 />
                 <button
@@ -150,6 +222,81 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>Tìm sỉ</span>
                 </button>
               </form>
+
+              {/* DROPDOWN GỢI Ý TỨC THÌ THEO KHU VỰC VÀ SẢN PHẨM */}
+              {isNavDropdownOpen && navbarSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-13 bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 z-50 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 px-1 mb-2">
+                    <span className="text-xs font-bold text-[#10542C] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      {navMatchedRegion 
+                        ? `Gợi ý nông sản tại ${navMatchedRegion} (${navbarSuggestions.length} lô phù hợp):`
+                        : `Gợi ý sản phẩm khớp "${searchQuery}":`}
+                    </span>
+                    <button
+                      onClick={() => setIsNavDropdownOpen(false)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
+                    >
+                      ✕ Đóng
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                    {navbarSuggestions.map((item) => (
+                      <Link
+                        key={item.id}
+                        href={`/san-pham/${item.slug}`}
+                        onClick={() => setIsNavDropdownOpen(false)}
+                        className="flex items-center gap-3 p-2 rounded-xl hover:bg-emerald-50/70 transition-colors group cursor-pointer"
+                      >
+                        <img
+                          src={item.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=100'}
+                          alt={item.name}
+                          className="w-10 h-10 rounded-lg object-cover border border-slate-100 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-[#2C3E2E] group-hover:text-[#10542C] truncate">
+                            {item.name}
+                          </p>
+                          <p className="text-[10px] text-emerald-700 font-semibold truncate">
+                            📍 {item.origin || item.farmLocation || 'Đà Lạt'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-black text-[#10542C]">
+                            {Number(item.price).toLocaleString('vi-VN')} đ/kg
+                          </p>
+                          <p className="text-[9px] text-slate-400">MOQ: {item.moq || 200}kg</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between text-xs px-1">
+                    {onOpenAi && (
+                      <button
+                        onClick={() => {
+                          setIsNavDropdownOpen(false);
+                          onOpenAi();
+                        }}
+                        className="text-[11px] font-bold text-[#10542C] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Hỏi Trợ lý AI về vùng này
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        setIsNavDropdownOpen(false);
+                        onSearchSubmit(e);
+                      }}
+                      className="ml-auto text-[11px] font-bold text-slate-500 hover:text-[#10542C] cursor-pointer"
+                    >
+                      Xem tất cả kết quả →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Khối Tiện Ích B2B & Tài Khoản */}

@@ -23,7 +23,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     @Query("SELECT p FROM Product p WHERE p.isActive = true AND " +
            "(:categoryId IS NULL OR p.category.id = :categoryId) AND " +
-           "(CAST(:keyword AS string) IS NULL OR LOWER(p.name) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') OR LOWER(p.description) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%')) AND " +
+           "(CAST(:keyword AS string) IS NULL OR " +
+           " LOWER(p.name) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') OR " +
+           " LOWER(p.description) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') OR " +
+           " LOWER(p.origin) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') OR " +
+           " LOWER(p.brand) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') OR " +
+           " (p.category IS NOT NULL AND LOWER(p.category.name) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%'))) AND " +
            "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
            "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
            "(:isOrganic IS NULL OR p.isOrganic = :isOrganic)")
@@ -33,4 +38,24 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                  @Param("maxPrice") BigDecimal maxPrice,
                                  @Param("isOrganic") Boolean isOrganic,
                                  Pageable pageable);
+
+    @Query("SELECT p FROM Product p WHERE p.isActive = true AND " +
+           "(:categoryId IS NULL OR p.category.id = :categoryId) AND " +
+           "(LOWER(p.name) LIKE CONCAT('%', LOWER(CAST(:term1 AS string)), '%') OR " +
+           " LOWER(p.description) LIKE CONCAT('%', LOWER(CAST(:term1 AS string)), '%') OR " +
+           " (p.category IS NOT NULL AND LOWER(p.category.name) LIKE CONCAT('%', LOWER(CAST(:term1 AS string)), '%'))) AND " +
+           "(LOWER(p.origin) LIKE CONCAT('%', LOWER(CAST(:term2 AS string)), '%') OR " +
+           " LOWER(p.brand) LIKE CONCAT('%', LOWER(CAST(:term2 AS string)), '%') OR " +
+           " LOWER(p.name) LIKE CONCAT('%', LOWER(CAST(:term2 AS string)), '%') OR " +
+           " LOWER(p.description) LIKE CONCAT('%', LOWER(CAST(:term2 AS string)), '%')) AND " +
+           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+           "(:isOrganic IS NULL OR p.isOrganic = :isOrganic)")
+    Page<Product> searchProductsMultiTerms(@Param("term1") String term1,
+                                          @Param("term2") String term2,
+                                          @Param("categoryId") Long categoryId,
+                                          @Param("minPrice") BigDecimal minPrice,
+                                          @Param("maxPrice") BigDecimal maxPrice,
+                                          @Param("isOrganic") Boolean isOrganic,
+                                          Pageable pageable);
 }
