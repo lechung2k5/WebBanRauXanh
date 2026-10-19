@@ -32,9 +32,12 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'users'>('products');
   const [products, setProducts] = useState<Product[]>([]);
+  const [totalProducts, setTotalProducts] = useState<number>(0);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchKw, setSearchKw] = useState('');
+  const [adminPage, setAdminPage] = useState<number>(1);
+  const itemsPerPage = 25;
 
   // Modal thêm sản phẩm mới
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -60,10 +63,11 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const [prodRes, userRes] = await Promise.all([
-        getProducts({ size: 100 }),
+        getProducts({ size: 1000 }), // Lấy toàn bộ sản phẩm (639 sản phẩm)
         getUsersApi(),
       ]);
       setProducts(prodRes.products);
+      setTotalProducts(prodRes.totalElements || prodRes.products.length);
       setUsers(userRes);
     } catch (err) {
       console.error('Error fetching admin data:', err);
@@ -130,6 +134,12 @@ export default function AdminPage() {
       p.origin?.toLowerCase().includes(searchKw.toLowerCase())
   );
 
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const paginatedProducts = filteredProducts.slice(
+    (adminPage - 1) * itemsPerPage,
+    adminPage * itemsPerPage
+  );
+
   return (
     <div className="min-h-screen bg-[#F9F9F5] flex flex-col justify-between">
       <Header />
@@ -169,7 +179,7 @@ export default function AdminPage() {
               <span className="text-xs font-bold">Tổng sản phẩm</span>
               <Package className="w-4 h-4 text-[#10542C]" />
             </div>
-            <p className="font-heading font-black text-2xl text-[#10542C]">{products.length}</p>
+            <p className="font-heading font-black text-2xl text-[#10542C]">{totalProducts || products.length}</p>
             <span className="text-[10px] text-[#4CAF50] font-bold mt-1 block">Kho nông sản tươi sạch HoNa Fresh</span>
           </div>
 
@@ -212,7 +222,7 @@ export default function AdminPage() {
                 : 'text-[#6B7280] hover:text-[#10542C]'
             }`}
           >
-            Quản Lý Sản Phẩm ({products.length})
+            Quản Lý Sản Phẩm ({totalProducts || products.length})
           </button>
           <button
             type="button"
@@ -236,13 +246,16 @@ export default function AdminPage() {
                   type="text"
                   placeholder="Tìm sản phẩm theo tên, xuất xứ..."
                   value={searchKw}
-                  onChange={(e) => setSearchKw(e.target.value)}
+                  onChange={(e) => {
+                    setSearchKw(e.target.value);
+                    setAdminPage(1);
+                  }}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 />
                 <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
               <span className="text-xs text-[#6B7280]">
-                Hiển thị {filteredProducts.length} sản phẩm
+                Hiển thị {filteredProducts.length > 0 ? (adminPage - 1) * itemsPerPage + 1 : 0} - {Math.min(adminPage * itemsPerPage, filteredProducts.length)} trên tổng số <strong className="text-[#10542C]">{totalProducts || products.length}</strong> sản phẩm
               </span>
             </div>
 
@@ -260,7 +273,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#F0F2ED]">
-                  {filteredProducts.map((p) => (
+                  {paginatedProducts.map((p) => (
                     <tr key={p.id} className="hover:bg-[#F9F9F5]/60 transition-colors">
                       <td className="py-3 px-3 flex items-center gap-3">
                         <img
@@ -321,6 +334,36 @@ export default function AdminPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Phân trang Admin */}
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#EAECE8]">
+                <p className="text-xs text-[#6B7280]">
+                  Trang <strong className="text-[#10542C]">{adminPage}</strong> / {totalPages} (25 sản phẩm / trang)
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={adminPage === 1}
+                    onClick={() => setAdminPage((prev) => Math.max(prev - 1, 1))}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#EAECE8] bg-white text-[#2C3E2E] hover:bg-[#F9F9F5] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Trang trước
+                  </button>
+                  <span className="text-xs px-2.5 py-1 font-bold bg-[#D7EED6] text-[#10542C] rounded-lg">
+                    {adminPage}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={adminPage >= totalPages}
+                    onClick={() => setAdminPage((prev) => Math.min(prev + 1, totalPages))}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#EAECE8] bg-white text-[#2C3E2E] hover:bg-[#F9F9F5] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Trang sau
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

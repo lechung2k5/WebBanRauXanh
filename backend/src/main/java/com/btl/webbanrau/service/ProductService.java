@@ -35,8 +35,10 @@ public class ProductService {
         Sort sort = "ASC".equalsIgnoreCase(sortDir) ? Sort.by(sortBy).ascending() : Sort.by(sortBy).descending();
         Pageable pageable = PageRequest.of(page, size, sort);
 
+        String searchKeyword = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+
         Page<Product> productPage = productRepository.searchProducts(
-                keyword, categoryId, minPrice, maxPrice, isOrganic, pageable);
+                searchKeyword, categoryId, minPrice, maxPrice, isOrganic, pageable);
 
         List<ProductResponse> list = productPage.getContent().stream()
                 .map(this::mapToResponse)

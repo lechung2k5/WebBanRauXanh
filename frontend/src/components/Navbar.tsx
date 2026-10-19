@@ -14,6 +14,7 @@ import {
   Clock,
   Sprout,
   ReceiptText,
+  Sparkles,
 } from 'lucide-react';
 import { AuthResponse } from '@/types';
 
@@ -23,6 +24,7 @@ interface NavbarProps {
   onOpenTracking: () => void;
   onOpenPromo: () => void;
   onOpenLocation: () => void;
+  onOpenAi?: () => void;
   currentLocation: string;
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -49,6 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onOpenAuth,
   onLogout,
+  onOpenAi,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);

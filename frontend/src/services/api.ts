@@ -1,4 +1,4 @@
-import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User } from '@/types';
+import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
@@ -455,4 +455,61 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
   } catch {
     return null;
   }
+};
+
+// ======================= AI & PGVECTOR APIS =======================
+
+export const semanticSearchApi = async (query: string, limit: number = 6): Promise<SemanticSearchResponse> => {
+  const res = await fetch(`${API_BASE_URL}/ai/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
+    cache: 'no-store',
+  });
+  const data: ApiResponse<SemanticSearchResponse> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi tìm kiếm ngữ nghĩa');
+  }
+  return data.result;
+};
+
+export const aiChatRagApi = async (message: string): Promise<AiChatResponse> => {
+  const res = await fetch(`${API_BASE_URL}/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data: ApiResponse<AiChatResponse> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi kết nối với AI');
+  }
+  return data.result;
+};
+
+export const getAiStatusApi = async (): Promise<AiStatusResponse> => {
+  const res = await fetch(`${API_BASE_URL}/ai/status`, { cache: 'no-store' });
+  const data: ApiResponse<AiStatusResponse> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error('Không thể lấy trạng thái AI');
+  }
+  return data.result;
+};
+
+export const configGeminiKeyApi = async (apiKey: string): Promise<boolean> => {
+  const res = await fetch(`${API_BASE_URL}/ai/config-key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data: ApiResponse<{ hasGeminiKey: boolean }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'API Key không hợp lệ');
+  }
+  return data.result?.hasGeminiKey ?? false;
+};
+
+export const syncAiEmbeddingsApi = async (): Promise<number> => {
+  const res = await fetch(`${API_BASE_URL}/ai/sync-embeddings`, { method: 'POST' });
+  const data: ApiResponse<{ syncedCount: number }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi đồng bộ vector');
+  }
+  return data.result?.syncedCount ?? 0;
 };

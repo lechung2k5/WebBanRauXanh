@@ -187,3 +187,28 @@ export interface OrderResponse {
   }[];
   createdAt: string;
 }
+
+export interface SemanticProductItem {
+  product: Product;
+  similarity: number;
+}
+
+export interface SemanticSearchResponse {
+  query: string;
+  totalMatches: number;
+  items: SemanticProductItem[];
+}
+
+export interface AiChatResponse {
+  answer: string;
+  recommendedProducts: Product[];
+  hotDeals: Product[];
+  hasGeminiKey: boolean;
+  modelUsed: string;
+}
+
+export interface AiStatusResponse {
+  hasGeminiKey: boolean;
+  vectorDimension: number;
+  database: string;
+}

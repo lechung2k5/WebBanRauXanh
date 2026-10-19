@@ -1,0 +1,111 @@
+package com.btl.webbanrau.controller;
+
+import com.btl.webbanrau.dto.request.AiChatRequest;
+import com.btl.webbanrau.dto.response.AiChatResponse;
+import com.btl.webbanrau.dto.response.ApiResponse;
+import com.btl.webbanrau.dto.response.SemanticSearchResponse;
+import com.btl.webbanrau.service.AiSearchService;
+import com.btl.webbanrau.service.GeminiService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/ai")
+@RequiredArgsConstructor
+@Tag(name = "AI & Vector Search", description = "Các API tìm kiếm ngữ nghĩa với pgvector và trợ lý ảo Gemini RAG")
+public class AiController {
+
+    private final AiSearchService aiSearchService;
+    private final GeminiService geminiService;
+
+    @Operation(summary = "Tìm kiếm sản phẩm theo ngữ nghĩa (pgvector Semantic Search)")
+    @GetMapping("/search")
+    public ResponseEntity<ApiResponse<SemanticSearchResponse>> semanticSearch(
+            @RequestParam("q") String query,
+            @RequestParam(value = "limit", defaultValue = "6") int limit) {
+        SemanticSearchResponse result = aiSearchService.searchByVector(query, limit);
+        return ResponseEntity.ok(ApiResponse.<SemanticSearchResponse>builder()
+                .code(200)
+                .message("Tìm kiếm ngữ nghĩa thành công")
+                .result(result)
+                .build());
+    }
+
+    @Operation(summary = "Trợ lý ẩm thực & nông sản thông minh RAG (Khách hỏi → Vector DB → Gemini → Trả lời)")
+    @PostMapping("/chat")
+    public ResponseEntity<ApiResponse<AiChatResponse>> chatRag(@Valid @RequestBody AiChatRequest request) {
+        AiChatResponse response = aiSearchService.chatWithRag(request.getMessage());
+        return ResponseEntity.ok(ApiResponse.<AiChatResponse>builder()
+                .code(200)
+                .message("Phản hồi AI thành công")
+                .result(response)
+                .build());
+    }
+
+    @Operation(summary = "Đồng bộ vector embedding cho toàn bộ nông sản trong DB")
+    @PostMapping("/sync-embeddings")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> syncEmbeddings() {
+        int count = aiSearchService.syncAllProductEmbeddings();
+        return ResponseEntity.ok(ApiResponse.<Map<String, Object>>builder()
+                .code(200)
+                .message("Đồng bộ vector embedding hoàn tất")
+                .result(Map.of(
+                        "syncedCount", count,
+                        "vectorDimension", 768,
+                        "hasGeminiKey", geminiService.hasApiKey()
+                ))
+                .build());
+    }
+
+    @Operation(summary = "Kiểm tra trạng thái kết nối Google Gemini & pgvector")
+    @GetMapping("/status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getStatus() {
+        return ResponseEntity.ok(ApiResponse.<Map<String, Object>>builder()
+                .code(200)
+                .message("Trạng thái AI")
+                .result(Map.of(
+                        "hasGeminiKey", geminiService.hasApiKey(),
+                        "vectorDimension", 768,
+                        "database", "PostgreSQL với pgvector extension"
+                ))
+                .build());
+    }
+
+    @Operation(summary = "Cấu hình Google Gemini API Key trực tiếp tại runtime")
+    @PostMapping("/config-key")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> configApiKey(@RequestBody Map<String, String> body) {
+        String key = body.get("apiKey");
+        if (key == null || key.trim().isEmpty()) {
+            geminiService.setApiKey("");
+            return ResponseEntity.ok(ApiResponse.<Map<String, Object>>builder()
+                    .code(200)
+                    .message("Đã xóa API Key thành công")
+                    .result(Map.of("hasGeminiKey", false, "valid", false))
+                    .build());
+        }
+
+        String cleanKey = key.trim();
+        // Kiểm tra xem key có bắt đầu hợp lệ không và gọi test Google API
+        boolean isValid = geminiService.validateApiKey(cleanKey);
+        if (isValid) {
+            geminiService.setApiKey(cleanKey);
+            return ResponseEntity.ok(ApiResponse.<Map<String, Object>>builder()
+                    .code(200)
+                    .message("✅ Đã xác thực và kích hoạt Google Gemini API Key thành công!")
+                    .result(Map.of("hasGeminiKey", true, "valid", true))
+                    .build());
+        } else {
+            return ResponseEntity.badRequest().body(ApiResponse.<Map<String, Object>>builder()
+                    .code(400)
+                    .message("API Key không hợp lệ hoặc không có quyền truy cập Google AI Studio. Vui lòng lấy API Key dạng 'AIzaSy...' tại https://aistudio.google.com")
+                    .result(Map.of("hasGeminiKey", false, "valid", false))
+                    .build());
+        }
+    }
+}

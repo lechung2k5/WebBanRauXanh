@@ -24,6 +24,8 @@ interface AppContextType {
   currentLocation: string;
   setCurrentLocation: (loc: string) => void;
   categories: Category[];
+  isAiOpen: boolean;
+  setIsAiOpen: (open: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -36,6 +38,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLocationOpen, setIsLocationOpen] = useState(false);
   const [currentLocation, setCurrentLocation] = useState('Phường Bến Nghé, Quận 1, TP.HCM');
   const [categories, setCategories] = useState<Category[]>([]);
+  const [isAiOpen, setIsAiOpen] = useState(false);
 
   // Load cart from localStorage
   useEffect(() => {
@@ -129,6 +132,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentLocation,
         setCurrentLocation,
         categories,
+        isAiOpen,
+        setIsAiOpen,
       }}
     >
       {children}

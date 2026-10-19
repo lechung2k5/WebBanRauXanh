@@ -20,3 +20,11 @@ frontend/out/
 .DS_Store
 Thumbs.db
 scratch/
+
+# Secrets & Environment Configurations
+.gemini_api_key
+**/.gemini_api_key
+.env
+.env*.local
+*.key
+*.pem

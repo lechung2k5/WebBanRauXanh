@@ -29,6 +29,8 @@ public class DataInitializer implements CommandLineRunner {
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.btl.webbanrau.service.AiSearchService aiSearchService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @Override
     public void run(String... args) {
@@ -209,11 +211,103 @@ public class DataInitializer implements CommandLineRunner {
                             .isFeatured(false)
                             .isActive(true)
                             .category(cat4)
+                            .build(),
+
+                    Product.builder()
+                            .name("Rau Muống Nước Thủy Canh")
+                            .slug(SlugUtil.toSlug("Rau Muống Nước Thủy Canh"))
+                            .description("Rau muống ngọn non xanh mướt, giòn ngọt, chuyên dùng xào tỏi hoặc nấu canh chua, luộc giải nhiệt.")
+                            .price(BigDecimal.valueOf(18000))
+                            .originalPrice(BigDecimal.valueOf(22000))
+                            .stockQuantity(150)
+                            .unit("bó 500g")
+                            .imageUrl("https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80")
+                            .origin("Củ Chi")
+                            .isOrganic(true)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat1)
+                            .build(),
+
+                    Product.builder()
+                            .name("Bí Đỏ Hạt Đậu Đà Lạt")
+                            .slug(SlugUtil.toSlug("Bí Đỏ Hạt Đậu Đà Lạt"))
+                            .description("Bí đỏ dẻo bùi ngọt thanh, giàu vitamin A, thích hợp nấu canh sườn, súp bí đỏ hoặc hầm xương.")
+                            .price(BigDecimal.valueOf(24000))
+                            .originalPrice(BigDecimal.valueOf(30000))
+                            .stockQuantity(80)
+                            .unit("quả 1kg")
+                            .imageUrl("https://images.unsplash.com/photo-1570586437503-903009b33cb7?w=600&auto=format&fit=crop&q=80")
+                            .origin("Đà Lạt")
+                            .isOrganic(true)
+                            .isFeatured(false)
+                            .isActive(true)
+                            .category(cat2)
+                            .build(),
+
+                    Product.builder()
+                            .name("Nấm Kim Châm Tươi")
+                            .slug(SlugUtil.toSlug("Nấm Kim Châm Tươi"))
+                            .description("Nấm kim châm trắng giòn, vị ngọt thanh mát, món khoái khẩu để nhúng lẩu, cuộn bò nướng hoặc nấu súp.")
+                            .price(BigDecimal.valueOf(16000))
+                            .originalPrice(BigDecimal.valueOf(20000))
+                            .stockQuantity(100)
+                            .unit("gói 150g")
+                            .imageUrl("https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80")
+                            .origin("Việt Nam")
+                            .isOrganic(true)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat3)
+                            .build(),
+
+                    Product.builder()
+                            .name("Bông Cải Xanh Baby (Broccoli)")
+                            .slug(SlugUtil.toSlug("Bông Cải Xanh Baby (Broccoli)"))
+                            .description("Súp lơ xanh giòn ngọt, giàu vitamin C và chất xơ, hỗ trợ giảm cân và bảo vệ tim mạch, xào thịt bò tuyệt ngon.")
+                            .price(BigDecimal.valueOf(38000))
+                            .originalPrice(BigDecimal.valueOf(45000))
+                            .stockQuantity(70)
+                            .unit("cây 400g")
+                            .imageUrl("https://images.unsplash.com/photo-1459411621453-7b03977f4bfc?w=600&auto=format&fit=crop&q=80")
+                            .origin("Đà Lạt")
+                            .isOrganic(true)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat1)
+                            .build(),
+
+                    Product.builder()
+                            .name("Dưa Leo Baby Giòn Ngọt")
+                            .slug(SlugUtil.toSlug("Dưa Leo Baby Giòn Ngọt"))
+                            .description("Dưa leo đặc ruột, không chát, mọng nước, cực kỳ thích hợp làm salad, ăn sống thanh lọc cơ thể.")
+                            .price(BigDecimal.valueOf(22000))
+                            .originalPrice(BigDecimal.valueOf(28000))
+                            .stockQuantity(90)
+                            .unit("hộp 500g")
+                            .imageUrl("https://images.unsplash.com/photo-1449339854873-750e6913301b?w=600&auto=format&fit=crop&q=80")
+                            .origin("Lâm Đồng")
+                            .isOrganic(true)
+                            .isFeatured(false)
+                            .isActive(true)
+                            .category(cat2)
                             .build()
             );
 
             productRepository.saveAll(products);
             log.info("Seeded initial categories and products successfully.");
+        }
+
+        // Tự động kiểm tra và đồng bộ vector embedding nếu còn sản phẩm chưa có vector
+        try {
+            Integer withoutEmbedding = jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM products WHERE embedding IS NULL", Integer.class);
+            if (withoutEmbedding != null && withoutEmbedding > 0) {
+                log.info("Phát hiện {} sản phẩm chưa có vector embedding. Đang tiến hành đồng bộ pgvector...", withoutEmbedding);
+                aiSearchService.syncAllProductEmbeddings();
+            }
+        } catch (Exception e) {
+            log.warn("Không thể tự động đồng bộ vector lúc khởi động: {}", e.getMessage());
         }
     }
 }
