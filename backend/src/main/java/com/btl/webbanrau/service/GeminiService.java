@@ -60,14 +60,22 @@ public class GeminiService {
         }
     }
 
-    @Value("${gemini.model.chat:gemini-3.8-flash}")
+    @Value("${gemini.model.chat:gemini-3.5-flash-lite}")
     private String chatModel;
 
     @Value("${gemini.model.embedding:gemini-embedding-001}")
     private String embeddingModel;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public GeminiService() {
+        this.restTemplate = new RestTemplate();
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000); // Kết nối tối đa 3 giây
+        factory.setReadTimeout(6000);    // Phản hồi tối đa 6 giây (Fail-fast chuyển model)
+        this.restTemplate.setRequestFactory(factory);
+    }
 
     public boolean hasApiKey() {
         return apiKey != null && !apiKey.trim().isEmpty();
@@ -174,9 +182,8 @@ public class GeminiService {
 
     private final List<String> fallbackChatModels = List.of(
             "gemini-3.5-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
             "gemini-flash-latest"
     );
 
@@ -219,8 +226,8 @@ public class GeminiService {
                 );
 
                 Map<String, Object> generationConfig = Map.of(
-                        "temperature", 0.4,
-                        "maxOutputTokens", 1000
+                        "temperature", 0.3,
+                        "maxOutputTokens", 650
                 );
 
                 Map<String, Object> requestBody = Map.of(

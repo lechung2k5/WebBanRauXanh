@@ -1,9 +1,7 @@
 package com.btl.webbanrau.controller;
 
 import com.btl.webbanrau.dto.request.AiChatRequest;
-import com.btl.webbanrau.dto.response.AiChatResponse;
-import com.btl.webbanrau.dto.response.ApiResponse;
-import com.btl.webbanrau.dto.response.SemanticSearchResponse;
+import com.btl.webbanrau.dto.response.*;
 import com.btl.webbanrau.service.AiSearchService;
 import com.btl.webbanrau.service.GeminiService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,12 +11,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/ai")
 @RequiredArgsConstructor
-@Tag(name = "AI & Vector Search", description = "Các API tìm kiếm ngữ nghĩa với pgvector và trợ lý ảo Gemini RAG")
+@Tag(name = "AI & Vector Search", description = "Các API tìm kiếm ngữ nghĩa với pgvector, Hybrid Search và trợ lý ảo Gemini RAG")
 public class AiController {
 
     private final AiSearchService aiSearchService;
@@ -37,7 +36,46 @@ public class AiController {
                 .build());
     }
 
-    @Operation(summary = "Trợ lý ẩm thực & nông sản thông minh RAG (Khách hỏi → Vector DB → Gemini → Trả lời)")
+    @Operation(summary = "4. Hybrid Search (Tìm kiếm lai - PostgreSQL Keyword + Vector pgvector + RRF)")
+    @GetMapping("/hybrid-search")
+    public ResponseEntity<ApiResponse<HybridSearchResponse>> hybridSearch(
+            @RequestParam("q") String query,
+            @RequestParam(value = "limit", defaultValue = "12") int limit) {
+        HybridSearchResponse result = aiSearchService.hybridSearch(query, limit);
+        return ResponseEntity.ok(ApiResponse.<HybridSearchResponse>builder()
+                .code(200)
+                .message("Tìm kiếm lai Hybrid Search (RRF) thành công")
+                .result(result)
+                .build());
+    }
+
+    @Operation(summary = "Gợi ý sản phẩm tương tự bằng Vector DB (Cosine Similarity)")
+    @GetMapping("/similar-products/{id}")
+    public ResponseEntity<ApiResponse<List<ProductResponse>>> getSimilarProducts(
+            @PathVariable Long id,
+            @RequestParam(value = "limit", defaultValue = "4") int limit) {
+        List<ProductResponse> result = aiSearchService.findSimilarProducts(id, limit);
+        return ResponseEntity.ok(ApiResponse.<List<ProductResponse>>builder()
+                .code(200)
+                .message("Lấy danh sách sản phẩm tương tự thành công")
+                .result(result)
+                .build());
+    }
+
+    @Operation(summary = "Gợi ý sản phẩm tương tự theo Slug bằng Vector DB (Cosine Similarity)")
+    @GetMapping("/similar-products/slug/{slug}")
+    public ResponseEntity<ApiResponse<List<ProductResponse>>> getSimilarProductsBySlug(
+            @PathVariable String slug,
+            @RequestParam(value = "limit", defaultValue = "4") int limit) {
+        List<ProductResponse> result = aiSearchService.findSimilarProductsBySlug(slug, limit);
+        return ResponseEntity.ok(ApiResponse.<List<ProductResponse>>builder()
+                .code(200)
+                .message("Lấy danh sách sản phẩm tương tự thành công")
+                .result(result)
+                .build());
+    }
+
+    @Operation(summary = "Trợ lý ảo nông sản thông minh RAG với Guardrails (Khách hỏi → Vector DB → Gemini → Trả lời)")
     @PostMapping("/chat")
     public ResponseEntity<ApiResponse<AiChatResponse>> chatRag(@Valid @RequestBody AiChatRequest request) {
         AiChatResponse response = aiSearchService.chatWithRag(request.getMessage());

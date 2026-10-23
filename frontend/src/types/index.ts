@@ -212,3 +212,17 @@ export interface AiStatusResponse {
   vectorDimension: number;
   database: string;
 }
+
+export interface HybridProductItem {
+  product: Product;
+  rrfScore: number;
+  similarity?: number | null;
+  matchType: 'HYBRID' | 'SEMANTIC_VECTOR' | 'KEYWORD_EXACT';
+}
+
+export interface HybridSearchResponse {
+  query: string;
+  totalMatches: number;
+  searchStrategy: string;
+  items: HybridProductItem[];
+}

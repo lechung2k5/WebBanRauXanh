@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Product, TieredPrice } from '@/types';
 import { getProductGallery } from '@/services/imageService';
+import { getSimilarProductsApi } from '@/services/api';
+import { Sparkles } from 'lucide-react';
 import {
   X,
   Plus,
@@ -41,8 +43,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onBuyNow,
   onOpenNegotiation,
 }) => {
-  const [activeTab, setActiveTab] = useState<'specs' | 'storage' | 'farm'>('specs');
+  const [activeTab, setActiveTab] = useState<'specs' | 'storage' | 'farm' | 'similar'>('specs');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
 
   const moq = product?.moq || 500;
   const [quantity, setQuantity] = useState<number>(moq);
@@ -51,6 +54,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (product) {
       setQuantity(product.moq || 500);
       setSelectedImage(null);
+      getSimilarProductsApi(product.id || product.slug, 4)
+        .then(res => setSimilarProducts(res.filter(p => p.id !== product.id).slice(0, 4)))
+        .catch(() => setSimilarProducts([]));
     }
   }, [product]);
 
@@ -331,6 +337,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   { id: 'specs', label: 'Thông số lô & Tiêu chuẩn' },
                   { id: 'storage', label: 'Bảo quản & Vận chuyển' },
                   { id: 'farm', label: 'Hồ sơ năng lực HTX' },
+                  { id: 'similar', label: '✨ Sản phẩm tương tự (AI)' },
                 ].map((t) => (
                   <button
                     key={t.id}

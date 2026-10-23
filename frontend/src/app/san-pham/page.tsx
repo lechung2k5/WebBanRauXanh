@@ -46,7 +46,8 @@ function ProductListContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSemanticResult, setIsSemanticResult] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const [appliedKeyword, setAppliedKeyword] = useState(initialSearch);
+  const [sidebarInput, setSidebarInput] = useState('');
   const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(initialCategory);
   const [priceRange, setPriceRange] = useState<number>(100000);
   const [selectedCert, setSelectedCert] = useState<string | null>(null);
@@ -61,9 +62,9 @@ function ProductListContent() {
 
   useEffect(() => {
     setSelectedCategorySlug(normalizeCategory(searchParams.get('category')));
-    if (searchParams.get('search')) {
-      setSearchQuery(searchParams.get('search') || '');
-    }
+    const searchParam = searchParams.get('search') || '';
+    setAppliedKeyword(searchParam);
+    setSidebarInput(''); // Reset ô nhập ở sidebar về trống
   }, [searchParams]);
 
   useEffect(() => {
@@ -71,7 +72,7 @@ function ProductListContent() {
       setLoading(true);
       try {
         const res = await getProducts({
-          keyword: searchQuery || undefined,
+          keyword: appliedKeyword || undefined,
           categorySlug: selectedCategorySlug || undefined,
           maxPrice: priceRange < 100000 ? priceRange : undefined,
           isOrganic: selectedCert === 'organic' ? true : undefined,
@@ -86,7 +87,7 @@ function ProductListContent() {
     };
 
     fetchList();
-  }, [searchQuery, selectedCategorySlug, priceRange, selectedCert]);
+  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert]);
 
   // Apply sorting
   const sortedProducts = [...products].sort((a, b) => {
@@ -113,9 +114,21 @@ function ProductListContent() {
     }
   };
 
+  const handleSidebarSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const term = sidebarInput.trim();
+    setSidebarInput(''); // Reset ô nhập ở sidebar về trống ngay lập tức
+    if (!term) return;
+    setAppliedKeyword(term);
+    setCurrentPage(1);
+    const catQuery = selectedCategorySlug ? `&category=${selectedCategorySlug}` : '';
+    router.push(`/san-pham?search=${encodeURIComponent(term)}${catQuery}`);
+  };
+
   const handleResetFilters = () => {
     setSelectedCategorySlug(null);
-    setSearchQuery('');
+    setAppliedKeyword('');
+    setSidebarInput('');
     setPriceRange(100000);
     setSelectedCert(null);
     setSortBy('default');
@@ -184,19 +197,22 @@ function ProductListContent() {
             {/* Tìm kiếm nhanh */}
             <div>
               <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tìm kiếm lô hàng / Vùng trồng</label>
-              <div className="relative">
+              <form onSubmit={handleSidebarSearchSubmit} className="relative flex items-center">
+                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Ví dụ: bắp cải Đà Lạt, HTX Mộc Châu..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+                  value={sidebarInput}
+                  onChange={(e) => setSidebarInput(e.target.value)}
+                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-14 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C] transition-all"
                 />
-                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
-              </div>
+                <button
+                  type="submit"
+                  className="absolute right-1.5 px-2.5 py-1 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                >
+                  Tìm
+                </button>
+              </form>
             </div>
 
             {/* Danh Mục */}
@@ -306,15 +322,32 @@ function ProductListContent() {
 
           {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột): 1 hàng 1 card trải rộng chiều ngang */}
           <div className="lg:col-span-3 space-y-6">
-            {isSemanticResult && !loading && products.length > 0 && (
+            {(isSemanticResult || appliedKeyword) && !loading && products.length > 0 && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200 flex items-center justify-between shadow-xs">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                     <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
                   </div>
                   <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-emerald-950">
-                      Gợi ý nguồn hàng phù hợp: Đã tìm thấy {products.length} lô nông sản cho &quot;{searchQuery}&quot;
+                    <h4 className="text-xs sm:text-sm font-bold text-emerald-950 flex items-center gap-2">
+                      <span>Gợi ý nguồn hàng phù hợp: Đã tìm thấy {products.length} lô nông sản cho &quot;{appliedKeyword}&quot;</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedKeyword('');
+                          setSidebarInput('');
+                          setCurrentPage(1);
+                          if (selectedCategorySlug) {
+                            router.push(`/san-pham?category=${selectedCategorySlug}`);
+                          } else {
+                            router.push('/san-pham');
+                          }
+                        }}
+                        className="text-[11px] bg-white border border-emerald-300 hover:border-red-400 text-emerald-800 hover:text-red-600 px-2.5 py-0.5 rounded-full font-bold cursor-pointer transition-colors ml-1"
+                        title="Xóa lọc từ khóa"
+                      >
+                        ✕ Xóa lọc
+                      </button>
                     </h4>
                     <p className="text-[11px] text-emerald-700 mt-0.5">
                       Hệ thống tự động kết nối các nông trại &amp; HTX có nguồn cung đáp ứng từ khóa tìm kiếm của bạn.

@@ -1,4 +1,4 @@
-import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse } from '@/types';
+import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
@@ -342,29 +342,23 @@ export const getProducts = async (
       imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
     }));
 
-    // Tự động kích hoạt Vector Search thông minh nếu tìm kiếm thông thường không có kết quả và từ khóa mang tính ngữ nghĩa
+    // Tự động kích hoạt Hybrid Search (RRF) kết hợp PostgreSQL Keyword & Vector pgvector nếu SQL thông thường không có kết quả
     let isSemanticSearch = false;
-    if (resolvedData.length === 0 && params?.keyword && params.keyword.trim().length > 3) {
+    if (resolvedData.length === 0 && params?.keyword && params.keyword.trim().length > 2) {
       try {
-        const vectorRes = await semanticSearchApi(params.keyword.trim(), params?.size || 16);
-        if (vectorRes && vectorRes.items && vectorRes.items.length > 0) {
-          const validItems = vectorRes.items.filter(item => (item.similarity ?? 0) >= 0.35);
-          if (validItems.length > 0) {
-            resolvedData = validItems.map(item => ({
-              ...item.product,
-              imageUrl: resolveProductImageUrl(item.product.name, item.product.categorySlug, item.product.imageUrl),
-            }));
-            isSemanticSearch = true;
-            return {
-              products: resolvedData,
-              totalElements: resolvedData.length,
-              totalPages: 1,
-              isSemanticSearch: true,
-            };
-          }
+        const hybridRes = await hybridSearchApi(params.keyword.trim(), params?.size || 16);
+        if (hybridRes && hybridRes.items && hybridRes.items.length > 0) {
+          resolvedData = hybridRes.items.map(item => item.product);
+          isSemanticSearch = true;
+          return {
+            products: resolvedData,
+            totalElements: resolvedData.length,
+            totalPages: 1,
+            isSemanticSearch: true,
+          };
         }
-      } catch (vectorErr) {
-        console.warn('Vector search fallback error:', vectorErr);
+      } catch (hybridErr) {
+        console.warn('Hybrid search fallback error:', hybridErr);
       }
     }
 
@@ -540,4 +534,39 @@ export const syncAiEmbeddingsApi = async (): Promise<number> => {
     throw new Error(data.message || 'Lỗi khi đồng bộ vector');
   }
   return data.result?.syncedCount ?? 0;
+};
+
+export const hybridSearchApi = async (query: string, limit: number = 12): Promise<HybridSearchResponse> => {
+  const res = await fetch(`${API_BASE_URL}/ai/hybrid-search?q=${encodeURIComponent(query)}&limit=${limit}`, {
+    cache: 'no-store',
+  });
+  const data: ApiResponse<HybridSearchResponse> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi tìm kiếm lai Hybrid Search');
+  }
+  return {
+    ...data.result,
+    items: (data.result.items || []).map(item => ({
+      ...item,
+      product: {
+        ...item.product,
+        imageUrl: resolveProductImageUrl(item.product.name, item.product.categorySlug, item.product.imageUrl),
+      },
+    })),
+  };
+};
+
+export const getSimilarProductsApi = async (idOrSlug: string | number, limit: number = 4): Promise<Product[]> => {
+  const endpoint = typeof idOrSlug === 'number' 
+    ? `${API_BASE_URL}/ai/similar-products/${idOrSlug}?limit=${limit}`
+    : `${API_BASE_URL}/ai/similar-products/slug/${idOrSlug}?limit=${limit}`;
+  const res = await fetch(endpoint, { cache: 'no-store' });
+  const data: ApiResponse<Product[]> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    return [];
+  }
+  return (data.result || []).map(p => ({
+    ...p,
+    imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
+  }));
 };

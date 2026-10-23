@@ -1,6 +1,7 @@
 package com.btl.webbanrau.service;
 
 import com.btl.webbanrau.dto.response.AiChatResponse;
+import com.btl.webbanrau.dto.response.HybridSearchResponse;
 import com.btl.webbanrau.dto.response.ProductResponse;
 import com.btl.webbanrau.dto.response.SemanticSearchResponse;
 import com.btl.webbanrau.model.Product;
@@ -33,7 +34,6 @@ public class AiSearchService {
         List<Product> products = productRepository.findAll();
         int count = 0;
 
-        // Kiểm tra xem Gemini API có thực sự phản hồi nhanh không
         boolean canCallGemini = geminiService.hasApiKey() && geminiService.testEmbeddingCall();
 
         for (Product product : products) {
@@ -62,7 +62,7 @@ public class AiSearchService {
     }
 
     /**
-     * Tìm kiếm ngữ nghĩa bằng pgvector Cosine Distance
+     * Tìm kiếm ngữ nghĩa bằng pgvector Cosine Distance (Tối ưu map trực tiếp)
      */
     public SemanticSearchResponse searchByVector(String query, int limit) {
         if (query == null || query.trim().isEmpty()) {
@@ -92,7 +92,7 @@ public class AiSearchService {
             Double similarity = ((Number) row.get("similarity")).doubleValue();
 
             productRepository.findById(productId).ifPresent(p -> {
-                ProductResponse pResp = productService.getProductBySlug(p.getSlug());
+                ProductResponse pResp = productService.mapToResponse(p);
                 items.add(SemanticSearchResponse.SemanticProductItem.builder()
                         .product(pResp)
                         .similarity(Math.round(similarity * 100.0) / 100.0)
@@ -108,14 +108,239 @@ public class AiSearchService {
     }
 
     /**
-     * RAG (Retrieval-Augmented Generation): Khách hỏi → Vector DB lọc sản phẩm → Gửi Gemini → Trả lời
+     * 4. Hybrid Search (Tìm kiếm lai - Kết hợp PostgreSQL Keyword + Vector pgvector bằng thuật toán Reciprocal Rank Fusion - RRF)
+     */
+    public HybridSearchResponse hybridSearch(String query, int limit) {
+        if (query == null || query.trim().isEmpty()) {
+            return HybridSearchResponse.builder()
+                    .query(query)
+                    .totalMatches(0)
+                    .searchStrategy("HYBRID_RRF")
+                    .items(Collections.emptyList())
+                    .build();
+        }
+
+        String cleanQuery = query.trim();
+        String queryLower = cleanQuery.toLowerCase();
+        int poolSize = Math.max(30, limit * 3);
+
+        // 1. Luồng 1: SQL Keyword Search (Tên sản phẩm, slug, xuất xứ, danh mục, mô tả)
+        List<Long> sqlRankedIds = new ArrayList<>();
+        try {
+            String expandedTerm = cleanQuery;
+            if (queryLower.contains("canh chua")) {
+                expandedTerm = "cà chua|đậu bắp|bạc hà|dọc mùng|khóm|dứa|ngò gai";
+            } else if (queryLower.contains("nấu lẩu") || queryLower.contains("ăn lẩu")) {
+                expandedTerm = "nấm|cải thảo|rau muống|hoa chuối|bắp ngọt";
+            } else if (queryLower.contains("xào tỏi") || queryLower.contains("món xào")) {
+                expandedTerm = "cải thìa|bông cải|đậu cove|rau muống";
+            }
+
+            String sql = """
+                SELECT id FROM products 
+                WHERE is_active = true AND (
+                    LOWER(name) LIKE ? OR LOWER(slug) LIKE ? OR LOWER(origin) LIKE ? 
+                    OR LOWER(brand) LIKE ? OR LOWER(description) LIKE ?
+                    OR (CASE WHEN ? != ? THEN (
+                        LOWER(name) ~ ? OR LOWER(description) ~ ?
+                    ) ELSE false END)
+                )
+                ORDER BY (
+                    CASE 
+                        WHEN LOWER(name) = ? THEN 1
+                        WHEN LOWER(name) LIKE ? THEN 2
+                        WHEN LOWER(origin) LIKE ? THEN 3
+                        ELSE 4 
+                    END
+                ) ASC, id DESC
+                LIMIT ?
+            """;
+            String likePattern = "%" + queryLower + "%";
+            List<Map<String, Object>> sqlRows = jdbcTemplate.queryForList(
+                    sql,
+                    likePattern, likePattern, likePattern, likePattern, likePattern,
+                    expandedTerm, cleanQuery, expandedTerm.toLowerCase(), expandedTerm.toLowerCase(),
+                    queryLower, queryLower + "%", likePattern,
+                    poolSize
+            );
+            for (Map<String, Object> row : sqlRows) {
+                sqlRankedIds.add(((Number) row.get("id")).longValue());
+            }
+        } catch (Exception e) {
+            log.warn("SQL Keyword search failed in Hybrid Search: {}", e.getMessage());
+        }
+
+        // 2. Luồng 2: Vector Semantic Search bằng pgvector
+        List<Long> vectorRankedIds = new ArrayList<>();
+        Map<Long, Double> similarityMap = new HashMap<>();
+        try {
+            List<Double> queryVector = geminiService.getEmbedding(cleanQuery);
+            String vectorStr = formatVector(queryVector);
+
+            String vecSql = """
+                SELECT id, 1 - (embedding <=> cast(? as vector)) AS similarity
+                FROM products
+                WHERE is_active = true AND embedding IS NOT NULL
+                ORDER BY embedding <=> cast(? as vector) ASC
+                LIMIT ?
+            """;
+            List<Map<String, Object>> vecRows = jdbcTemplate.queryForList(vecSql, vectorStr, vectorStr, poolSize);
+            for (Map<String, Object> row : vecRows) {
+                Long id = ((Number) row.get("id")).longValue();
+                Double sim = ((Number) row.get("similarity")).doubleValue();
+                vectorRankedIds.add(id);
+                similarityMap.put(id, sim);
+            }
+        } catch (Exception e) {
+            log.warn("Vector search failed in Hybrid Search: {}", e.getMessage());
+        }
+
+        // 3. Thuật toán Reciprocal Rank Fusion (RRF)
+        final double k = 60.0;
+        Map<Long, Double> rrfScores = new HashMap<>();
+
+        for (int rank = 0; rank < sqlRankedIds.size(); rank++) {
+            Long id = sqlRankedIds.get(rank);
+            rrfScores.put(id, rrfScores.getOrDefault(id, 0.0) + (1.0 / (k + rank + 1)));
+        }
+
+        for (int rank = 0; rank < vectorRankedIds.size(); rank++) {
+            Long id = vectorRankedIds.get(rank);
+            rrfScores.put(id, rrfScores.getOrDefault(id, 0.0) + (1.0 / (k + rank + 1)));
+        }
+
+        List<Map.Entry<Long, Double>> sortedEntries = rrfScores.entrySet().stream()
+                .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+                .limit(limit)
+                .toList();
+
+        List<HybridSearchResponse.HybridProductItem> items = new ArrayList<>();
+        for (Map.Entry<Long, Double> entry : sortedEntries) {
+            Long id = entry.getKey();
+            Double score = Math.round(entry.getValue() * 10000.0) / 10000.0;
+            Double rawSim = similarityMap.get(id);
+            final Double finalSim = (rawSim != null) ? (Math.round(rawSim * 100.0) / 100.0) : null;
+
+            boolean inSql = sqlRankedIds.contains(id);
+            boolean inVec = vectorRankedIds.contains(id);
+            String matchType;
+            if (inSql && inVec) {
+                matchType = "HYBRID";
+            } else if (inVec) {
+                matchType = "SEMANTIC_VECTOR";
+            } else {
+                matchType = "KEYWORD_EXACT";
+            }
+
+            productRepository.findById(id).ifPresent(p -> {
+                ProductResponse pResp = productService.mapToResponse(p);
+                items.add(HybridSearchResponse.HybridProductItem.builder()
+                        .product(pResp)
+                        .rrfScore(score)
+                        .similarity(finalSim)
+                        .matchType(matchType)
+                        .build());
+            });
+        }
+
+        return HybridSearchResponse.builder()
+                .query(cleanQuery)
+                .totalMatches(items.size())
+                .searchStrategy("HYBRID_RRF (PostgreSQL SQL + pgvector Cosine + Reciprocal Rank Fusion)")
+                .items(items)
+                .build();
+    }
+
+    /**
+     * Gợi ý sản phẩm tương tự bằng Cosine Similarity trong Vector Database
+     */
+    public List<ProductResponse> findSimilarProducts(Long productId, int limit) {
+        if (productId == null) return Collections.emptyList();
+
+        String sql = """
+            SELECT p2.id, 1 - (p2.embedding <=> p1.embedding) AS similarity
+            FROM products p1, products p2
+            WHERE p1.id = ? 
+              AND p2.id != p1.id 
+              AND p2.is_active = true 
+              AND p1.embedding IS NOT NULL
+              AND p2.embedding IS NOT NULL
+            ORDER BY p2.embedding <=> p1.embedding ASC
+            LIMIT ?
+        """;
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, productId, Math.max(1, limit));
+        List<ProductResponse> result = new ArrayList<>();
+
+        for (Map<String, Object> row : rows) {
+            Long id = ((Number) row.get("id")).longValue();
+            productRepository.findById(id).ifPresent(p -> result.add(productService.mapToResponse(p)));
+        }
+
+        // Fallback: Nếu sản phẩm chưa có vector, lấy theo danh mục cùng loại
+        if (result.isEmpty()) {
+            productRepository.findById(productId).ifPresent(p -> {
+                if (p.getCategory() != null) {
+                    List<Product> sameCat = productRepository.findByCategoryIdAndIsActiveTrue(p.getCategory().getId());
+                    sameCat.stream()
+                            .filter(other -> !other.getId().equals(productId))
+                            .limit(limit)
+                            .forEach(other -> result.add(productService.mapToResponse(other)));
+                }
+            });
+        }
+
+        return result;
+    }
+
+    public List<ProductResponse> findSimilarProductsBySlug(String slug, int limit) {
+        return productRepository.findBySlug(slug)
+                .map(p -> findSimilarProducts(p.getId(), limit))
+                .orElse(Collections.emptyList());
+    }
+
+    /**
+     * Guardrail: Kiểm tra xem người dùng có hỏi các chủ đề ngoài lề bị cấm không
+     */
+    private boolean isOffTopicQuery(String text) {
+        if (text == null) return false;
+        String lower = text.toLowerCase().trim();
+        String[] offTopicPatterns = {
+            "viết code", "viết chương trình", "python", "javascript", "java code", "html", "css",
+            "giải toán", "phương trình", "đạo hàm", "tích phân", "hình học", "bài toán",
+            "chính trị", "bầu cử", "tổng thống", "đảng phái", "chiến tranh", "tôn giáo",
+            "người nổi tiếng", "ca sĩ", "diễn viên", "thời tiết ngày mai", "xem bói", "tử vi"
+        };
+        for (String pattern : offTopicPatterns) {
+            if (lower.contains(pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * RAG (Retrieval-Augmented Generation) Chatbot với Tốc Độ Phản Hồi Tối Ưu Cao
      */
     public AiChatResponse chatWithRag(String userQuery) {
         String queryLower = (userQuery != null) ? userQuery.toLowerCase().trim() : "";
+
+        // GUARDRAIL 2 (RULE 2): TỪ CHỐI NGOÀI LỀ LỊCH SỰ NGAY LẬP TỨC (0ms)
+        if (isOffTopicQuery(queryLower)) {
+            String politeRefusal = "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản và giao dịch trên hệ thống. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?";
+            return AiChatResponse.builder()
+                    .answer(politeRefusal)
+                    .recommendedProducts(Collections.emptyList())
+                    .hotDeals(Collections.emptyList())
+                    .hasGeminiKey(geminiService.hasApiKey())
+                    .modelUsed("HoNa Fresh Guardrail Safe Agent")
+                    .build();
+        }
+
         String matchedLocation = null;
         String matchedKey = null;
 
-        // 1. Nhận diện địa danh từ điển
+        // 1. Nhận diện địa danh từ điển (in-memory, siêu nhanh)
         for (Map.Entry<String, String> entry : ProductService.LOCATION_PATTERNS.entrySet()) {
             if (queryLower.contains(entry.getKey())) {
                 matchedKey = entry.getKey();
@@ -124,7 +349,7 @@ public class AiSearchService {
             }
         }
 
-        // 2. Nhận diện các từ khóa ngành hàng / nông sản cụ thể
+        // 2. Nhận diện các từ khóa ngành hàng nông sản cụ thể
         String[] productKeywords = {
             "nấm", "cải", "xà lách", "cà chua", "cà rốt", "ớt chuông", "ớt", "khoai tây", "khoai",
             "bí đỏ", "bắp cải", "su su", "rau muống", "rau dền", "đậu bắp", "chanh", "dưa", "hành", "tỏi"
@@ -140,7 +365,7 @@ public class AiSearchService {
         List<ProductResponse> recommendedProducts = new ArrayList<>();
 
         if (matchedLocation != null) {
-            // Trường hợp 1: Khách hỏi đích danh địa phương
+            // Khách hỏi đích danh địa phương: SQL nhanh lấy thẳng sản phẩm
             String productTerm = (matchedProductKeyword != null) ? matchedProductKeyword :
                     queryLower.replace(matchedKey, " ")
                             .replaceAll("\\b(ở|tại|vùng|khu vực|tỉnh|thành phố|tp|huyện|thị xã|sản phẩm|nông sản|lô|cho tôi|muốn|tìm|có|không)\\b", " ")
@@ -151,7 +376,7 @@ public class AiSearchService {
             if (!productTerm.isEmpty()) {
                 String sql = "SELECT * FROM products WHERE is_active = true AND " +
                         "(LOWER(origin) LIKE ? OR LOWER(brand) LIKE ?) AND " +
-                        "(LOWER(name) LIKE ? OR LOWER(description) LIKE ?) LIMIT 6";
+                        "(LOWER(name) LIKE ? OR LOWER(description) LIKE ?) LIMIT 5";
                 matchedProducts = jdbcTemplate.query(sql,
                         (rs, rowNum) -> productRepository.findById(rs.getLong("id")).orElse(null),
                         "%" + matchedLocation.toLowerCase() + "%",
@@ -165,7 +390,7 @@ public class AiSearchService {
 
             if (matchedProducts.isEmpty()) {
                 String sql = "SELECT * FROM products WHERE is_active = true AND " +
-                        "(LOWER(origin) LIKE ? OR LOWER(brand) LIKE ?) LIMIT 6";
+                        "(LOWER(origin) LIKE ? OR LOWER(brand) LIKE ?) LIMIT 5";
                 matchedProducts = jdbcTemplate.query(sql,
                         (rs, rowNum) -> productRepository.findById(rs.getLong("id")).orElse(null),
                         "%" + matchedLocation.toLowerCase() + "%",
@@ -174,14 +399,13 @@ public class AiSearchService {
             }
 
             recommendedProducts = matchedProducts.stream()
-                    .map(p -> productService.getProductBySlug(p.getSlug()))
-                    .filter(Objects::nonNull)
+                    .map(productService::mapToResponse)
                     .collect(Collectors.toList());
         } else if (matchedProductKeyword != null) {
-            // Trường hợp 2: Khách hỏi theo loại nông sản cụ thể (ví dụ: có những loại nấm gì, các loại cải...)
+            // Khách hỏi theo loại nông sản cụ thể
             String sql = "SELECT * FROM products WHERE is_active = true AND " +
                     "(LOWER(name) LIKE ? OR LOWER(category_slug) LIKE ? OR LOWER(description) LIKE ?) " +
-                    "ORDER BY is_featured DESC LIMIT 6";
+                    "ORDER BY is_featured DESC LIMIT 5";
             List<Product> matchedProducts = jdbcTemplate.query(sql,
                     (rs, rowNum) -> productRepository.findById(rs.getLong("id")).orElse(null),
                     "%" + matchedProductKeyword + "%",
@@ -189,12 +413,10 @@ public class AiSearchService {
                     "%" + matchedProductKeyword + "%");
             recommendedProducts = matchedProducts.stream()
                     .filter(Objects::nonNull)
-                    .map(p -> productService.getProductBySlug(p.getSlug()))
-                    .filter(Objects::nonNull)
+                    .map(productService::mapToResponse)
                     .collect(Collectors.toList());
         } else if (queryLower.contains("tất cả") || queryLower.contains("danh sách") || queryLower.contains("database") || queryLower.contains("có gì") || queryLower.contains("sản phẩm nào") || queryLower.contains("bao nhiêu")) {
-            // Trường hợp 3: Khách hỏi tổng quan sàn / CSDL có những gì
-            // Lấy mẫu đại diện các sản phẩm tiêu biểu từ các vùng khác nhau
+            // Khách hỏi tổng quan sàn
             String sql = """
                 (SELECT * FROM products WHERE origin ILIKE '%Đắk Lắk%' LIMIT 1)
                 UNION ALL
@@ -205,143 +427,111 @@ public class AiSearchService {
                 (SELECT * FROM products WHERE origin ILIKE '%Gia Lai%' LIMIT 1)
                 UNION ALL
                 (SELECT * FROM products WHERE origin ILIKE '%Mộc Châu%' LIMIT 1)
-                UNION ALL
-                (SELECT * FROM products WHERE origin ILIKE '%Hải Dương%' LIMIT 1)
             """;
             List<Product> sampleProducts = jdbcTemplate.query(sql,
                     (rs, rowNum) -> productRepository.findById(rs.getLong("id")).orElse(null));
             recommendedProducts = sampleProducts.stream()
                     .filter(Objects::nonNull)
-                    .map(p -> productService.getProductBySlug(p.getSlug()))
-                    .filter(Objects::nonNull)
+                    .map(productService::mapToResponse)
                     .collect(Collectors.toList());
         } else {
-            // Trường hợp 4: Tìm kiếm vector ngữ nghĩa
+            // Tìm kiếm vector ngữ nghĩa (pgvector)
             SemanticSearchResponse vectorResults = searchByVector(userQuery, 4);
             recommendedProducts = vectorResults.getItems().stream()
                     .map(SemanticSearchResponse.SemanticProductItem::getProduct)
                     .collect(Collectors.toList());
         }
 
-        // 3. Lấy top sản phẩm ưu đãi phù hợp
+        // Lấy top 2 sản phẩm ưu đãi sỉ
         List<ProductResponse> hotDeals = new ArrayList<>();
         if (matchedLocation != null && !recommendedProducts.isEmpty()) {
             hotDeals = recommendedProducts.stream().limit(2).collect(Collectors.toList());
         } else {
             hotDeals = productRepository.findByIsFeaturedTrueAndIsActiveTrue().stream()
-                    .limit(3)
-                    .map(p -> productService.getProductBySlug(p.getSlug()))
+                    .limit(2)
+                    .map(productService::mapToResponse)
                     .collect(Collectors.toList());
         }
 
-        // 4. Xây dựng Context nông sản B2B chi tiết cho Gemini
+        // Xây dựng {context} nông sản cô đọng, mật độ cao (giảm token, tăng tốc độ sinh của LLM)
         StringBuilder contextBuilder = new StringBuilder();
+
+        // 1. CSDL rút gọn (High-Density Context)
+        contextBuilder.append("""
+            --- CƠ SỞ DỮ LIỆU SÀN B2B HONA FRESH (639 MÃ / 17 VÙNG TRỒNG) ---
+            - ĐẮK LẮK (108 mã - HTX Buôn Hồ): Cà rốt, Củ sắn, Cải sậy, Đậu bắp, Ớt chuông. (Lô 5-35 Tấn, MOQ ≥ 200kg, VietGAP).
+            - LÂM ĐỒNG (317 mã - Đà Lạt, Đơn Dương, Đức Trọng): Bắp cải tím, Cải thìa, Xà lách thủy canh, Cà chua cherry/beef, Khoai tây, Cải bó xôi (VietGAP, GlobalGAP, Organic).
+            - ĐỒNG NAI (10 mã - HTX Long Khánh): Chuyên các loại Nấm sạch (Nấm bào ngư xám, Đùi gà baby, Kim châm, Đông cô tươi/khô, Nấm hương).
+            - GIA LAI (100 mã - HTX Chư Prông): Bí đỏ hạt đậu, Chanh dây tím, Chuối Laba, Khoai lang mật, Bơ sáp (Organic).
+            - SƠN LA (7 mã - HTX Mộc Châu): Bắp cải trái tim, Su su, Cải mèo Tây Bắc.
+            - HẢI DƯƠNG & QUẢNG NINH (43 mã): Cà rốt xuất khẩu, Hành tỏi Kinh Môn, Củ cải, Dưa bao tử.
+            - MIỀN TÂY (27 mã): Khóm Tân Lập, Khổ qua, Rau muống nước, Xà lách xoong Bình Minh.
+            - CHÍNH SÁCH B2B: Bán buôn sỉ theo lô (Tấn/Tạ, MOQ ≥ 200kg). Đơn ≥ 2 Tấn giảm 8%, ≥ 5 Tấn giảm 15%. Giao tại vườn (FOB) hoặc xe lạnh giao kho.
+            \n""");
+
+        // 2. Lô hàng trích xuất
         if (matchedLocation != null) {
-            contextBuilder.append(String.format("--- DANH SÁCH LÔ NÔNG SẢN THỰC TẾ TẠI KHU VỰC %s (TRÍCH XUẤT TỪ DATABASE HONA FRESH) ---\n", matchedLocation.toUpperCase()));
+            contextBuilder.append(String.format("--- CÁC LÔ NÔNG SẢN THỰC TẾ TẠI %s ---\n", matchedLocation.toUpperCase()));
         } else {
-            contextBuilder.append("--- DANH SÁCH LÔ NÔNG SẢN SỈ TẠI CÁC TRANG TRẠI / HTX ĐỐI TÁC TRÊN SÀN ---\n");
+            contextBuilder.append("--- CÁC LÔ NÔNG SẢN SỈ PHÙ HỢP TỪ CƠ SỞ DỮ LIỆU ---\n");
         }
 
         for (ProductResponse p : recommendedProducts) {
-            contextBuilder.append(String.format("- Lô: %s | Vùng trồng/HTX: %s (%s) | Giá sỉ: %s đ/%s | Chuẩn: %s | Tình trạng: Đang thu hoạch rộ | Đặc tính: %s\n",
+            contextBuilder.append(String.format("- Lô: %s | Vùng: %s (%s) | Giá sỉ: %s đ/%s | Chuẩn: %s | Tình trạng: Thu hoạch rộ | Đặc tính: %s\n",
                     p.getName(),
                     p.getOrigin() != null ? p.getOrigin() : "Đà Lạt, Lâm Đồng",
                     p.getBrand() != null ? p.getBrand() : "HTX Nông Nghiệp",
                     formatCurrency(p.getPrice()), p.getUnit() != null ? p.getUnit() : "kg",
-                    Boolean.TRUE.equals(p.getIsOrganic()) ? "Hữu cơ Organic / OCOP" : "VietGAP",
+                    Boolean.TRUE.equals(p.getIsOrganic()) ? "Organic / OCOP" : "VietGAP",
                     p.getDescription() != null ? p.getDescription() : "Nông sản tươi thu hái trực tiếp tại vườn"));
         }
 
-        contextBuilder.append("\n--- LÔ NÔNG SẢN ĐANG CÓ CHÍNH SÁCH CHIẾT KHẤU SỈ TỐT NHẤT HÔM NAY ---\n");
+        contextBuilder.append("\n--- LÔ NÔNG SẢN ƯU ĐÃI SỈ HÔM NAY ---\n");
         for (ProductResponse d : hotDeals) {
-            contextBuilder.append(String.format("- Lô: %s | Vùng trồng: %s | Giá sỉ ưu đãi: %s đ/%s (Chiết khấu lô lớn %s%%)\n",
+            contextBuilder.append(String.format("- Lô: %s | Vùng: %s | Giá sỉ: %s đ/%s (Giảm %s%%)\n",
                     d.getName(),
                     d.getOrigin() != null ? d.getOrigin() : "Đà Lạt",
                     formatCurrency(d.getPrice()), d.getUnit() != null ? d.getUnit() : "kg",
                     d.getDiscountPercent() != null ? d.getDiscountPercent() : 15));
         }
 
-        String locationConstraint = "";
-        if (matchedLocation != null) {
-            locationConstraint = "\nLƯU Ý ĐẶC BIỆT VỀ ĐỊA PHƯƠNG:\n" +
-                    "- Khách hàng đang hỏi về nguồn hàng tại: " + matchedLocation + ".\n" +
-                    "- Bạn CHỈ ĐƯỢC tư vấn và báo giá các lô nông sản thuộc khu vực " + matchedLocation + " được liệt kê trong danh sách ở trên.\n" +
-                    "- TUYỆT ĐỐI KHÔNG giới thiệu nhầm sang nông sản ở địa phương khác (như Đà Lạt, Lâm Đồng khi khách đang hỏi Đồng Nai hay Đắk Lắk)!\n" +
-                    "- Nếu khách hỏi một tỉnh mà sàn chưa có hàng, hãy nói rõ chưa có HTX liên kết tại đó và gợi ý các vùng lân cận.\n";
-        }
+        // System Prompt & Guardrails chuẩn
+        String systemPrompt = """
+            Bạn là trợ lý AI chuyên nghiệp, nhiệt tình và am hiểu về hệ thống sàn giao dịch nông sản B2B - nơi kết nối trực tiếp các trang trại, nhà vườn với thương lái và doanh nghiệp thu mua.
 
-        String masterDatabaseKnowledge = """
-            --- BẢN ĐỒ TOÀN BỘ CƠ SỞ DỮ LIỆU NÔNG SẢN TRÊN SÀN B2B HONA FRESH (639 MÃ SẢN PHẨM / 17 VÙNG TRỒNG) ---
-            Hệ thống HoNa Fresh kết nối trực tiếp với 17 Hợp tác xã (HTX) quy mô lớn tại các vùng chuyên canh nông sản:
-            1. ĐẮK LẮK (108 sản phẩm) - HTX Rau Củ Quả Buôn Hồ (Thị xã Buôn Hồ):
-               * Mặt hàng chủ lực: Cà rốt Buôn Hồ, Củ sắn, Rau dền baby, Cải sậy, Ớt chuông xanh, Đậu bắp, Bắp ngọt...
-               * Quy mô lô: 5 - 35 Tấn, MOQ: 200 - 500kg. Chuẩn VietGAP, PUC: VN-DLK-06-xxx.
-            2. LÂM ĐỒNG (317 sản phẩm) - 3 Vùng chuyên canh rau củ lớn nhất nước:
-               * TP. Đà Lạt (103 sản phẩm) - Liên Minh HTX Rau Sạch Đà Lạt GAP: Bắp cải tím, Cải thìa, Xà lách mỡ thủy canh, Cải bó xôi (Spinach), Chanh không hạt, Dâu tây...
-               * Huyện Đơn Dương (107 sản phẩm) - HTX Nông Nghiệp Công Nghệ Cao Đơn Dương: Cải ngọt, Cà chua cherry, Ớt chuông, Cà rốt Đà Lạt...
-               * Huyện Đức Trọng (101 sản phẩm) - HTX Rau Củ Quả Đức Trọng: Khoai tây vàng/hồng, Cải thảo, Hành tây, Cà chua beef...
-            3. ĐỒNG NAI (10 sản phẩm) - HTX Nấm Sạch & Rau Màu Long Khánh (TP. Long Khánh):
-               * Mặt hàng chủ lực: Đầy đủ các dòng Nấm tươi & Nấm khô thượng hạng (Nấm bào ngư xám, Nấm đùi gà baby, Nấm kim châm, Nấm đông cô khô/tươi, Nấm mèo thái sợi, Nấm hương, Lẩu nấm Việt Hàn...).
-            4. GIA LAI (100 sản phẩm) - HTX Nông Nghiệp Hữu Cơ Chư Prông (Huyện Chư Prông):
-               * Mặt hàng chủ lực: Bí đỏ hạt đậu, Chanh dây tím, Chuối Laba, Khoai lang mật, Bơ sáp Tây Nguyên...
-            5. SƠN LA (7 sản phẩm) - Hợp Tác Xã Nông Nghiệp Xanh Mộc Châu (Cao nguyên Mộc Châu):
-               * Mặt hàng chủ lực: Bắp cải trái tim Mộc Châu, Su su, Cải mèo Tây Bắc, Củ cải tuyết Mộc Châu...
-            6. HẢI DƯƠNG (26 sản phẩm) & QUẢNG NINH (17 sản phẩm) - HTX Nam Sách & HTX Đông Triều:
-               * Mặt hàng: Cà rốt xuất khẩu, Hành tây, Tỏi Kinh Môn, Củ cải, Dưa chuột bao tử...
-            7. HÀ NỘI (12 sản phẩm) - HTX Rau An Toàn Ba Vì:
-               * Mặt hàng: Rau muống sạch, Rau dền, Mồng tơi, Cải xanh bán sơn địa...
-            8. MIỀN TÂY (Cần Thơ 11 mã, Vĩnh Long 7 mã, Tiền Giang 6 mã, Bến Tre 3 mã):
-               * Mặt hàng: Rau muống nước, Khổ qua, Khóm Tân Lập, Xà lách xoong Bình Minh, Mướp hương Ba Tri...
-            9. TP. HỒ CHÍ MINH (5 sản phẩm) - HTX Nông Nghiệp CNC Củ Chi:
-               * Mặt hàng: Rau mầm hữu cơ, Dưa lưới nhà màng công nghệ cao...
+            NHIỆM VỤ CỦA BẠN:
+            Trả lời các câu hỏi của khách hàng về sản phẩm nông sản, thông tin mùa vụ, chính sách vận chuyển, giá cả, và cách sử dụng nền tảng, CHỈ DỰA TRÊN thông tin được cung cấp trong phần "Ngữ cảnh được trích xuất" bên dưới.
 
-            --- 4 PHÂN LOẠI NGÀNH HÀNG NÔNG SẢN SỈ CHÍNH ---
-            - Rau Ăn Lá Sỉ: 331 mã sản phẩm (các loại Cải, Xà lách, Rau dền, Rau muống, Cải thảo, Bắp cải...).
-            - Củ & Quả Tươi Sỉ: 228 mã sản phẩm (Cà rốt, Cà chua, Củ sắn, Củ cải, Ớt chuông, Bí đỏ, Su su, Khoai tây...).
-            - Nấm Tươi & Nấm Khô Sỉ: 42 mã sản phẩm (Đùi gà, Bào ngư, Kim châm, Đông cô, Nấm hương, Nấm mèo...).
-            - Rau Gia Vị & Khác Sỉ: 38 mã sản phẩm (Húng quế, Ngò gai, Ngò rí, Hành tỏi, Gừng, Sả, Ớt...).
-
-            --- CHÍNH SÁCH BÁN BUÔN B2B TRÊN TOÀN SÀN HONA FRESH ---
-            - Đối tượng phục vụ: Chuỗi siêu thị, Bếp ăn công nghiệp, Nhà hàng, Vựa buôn và Thương lái thu mua số lượng lớn.
-            - Sản lượng lô chào bán: 5 Tấn đến 35 Tấn / lô. Đơn đặt hàng tối thiểu (MOQ): 200kg - 500kg.
-            - Chính sách chiết khấu bậc thang: Đơn hàng ≥ 2 Tấn giảm 8%, Đơn hàng ≥ 5 Tấn hoặc hợp đồng dài hạn giảm 15%.
-            - Kiểm định chất lượng: 100% đạt chuẩn VietGAP, GlobalGAP, OCOP 4 sao, Hữu cơ Organic, có Mã số vùng trồng (PUC) xuất khẩu và vào siêu thị.
-            - Giao nhận: Tại cổng nông trại (FOB) hoặc xe tải lạnh bảo ôn điều phối giao tận kho người mua.
+            QUY TẮC BẮT BUỘC (GUARDRAILS):
+            1. GIỚI HẠN CHỦ ĐỀ: Chỉ trả lời các câu hỏi liên quan đến nông nghiệp, sản phẩm trên sàn, mua bán, vận chuyển, và hướng dẫn sử dụng hệ thống.
+            2. TỪ CHỐI NGOÀI LỀ: Nếu người dùng hỏi về chính trị, tôn giáo, thời tiết chung, giải toán, viết code, người nổi tiếng, hoặc bất kỳ chủ đề nào không liên quan đến sàn giao dịch nông sản, BẠN PHẢI TỪ CHỐI LỊCH SỰ. Hãy dùng cấu trúc: "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản và giao dịch trên hệ thống. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?".
+            3. KHÔNG BỊA ĐẶT (NO HALLUCINATION): Nếu câu hỏi liên quan đến sản phẩm nhưng trong "Ngữ cảnh được trích xuất" không có thông tin, tuyệt đối không tự bịa ra dữ liệu. Hãy trả lời: "Dạ, hiện tại em chưa tìm thấy thông tin chính xác về sản phẩm/vấn đề này trên hệ thống. Anh/chị có thể cung cấp thêm chi tiết hoặc từ khóa khác để em kiểm tra lại không ạ?".
+            4. NGÔN NGỮ & GIỌNG ĐIỆU: Giao tiếp bằng tiếng Việt chuẩn, xưng hô "em" và gọi khách hàng là "anh/chị". Thái độ tôn trọng, hỗ trợ và hướng tới việc thúc đẩy giao dịch. Trả lời súc tích, ngắn gọn, đúng trọng tâm.
             """;
 
-        String systemPrompt = """
-            Bạn là Cố Vấn Nguồn Hàng Nông Sản B2B Thông Minh của Sàn Giao Dịch Sỉ HoNa Fresh.
-            Nền tảng HoNa Fresh là sàn B2B trung gian kết nối TRỰC TIẾP giữa các Trang trại/Hợp tác xã (HTX) quy mô lớn với các Chuỗi siêu thị, Bếp ăn công nghiệp, Nhà hàng và Thương lái thu mua số lượng lớn (Tạ, Tấn, MOQ ≥ 200kg - 1 Tấn).
-            LƯU Ý QUAN TRỌNG:
-            - KHÔNG bán lẻ cho 1-2 người, KHÔNG hướng dẫn nấu ăn gia đình hay mẹo làm bếp!
-            - Bạn PHẢI HIỂU TOÀN BỘ CƠ SỞ DỮ LIỆU CỦA HONA FRESH (được cung cấp chi tiết bên dưới) để trả lời chính xác mọi câu hỏi về số lượng, danh mục, vùng trồng, HTX và mặt hàng có trên sàn.
-            """ + masterDatabaseKnowledge + locationConstraint + """
+        String userTurnPrompt = String.format("""
+            NGỮ CẢNH ĐƯỢC TRÍCH XUẤT TỪ CƠ SỞ DỮ LIỆU:
+            %s
 
-            Nhiệm vụ của bạn:
-            1. Trả lời các câu hỏi kinh doanh, thị trường và nguồn cung sỉ nông sản:
-               - Giải đáp chi tiết sàn có những sản phẩm gì, các nhóm ngành hàng, từng vùng trồng và từng HTX cụ thể.
-               - Phân tích và giải đáp sản phẩm nào đang hoặc sắp vào mùa thu hoạch rầm rộ (sản lượng dồi dào, giá xuất vườn tốt nhất).
-               - Thông tin vùng trồng (Đà Lạt, Lâm Đồng, Đơn Dương, Mộc Châu, Buôn Hồ - Đắk Lắk, Long Khánh - Đồng Nai, Gia Lai...), chứng nhận tiêu chuẩn (VietGAP, GlobalGAP, OCOP), mã số vùng trồng PUC để xuất khẩu hoặc vào siêu thị.
-               - Chính sách giá sỉ theo bậc khối lượng (MOQ tối thiểu 200-500kg, đơn hàng 2 Tấn giảm 8%, đơn hàng 5 Tấn giảm 15%), điều kiện giao nhận (tại cổng trang trại FOB hoặc xe lạnh giao kho).
-            2. Khéo léo gợi ý các lô hàng sỉ đang có sẵn trong kho/vườn (dựa trên danh sách nông sản được cung cấp).
-            3. Trả lời súc tích, chuyên nghiệp theo phong cách chuyên viên thu mua/kinh doanh B2B, trình bày Markdown rõ ràng (các đề mục ###, gạch đầu dòng -, in đậm các số liệu quan trọng như Tấn, Tạ, %, VNĐ).
-            
-            Dưới đây là thông tin chi tiết các lô nông sản trích xuất theo yêu cầu của khách hàng:
-            """ + contextBuilder.toString();
+            CÂU HỎI CỦA KHÁCH HÀNG:
+            %s
 
-        String answer = geminiService.generateAnswer(systemPrompt, userQuery);
+            CÂU TRẢ LỜI CỦA BẠN:
+            """, contextBuilder.toString(), userQuery);
+
+        String answer = geminiService.generateAnswer(systemPrompt, userTurnPrompt);
 
         return AiChatResponse.builder()
                 .answer(answer)
                 .recommendedProducts(recommendedProducts)
                 .hotDeals(hotDeals)
                 .hasGeminiKey(geminiService.hasApiKey())
-                .modelUsed("Cố Vấn Nguồn Hàng B2B HoNa Fresh")
+                .modelUsed("Trợ Lý Nông Sản B2B HoNa Fresh")
                 .build();
     }
 
     /**
-     * Tạo chuỗi ngữ nghĩa phong phú cho sản phẩm nông sản
+     * Tạo chuỗi ngữ nghĩa cho sản phẩm nông sản
      */
     private String buildSemanticText(Product p) {
         StringBuilder sb = new StringBuilder();

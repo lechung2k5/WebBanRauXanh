@@ -7,10 +7,11 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import { Product } from '@/types';
-import { getProductBySlug, getProducts } from '@/services/api';
+import { getProductBySlug, getProducts, getSimilarProductsApi } from '@/services/api';
 import { getProductGallery } from '@/services/imageService';
 import { useApp } from '@/context/AppContext';
 import {
+  Sparkles,
   ChevronRight,
   ShieldCheck,
   Leaf,
@@ -50,11 +51,24 @@ function ProductDetailContent() {
         setProduct(item);
 
         if (item) {
-          const related = await getProducts({
-            categorySlug: item.categorySlug,
-            size: 4,
-          });
-          setRelatedProducts(related.products.filter((p) => p.slug !== slug).slice(0, 4));
+          try {
+            const similar = await getSimilarProductsApi(item.id || slug, 4);
+            if (similar && similar.length > 0) {
+              setRelatedProducts(similar.filter((p) => p.slug !== slug).slice(0, 4));
+            } else {
+              const related = await getProducts({
+                categorySlug: item.categorySlug,
+                size: 4,
+              });
+              setRelatedProducts(related.products.filter((p) => p.slug !== slug).slice(0, 4));
+            }
+          } catch {
+            const related = await getProducts({
+              categorySlug: item.categorySlug,
+              size: 4,
+            });
+            setRelatedProducts(related.products.filter((p) => p.slug !== slug).slice(0, 4));
+          }
         }
       } catch (err) {
         console.error('Error fetching product detail:', err);
@@ -402,9 +416,14 @@ function ProductDetailContent() {
         {/* Sản phẩm cùng loại */}
         {relatedProducts.length > 0 && (
           <div>
-            <h2 className="font-heading text-xl font-bold text-[#10542C] mb-5 flex items-center gap-2">
-              <Leaf className="w-5 h-5 text-[#8BC34A]" /> Sản phẩm liên quan cùng danh mục
-            </h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-heading text-xl font-bold text-[#10542C] flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[#8BC34A]" /> Sản phẩm tương tự (Gợi ý Vector AI)
+              </h2>
+              <span className="hidden sm:inline-flex text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200/60">
+                ⚡ pgvector Cosine Similarity
+              </span>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {relatedProducts.map((p) => (
                 <ProductCard
