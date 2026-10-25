@@ -6,6 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/a
 export const loginApi = async (username: string, password: string, rememberMe: boolean): Promise<AuthResponse> => {
   const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, rememberMe }),
   });
@@ -48,7 +49,7 @@ export const registerApi = async (form: {
 
 export const logoutApi = async (): Promise<void> => {
   try {
-    await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST' });
+    await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
   } catch {
     // ignore
   }
@@ -68,7 +69,7 @@ export const getStoredUser = (): AuthResponse | null => {
 // User Management (ADMIN)
 export const getUsersApi = async (): Promise<User[]> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
     const data: ApiResponse<User[]> = await res.json();
     return data.result || [];
   } catch {
@@ -79,6 +80,7 @@ export const getUsersApi = async (): Promise<User[]> => {
 export const toggleUserStatusApi = async (userId: number): Promise<boolean> => {
   const res = await fetch(`${API_BASE_URL}/users/${userId}/toggle-status`, {
     method: 'POST',
+    credentials: 'include',
   });
   const data: ApiResponse<boolean> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Lỗi khi thay đổi trạng thái tài khoản!');
@@ -477,6 +479,20 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
   } catch {
     return null;
   }
+};
+
+export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
+  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  return data.result;
+};
+
+export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
+  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', credentials: 'include' });
+  const data: ApiResponse<OrderResponse> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
+  return data.result;
 };
 
 // ======================= AI & PGVECTOR APIS =======================

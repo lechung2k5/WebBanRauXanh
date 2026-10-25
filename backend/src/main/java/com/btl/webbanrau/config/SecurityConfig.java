@@ -65,8 +65,9 @@ public class SecurityConfig {
                         // 3. Mọi request khác
                         .anyRequest().permitAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
+                .securityContext(securityContext -> securityContext.requireExplicitSave(false))
                 .authenticationProvider(authenticationProvider())
-                .httpBasic(Customizer.withDefaults());
+                .formLogin(form -> form.disable());
 
         return http.build();
     }

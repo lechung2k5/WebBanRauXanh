@@ -132,7 +132,17 @@ public class OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng!"));
 
+        OrderStatus previousStatus = order.getStatus();
         order.setStatus(status);
+        if (status == OrderStatus.CANCELLED && previousStatus != OrderStatus.CANCELLED) {
+            order.getItems().forEach(item -> {
+                if (item.getProduct() != null) {
+                    Product product = item.getProduct();
+                    product.setStockQuantity(product.getStockQuantity() + item.getQuantity());
+                    productRepository.save(product);
+                }
+            });
+        }
         if (status == OrderStatus.DELIVERED) {
             order.setIsPaid(true);
         }
