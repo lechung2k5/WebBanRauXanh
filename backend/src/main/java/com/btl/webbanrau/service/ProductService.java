@@ -277,7 +277,7 @@ public class ProductService {
         productRepository.deleteById(id);
     }
 
-    private ProductResponse mapToResponse(Product p) {
+    public ProductResponse mapToResponse(Product p) {
         return ProductResponse.builder()
                 .id(p.getId())
                 .name(p.getName())

@@ -46,24 +46,8 @@ export default function LoginPage() {
       const res = await loginApi(username.trim(), password.trim(), rememberMe);
       setCurrentUser(res);
       router.push('/');
-    } catch (err: any) {
-      // Demo mock login if backend is not started
-      if (username === 'admin' || username === 'user' || password.length >= 6) {
-        const mockUser = {
-          id: 1,
-          username: username.trim(),
-          fullName: username === 'admin' ? 'Quản Trị Viên' : 'Khách Hàng Thân Thiết',
-          email: `${username}@honafresh.vn`,
-          roles: username === 'admin' ? ['ROLE_ADMIN', 'ROLE_USER'] : ['ROLE_USER'],
-          enabled: true,
-          token: 'demo-token-' + Date.now(),
-        };
-        localStorage.setItem('xanhfarm_user', JSON.stringify(mockUser));
-        setCurrentUser(mockUser);
-        router.push('/');
-        return;
-      }
-      setError(err.message || 'Tên đăng nhập hoặc mật khẩu không chính xác.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Tên đăng nhập hoặc mật khẩu không chính xác.');
     } finally {
       setLoading(false);
     }
@@ -180,8 +164,8 @@ export default function LoginPage() {
           {/* Gợi ý test nhanh */}
           <div className="mt-4 p-3 rounded-xl bg-[#F9F9F5] border border-[#EAECE8] text-[11px] text-[#6B7280]">
             <p><strong>Tài khoản mẫu:</strong></p>
-            <p>• Admin: <code>admin</code> / <code>123456</code></p>
-            <p>• Khách hàng: <code>user</code> / <code>123456</code></p>
+            <p>• Admin: <code>admin</code> / <code>admin123</code></p>
+            <p>• Khách hàng: <code>user</code> / <code>user123</code></p>
           </div>
 
           {/* Chuyển sang Đăng ký */}

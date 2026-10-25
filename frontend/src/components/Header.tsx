@@ -61,8 +61,10 @@ function HeaderInner() {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/san-pham?search=${encodeURIComponent(searchQuery.trim())}`);
+    const term = searchQuery.trim();
+    setSearchQuery('');
+    if (term) {
+      router.push(`/san-pham?search=${encodeURIComponent(term)}`);
     } else {
       router.push('/san-pham');
     }

@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
-import { Product, User } from '@/types';
-import { getProducts, getUsersApi, toggleUserStatusApi, createProductApi, deleteProductApi } from '@/services/api';
+import { OrderResponse, Product, User } from '@/types';
+import { getProducts, getUsersApi, toggleUserStatusApi, createProductApi, deleteProductApi, getAdminOrdersApi, updateOrderStatusApi, getStoredUser } from '@/services/api';
 import { resolveProductImageUrl } from '@/services/imageService';
 import { useApp } from '@/context/AppContext';
 import {
@@ -25,15 +26,21 @@ import {
   ChevronRight,
   ShieldCheck,
   Leaf,
+  Eye,
+  Loader2,
 } from 'lucide-react';
 
 export default function AdminPage() {
   const { currentUser } = useApp();
+  const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'users'>('products');
   const [products, setProducts] = useState<Product[]>([]);
   const [totalProducts, setTotalProducts] = useState<number>(0);
   const [users, setUsers] = useState<User[]>([]);
+  const [orders, setOrders] = useState<OrderResponse[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<OrderResponse | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchKw, setSearchKw] = useState('');
   const [adminPage, setAdminPage] = useState<number>(1);
@@ -56,25 +63,61 @@ export default function AdminPage() {
   });
 
   useEffect(() => {
+    if (!currentUser) {
+      if (getStoredUser()) return;
+      router.replace('/dang-nhap?redirect=/admin');
+      return;
+    }
+    if (!currentUser.roles?.includes('ROLE_ADMIN')) {
+      router.replace('/');
+      return;
+    }
     fetchData();
-  }, []);
+  }, [currentUser, router]);
+
+  if (!currentUser || !currentUser.roles?.includes('ROLE_ADMIN')) {
+    return <div className="min-h-screen bg-[#F9F9F5] flex items-center justify-center text-sm text-[#6B7280]">Đang kiểm tra quyền truy cập...</div>;
+  }
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [prodRes, userRes] = await Promise.all([
+      const [prodRes, userRes, orderRes] = await Promise.all([
         getProducts({ size: 1000 }), // Lấy toàn bộ sản phẩm (639 sản phẩm)
         getUsersApi(),
+        getAdminOrdersApi(),
       ]);
       setProducts(prodRes.products);
       setTotalProducts(prodRes.totalElements || prodRes.products.length);
       setUsers(userRes);
+      setOrders(orderRes.data || []);
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleOrderStatusChange = async (order: OrderResponse, status: string) => {
+    if (status === order.status) return;
+    setUpdatingOrderId(order.id);
+    try {
+      const updated = await updateOrderStatusApi(order.id, status);
+      setOrders((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      setSelectedOrder((current) => current?.id === updated.id ? updated : current);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Không thể cập nhật trạng thái đơn hàng.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const orderStatusLabels: Record<string, string> = {
+    PENDING: 'Chờ xác nhận', CONFIRMED: 'Đã xác nhận', PROCESSING: 'Đang đóng gói',
+    SHIPPING: 'Đang giao', DELIVERED: 'Đã giao', CANCELLED: 'Đã hủy',
+  };
+
+  const formatOrderDate = (date?: string) => date ? new Date(date).toLocaleString('vi-VN') : '—';
 
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -234,6 +277,15 @@ export default function AdminPage() {
             }`}
           >
             Quản Lý Khách Hàng ({users.length || 0})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('orders')}
+            className={`pb-3 px-4 text-xs font-bold transition-all relative cursor-pointer ${
+              activeTab === 'orders' ? 'text-[#10542C] border-b-2 border-[#10542C]' : 'text-[#6B7280] hover:text-[#10542C]'
+            }`}
+          >
+            Quản Lý Đơn Hàng ({orders.length})
           </button>
         </div>
 
@@ -423,7 +475,44 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {activeTab === 'orders' && (
+          <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-heading font-bold text-base text-[#2C3E2E]">Danh Sách Đơn Hàng</h2>
+                <p className="text-xs text-[#6B7280] mt-1">Cập nhật trạng thái để khách hàng theo dõi tiến trình giao hàng.</p>
+              </div>
+              <span className="text-xs font-bold text-[#10542C] bg-[#D7EED6] px-3 py-1.5 rounded-full">{orders.length} đơn</span>
+            </div>
+            {orders.length === 0 ? <div className="py-12 text-center text-sm text-[#6B7280]">Chưa có đơn hàng hoặc chưa thể tải dữ liệu.</div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#F9F9F5] text-[#2C3E2E] uppercase font-bold text-[11px] border-b border-[#EAECE8]"><tr>
+                    <th className="py-3 px-3">Mã đơn</th><th className="py-3 px-3">Khách hàng</th><th className="py-3 px-3">Ngày đặt</th>
+                    <th className="py-3 px-3">Tổng tiền</th><th className="py-3 px-3">Thanh toán</th><th className="py-3 px-3">Trạng thái</th><th className="py-3 px-3 text-right">Chi tiết</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-[#F0F2ED]">{orders.map((order) => (
+                    <tr key={order.id} className="hover:bg-[#F9F9F5]/60 transition-colors">
+                      <td className="py-3 px-3 font-bold text-[#10542C]">{order.orderCode}</td>
+                      <td className="py-3 px-3"><p className="font-bold text-[#2C3E2E]">{order.recipientName}</p><p className="text-[10px] text-[#6B7280]">{order.recipientPhone}</p></td>
+                      <td className="py-3 px-3 text-[#6B7280] whitespace-nowrap">{formatOrderDate(order.createdAt)}</td>
+                      <td className="py-3 px-3 font-bold text-[#10542C]">{formatVND(order.totalAmount)}</td>
+                      <td className="py-3 px-3 text-[#6B7280]">{order.paymentMethod === 'COD' ? 'COD' : 'Chuyển khoản'}<br />{order.isPaid ? 'Đã trả' : 'Chưa trả'}</td>
+                      <td className="py-3 px-3"><div className="flex items-center gap-1.5"><select value={order.status} disabled={updatingOrderId === order.id} onChange={(e) => handleOrderStatusChange(order, e.target.value)} className="bg-white border border-[#EAECE8] rounded-lg px-2 py-1.5 text-[11px] font-bold text-[#10542C] focus:outline-none focus:border-[#10542C] disabled:opacity-50">
+                        {Object.entries(orderStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>{updatingOrderId === order.id && <Loader2 className="w-3.5 h-3.5 text-[#10542C] animate-spin" />}</div></td>
+                      <td className="py-3 px-3 text-right"><button type="button" onClick={() => setSelectedOrder(order)} className="inline-flex items-center gap-1 text-[#10542C] font-bold hover:underline"><Eye className="w-3.5 h-3.5" /> Xem</button></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {selectedOrder && <div className="fixed inset-0 z-50 flex items-center justify-center p-4"><div className="fixed inset-0 bg-black/40" onClick={() => setSelectedOrder(null)} /><div className="relative z-10 bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-[#EAECE8]"><div className="flex items-start justify-between gap-4 mb-5"><div><p className="text-xs text-[#6B7280]">Chi tiết đơn hàng</p><h3 className="font-heading text-xl font-black text-[#10542C]">{selectedOrder.orderCode}</h3></div><button type="button" onClick={() => setSelectedOrder(null)} className="text-[#6B7280] hover:text-[#2C3E2E] text-xl">×</button></div><div className="space-y-2 text-xs text-[#2C3E2E] mb-5"><p><strong>Người nhận:</strong> {selectedOrder.recipientName} - {selectedOrder.recipientPhone}</p><p><strong>Địa chỉ:</strong> {selectedOrder.shippingAddress}</p><p><strong>Ghi chú:</strong> {selectedOrder.note || 'Không có'}</p></div><div className="border-t border-[#F0F2ED] pt-3 space-y-2">{selectedOrder.items?.map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span>{item.productName} × {item.quantity}</span><strong>{formatVND(item.totalPrice)}</strong></div>)}<div className="flex justify-between border-t border-[#F0F2ED] pt-3 mt-3 font-black text-sm text-[#10542C]"><span>Tổng cộng</span><span>{formatVND(selectedOrder.totalAmount)}</span></div></div></div></div>}
 
       {/* Modal Thêm Sản Phẩm Mới */}
       {isAddModalOpen && (

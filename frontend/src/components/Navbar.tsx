@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { AuthResponse, Product } from '@/types';
-import { getProducts } from '@/services/api';
+import { getProducts, hybridSearchApi } from '@/services/api';
 
 interface NavbarProps {
   cartCount: number;
@@ -59,6 +59,34 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [navbarSuggestions, setNavbarSuggestions] = useState<Product[]>([]);
   const [navMatchedRegion, setNavMatchedRegion] = useState<string | null>(null);
   const [isNavDropdownOpen, setIsNavDropdownOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Xử lý submit tìm kiếm: Đóng popup gợi ý, gọi submit và reset ô tìm kiếm về trống
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsNavDropdownOpen(false);
+    onSearchSubmit(e);
+    onSearchChange('');
+  };
+
+  // Xử lý Click Outside: Bấm ra ngoài thì đóng gợi ý, click vào ô tìm kiếm thì mở lại
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setIsNavDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -112,6 +140,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
     const timer = setTimeout(async () => {
       try {
+        if (!matched && searchQuery.trim().length >= 2) {
+          try {
+            const hybridRes = await hybridSearchApi(searchQuery.trim(), 5);
+            if (hybridRes && hybridRes.items && hybridRes.items.length > 0) {
+              setNavbarSuggestions(hybridRes.items.map(item => item.product));
+              setIsNavDropdownOpen(true);
+              return;
+            }
+          } catch {
+            // fallback to getProducts below
+          }
+        }
         const res = await getProducts({ keyword: matched || searchQuery.trim(), size: 5 });
         if (res && res.products && res.products.length > 0) {
           setNavbarSuggestions(res.products);
@@ -198,12 +238,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Thanh Tìm kiếm Lô Nông Sản B2B (Đơn giản, Rộng rãi, Tích hợp nút Tìm sỉ) */}
-            <div className="hidden md:flex flex-1 max-w-2xl mx-2 relative">
+            <div ref={searchContainerRef} className="hidden md:flex flex-1 max-w-2xl mx-2 relative">
               <form 
-                onSubmit={(e) => {
-                  setIsNavDropdownOpen(false);
-                  onSearchSubmit(e);
-                }} 
+                onSubmit={handleFormSubmit} 
                 className="relative w-full flex items-center"
               >
                 <Search className="w-4 h-4 text-[#4CAF50] absolute left-4 z-10" />
@@ -212,7 +249,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   placeholder="Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng, Nấm tươi Đồng Nai..."
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  onFocus={() => navbarSuggestions.length > 0 && setIsNavDropdownOpen(true)}
+                  onFocus={() => {
+                    if (navbarSuggestions.length > 0 || searchQuery.trim().length >= 2) {
+                      setIsNavDropdownOpen(true);
+                    }
+                  }}
+                  onClick={() => {
+                    if (navbarSuggestions.length > 0 || searchQuery.trim().length >= 2) {
+                      setIsNavDropdownOpen(true);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsNavDropdownOpen(false);
+                    }
+                  }}
                   className="w-full bg-[#F9F9F5] hover:bg-white focus:bg-white border-[1.5px] border-[#E5E7EB] focus:border-[#10542C] rounded-full pl-11 pr-24 h-11 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none transition-all shadow-2xs"
                 />
                 <button
@@ -230,11 +281,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="text-xs font-bold text-[#10542C] flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5" />
                       {navMatchedRegion 
-                        ? `Gợi ý nông sản tại ${navMatchedRegion} (${navbarSuggestions.length} lô phù hợp):`
-                        : `Gợi ý sản phẩm khớp "${searchQuery}":`}
+                        ? `Gợi ý nông sản tại ${navMatchedRegion}:`
+                        : `Gợi ý thông minh:`}
                     </span>
                     <button
-                      onClick={() => setIsNavDropdownOpen(false)}
+                      onClick={() => {
+                          setIsNavDropdownOpen(false);
+                          onSearchChange('');
+                        }}
                       className="text-[11px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
                     >
                       ✕ Đóng
@@ -275,8 +329,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between text-xs px-1">
                     {onOpenAi && (
                       <button
+                        type="button"
                         onClick={() => {
                           setIsNavDropdownOpen(false);
+                          onSearchChange('');
                           onOpenAi();
                         }}
                         className="text-[11px] font-bold text-[#10542C] hover:underline flex items-center gap-1 cursor-pointer"
@@ -286,9 +342,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     )}
                     <button
+                      type="button"
                       onClick={(e) => {
-                        setIsNavDropdownOpen(false);
-                        onSearchSubmit(e);
+                        handleFormSubmit(e);
                       }}
                       className="ml-auto text-[11px] font-bold text-slate-500 hover:text-[#10542C] cursor-pointer"
                     >
@@ -402,7 +458,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Mobile Search Input */}
-          <form onSubmit={onSearchSubmit} className="md:hidden pb-3 relative flex items-center">
+          <form onSubmit={handleFormSubmit} className="md:hidden pb-3 relative flex items-center">
             <Search className="w-4 h-4 text-[#4CAF50] absolute left-3.5 z-10" />
             <input
               type="text"

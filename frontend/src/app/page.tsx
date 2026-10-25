@@ -58,6 +58,7 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSearchKeyword, setActiveSearchKeyword] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   // Filters State for B2B Agri
@@ -138,11 +139,16 @@ export default function HomePage() {
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const term = searchQuery.trim();
+    setSearchQuery('');
+    if (!term) return;
+
+    setActiveSearchKeyword(term);
     setLoading(true);
     try {
       const prodData = await getProducts({
         categoryId: selectedCategory || undefined,
-        keyword: searchQuery.trim() || undefined,
+        keyword: term,
       });
       setProducts(prodData.products);
       setCatalogPage(1);
@@ -154,6 +160,22 @@ export default function HomePage() {
       }, 100);
     } catch (err) {
       console.error('Error searching products:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearActiveSearch = async () => {
+    setActiveSearchKeyword('');
+    setLoading(true);
+    try {
+      const prodData = await getProducts({
+        categoryId: selectedCategory || undefined,
+      });
+      setProducts(prodData.products);
+      setCatalogPage(1);
+    } catch (err) {
+      console.error('Error resetting search:', err);
     } finally {
       setLoading(false);
     }
@@ -607,7 +629,23 @@ export default function HomePage() {
                   ? categories.find((c) => c.id === selectedCategory)?.name || 'Lô Nông Sản Xuất Vườn'
                   : 'Sàn Chào Bán Nông Sản Theo Lô / Vụ Thu Hoạch'}
               </h2>
-              <p className="text-xs text-[#6B7280]">Nguồn hàng tận gốc từ các Hợp tác xã & Vùng trồng liên kết toàn quốc</p>
+              {activeSearchKeyword ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shadow-2xs">
+                    🔍 Đang lọc theo từ khóa: <strong className="font-bold">&ldquo;{activeSearchKeyword}&rdquo;</strong>
+                    <button
+                      type="button"
+                      onClick={handleClearActiveSearch}
+                      className="hover:text-red-600 font-bold ml-1.5 cursor-pointer bg-white/70 hover:bg-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]"
+                      title="Xóa từ khóa tìm kiếm"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-[#6B7280]">Nguồn hàng tận gốc từ các Hợp tác xã & Vùng trồng liên kết toàn quốc</p>
+              )}
             </div>
             <span className="text-xs text-[#6B7280] font-medium">
               {filteredProducts.length > 0
@@ -631,6 +669,9 @@ export default function HomePage() {
                     setSelectedHarvestStage(null);
                     setMaxPrice(150000);
                     setSearchQuery('');
+                    if (activeSearchKeyword) {
+                      handleClearActiveSearch();
+                    }
                   }}
                   className="text-[10px] text-[#E53935] hover:underline cursor-pointer font-bold"
                 >
@@ -797,6 +838,7 @@ export default function HomePage() {
                       setSelectedHarvestStage(null);
                       setMaxPrice(150000);
                       setSearchQuery('');
+                      handleClearActiveSearch();
                     }}
                     className="px-4 py-2 bg-[#10542C] text-white text-xs font-bold rounded-xl cursor-pointer"
                   >
