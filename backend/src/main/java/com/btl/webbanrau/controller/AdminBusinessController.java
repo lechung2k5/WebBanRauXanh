@@ -16,9 +16,6 @@ public class AdminBusinessController {
     private final AdminBusinessService business;
     private final UserRepository users;
     @GetMapping("/dashboard/stats") public Object stats(){return ApiResponse.success(business.stats());}
-    @GetMapping("/harvest-lots") public Object lots(){return ApiResponse.success(business.lots(false));}
-    @PostMapping("/harvest-lots") public Object lot(@RequestBody JsonNode n){return ApiResponse.success(business.createLot(n,n.path("farmerId").asLong()));}
-    @PatchMapping("/harvest-lots/{id}/status") public Object lotStatus(@PathVariable long id,@RequestBody JsonNode n){business.lotStatus(id,n);return ApiResponse.success("Đã cập nhật lô",null);}
     @GetMapping("/contracts") public Object contracts(){return ApiResponse.success(business.contracts());}
     @PostMapping("/contracts") public Object contract(@RequestBody JsonNode n){return ApiResponse.success(business.createContract(n,n.path("buyerId").asLong()));}
     @PatchMapping("/contracts/{id}/status") public Object transition(@PathVariable long id,@RequestBody JsonNode n){business.transition(id,n);return ApiResponse.success("Đã cập nhật hợp đồng",null);}

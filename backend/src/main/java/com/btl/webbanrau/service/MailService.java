@@ -86,7 +86,7 @@ public class MailService {
                   <p>Bạn đang thực hiện thao tác xác thực tài khoản trên sàn giao dịch nông sản <strong>HoNa Fresh</strong>. Vui lòng sử dụng mã xác thực OTP 6 chữ số dưới đây để hoàn tất:</p>
                   
                   <div class="otp-box">
-                    <div class="otp-code">%s</div>
+                    <div class="otp-code">{{OTP_CODE}}</div>
                     <div class="notice">⏱️ Mã có hiệu lực trong <strong>5 phút</strong> (tối đa 5 lần nhập sai).</div>
                   </div>
 
@@ -99,7 +99,7 @@ public class MailService {
               </div>
             </body>
             </html>
-            """.formatted(code);
+            """.replace("{{OTP_CODE}}", code);
 
         sendHtml(email, "Mã xác thực tài khoản B2B", htmlTemplate, "Mã OTP của bạn là: " + code);
     }

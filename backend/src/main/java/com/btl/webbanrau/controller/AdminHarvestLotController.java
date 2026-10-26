@@ -58,8 +58,7 @@ public class AdminHarvestLotController {
     @Operation(summary = "Tạo lô nông sản vụ mùa mới")
     public ResponseEntity<ApiResponse<HarvestLotResponse>> createLot(@Valid @RequestBody HarvestLotRequest request) {
         HarvestLotResponse created = harvestLotService.createLot(request);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Tạo lô nông sản thành công", created));
+        return ResponseEntity.ok(ApiResponse.success("Tạo lô nông sản thành công", created));
     }
 
     @PutMapping("/{id}")

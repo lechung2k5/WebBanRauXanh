@@ -59,7 +59,13 @@ export default function AdminConsole() {
     try {
       if (tab === 'overview') setStats(await api<Row>('admin/dashboard/stats'));
       if (tab === 'users') { const result = await api<{ data: Row[]; totalPages: number }>(`admin/users?${new URLSearchParams({ page: String(page), q, role, ...(enabled ? { enabled } : {}), kyc })}`); setRows(result.data); setTotalPages(result.totalPages); }
-      if (tab === 'lots') { const [lots, categories] = await Promise.all([api<Row[]>('admin/harvest-lots'), api<Row[]>('categories')]); setRows(lots); setExtra(categories); }
+      if (tab === 'lots') {
+        const [lotsData, categories] = await Promise.all([api<any>('admin/harvest-lots'), api<Row[]>('categories')]);
+        const rawLots: Row[] = Array.isArray(lotsData) ? lotsData : (lotsData?.content || []);
+        const lots = rawLots.map(l => ({ ...l, lot_code: l.lot_code || l.lotCode, product_name: l.product_name || l.productName, farmer_name: l.farmer_name || l.farmerName, available_weight_kg: l.available_weight_kg ?? l.availableWeightKg, expiry_date: l.expiry_date || l.expiryDate }));
+        setRows(lots);
+        setExtra(categories);
+      }
       if (tab === 'contracts') { const [contracts, disputes, overview] = await Promise.all([api<Row[]>('admin/contracts'), api<Row[]>('admin/claims'), api<Row>('admin/dashboard/stats')]); setRows(contracts); setClaims(disputes); setStats(overview); }
       if (tab === 'qc') { const [assets, inspections] = await Promise.all([api<Row[]>('admin/cold-assets'), api<Row[]>('admin/hub-inspections')]); setRows(assets); setExtra(inspections); }
       if (tab === 'iot') { setRows(await api<Row[]>('admin/cold-assets')); if (assetId) setTelemetry(await api<Row[]>(`admin/iot/telemetry?assetId=${assetId}`)); }

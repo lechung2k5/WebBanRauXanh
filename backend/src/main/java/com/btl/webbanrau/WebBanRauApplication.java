@@ -8,6 +8,14 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 @EnableJpaAuditing
 public class WebBanRauApplication {
 
+    @org.springframework.context.annotation.Bean
+    public org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy flywayMigrationStrategy() {
+        return flyway -> {
+            flyway.repair();
+            flyway.migrate();
+        };
+    }
+
     public static void main(String[] args) {
         SpringApplication.run(WebBanRauApplication.class, args);
     }

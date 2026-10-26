@@ -9,7 +9,12 @@ import { FormDialog, type Row, type Field } from '@/components/admin/AdminConsol
 
 export default function LotsPage() {
   const [lots, setLots] = useState<Row[]>([]); const [error, setError] = useState(''); const [selected, setSelected] = useState<Row | null>(null); const [message, setMessage] = useState(''); const { currentUser } = useApp(); const router = useRouter();
-  useEffect(() => { api<Row[]>('harvest-lots').then(setLots).catch(e => setError(String(e))); }, []);
+  useEffect(() => {
+    api<any>('harvest-lots').then(res => {
+      const list: Row[] = Array.isArray(res) ? res : (res?.content || []);
+      setLots(list.map(l => ({ ...l, lot_code: l.lot_code || l.lotCode, product_name: l.product_name || l.productName, farmer_name: l.farmer_name || l.farmerName, puc_code: l.puc_code || l.pucCode, base_price_per_kg: l.base_price_per_kg ?? l.basePricePerKg, available_weight_kg: l.available_weight_kg ?? l.availableWeightKg, expiry_date: l.expiry_date || l.expiryDate, req_temp_min: l.req_temp_min ?? l.reqTempMin, req_temp_max: l.req_temp_max ?? l.reqTempMax, tier_pricing_json: l.tier_pricing_json || l.tierPricingJson })));
+    }).catch(e => setError(String(e)));
+  }, []);
   const rfq = (lot: Row) => {
     if (!currentUser) { router.push('/dang-nhap?redirect=/lo-hang'); return; }
     if (!currentUser.roles.includes('ROLE_BUYER')) { setError('Chỉ tài khoản BUYER được gửi RFQ.'); return; }

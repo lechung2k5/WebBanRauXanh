@@ -19,7 +19,6 @@ public class HarvestLotRequest {
 
     private Long farmerId;
 
-    @NotBlank(message = "Tên nông trại/HTX không được để trống")
     private String farmerName;
 
     @NotBlank(message = "Tên nông sản không được để trống")
@@ -53,9 +52,25 @@ public class HarvestLotRequest {
 
     private String tierPricingJson; // JSON bảng giá phân tầng: [{"minKg": 500, "price": 15000}]
 
+    public void setTierPricing(Object obj) {
+        if (obj != null) {
+            try {
+                this.tierPricingJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(obj);
+            } catch (Exception ignored) {}
+        }
+    }
+
     private BigDecimal reqTempMin; // Mặc định 2.0°C
 
+    public void setTempMin(BigDecimal val) {
+        this.reqTempMin = val;
+    }
+
     private BigDecimal reqTempMax; // Mặc định 6.0°C
+
+    public void setTempMax(BigDecimal val) {
+        this.reqTempMax = val;
+    }
 
     private String status; // OPEN, PENDING_APPROVAL, REJECTED, SUSPENDED, SOLD_OUT
 

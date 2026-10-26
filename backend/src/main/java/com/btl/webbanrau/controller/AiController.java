@@ -10,7 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import org.springframework.security.access.prepost.PreAuthorize;
 import java.util.List;
 import java.util.Map;
 
@@ -117,6 +117,7 @@ public class AiController {
 
     @Operation(summary = "Cấu hình Google Gemini API Key trực tiếp tại runtime")
     @PostMapping("/config-key")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> configApiKey(@RequestBody Map<String, String> body) {
         String key = body.get("apiKey");
         if (key == null || key.trim().isEmpty()) {

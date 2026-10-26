@@ -59,8 +59,10 @@ public class HarvestLot extends BaseEntity {
     @Column(name = "base_price_per_kg", nullable = false, precision = 12, scale = 2)
     private BigDecimal basePricePerKg;
 
-    @Column(name = "tier_pricing_json", columnDefinition = "TEXT")
-    private String tierPricingJson; // [{"minKg": 500, "price": 15000}, {"minKg": 2000, "price": 13500}]
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "tier_pricing_json", columnDefinition = "jsonb")
+    @Builder.Default
+    private String tierPricingJson = "[]"; // [{"minKg": 500, "price": 15000}, {"minKg": 2000, "price": 13500}]
 
     @Column(name = "req_temp_min", precision = 4, scale = 1)
     @Builder.Default
@@ -82,6 +84,9 @@ public class HarvestLot extends BaseEntity {
 
     @Column(name = "audit_note", columnDefinition = "TEXT")
     private String auditNote; // Ghi chú thẩm định của Quản Trị Viên
+
+    @Column(name = "review_note", columnDefinition = "TEXT")
+    private String reviewNote;
 
     @Column(name = "warehouse_location", length = 100)
     private String warehouseLocation; // VD: Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1

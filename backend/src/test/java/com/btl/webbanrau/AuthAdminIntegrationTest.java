@@ -100,7 +100,9 @@ class AuthAdminIntegrationTest {
     }
     private long lot(String admin,Long farmer)throws Exception{
         Map<String,Object> request=new HashMap<>(Map.of("farmerId",farmer,"productName","Tomato","category","Vegetables","pucCode","VN-TEST","certification","VietGAP","harvestDate",LocalDate.now().toString(),"expiryDate",LocalDate.now().plusDays(7).toString(),"totalWeightKg",2000,"basePricePerKg",15000,"tierPricing",List.of(Map.of("minKg",500,"price",15000))));request.put("tempMin",2);request.put("tempMax",6);
-        long id=call(post("/admin/harvest-lots"),admin,request,200).path("result").asLong();call(patch("/admin/harvest-lots/"+id+"/status"),admin,Map.of("status","OPEN","note","Checked"),200);return id;
+        var lotRes=call(post("/admin/harvest-lots"),admin,request,200).path("result");
+        long id=lotRes.isObject()?lotRes.path("id").asLong():lotRes.asLong();
+        call(patch("/admin/harvest-lots/"+id+"/status"),admin,Map.of("status","OPEN","note","Checked"),200);return id;
     }
     @Test void completeContractQcShipmentEpodSettlementAndBalancedLedger()throws Exception{
         String admin=token(user("admin","ADMIN"));User farmer=user("farmer","FARMER"),buyer=user("buyer","BUYER"),driver=user("driver","DRIVER");long lot=lot(admin,farmer.getId());

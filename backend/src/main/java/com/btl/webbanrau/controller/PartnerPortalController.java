@@ -13,7 +13,6 @@ import java.util.*;
 public class PartnerPortalController {
     private final AdminBusinessService business;
     private final JdbcTemplate db;
-    @GetMapping("/harvest-lots") public Object lots(){return ApiResponse.success(business.lots(true));}
     @GetMapping("/cold-assets/public-status") public Object coldStatus(){return ApiResponse.success(db.queryForList("select asset_code,asset_type,asset_name,current_temp,current_humidity,status from cold_assets order by id"));}
     @GetMapping("/harvest-lots/my-lots") @PreAuthorize("hasRole('FARMER')") public Object myLots(){return ApiResponse.success(db.queryForList("select * from harvest_lots where farmer_id=? order by id desc",AuthService.current().getId()));}
     @PostMapping("/farmer/lots") @PreAuthorize("hasRole('FARMER')") public Object lot(@RequestBody JsonNode n){return ApiResponse.success(business.createLot(n,AuthService.current().getId()));}
