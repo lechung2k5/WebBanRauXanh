@@ -32,6 +32,10 @@ public class Category extends BaseEntity {
     @Column(length = 500)
     private String imageUrl;
 
+    @Column(name = "display_order")
+    @Builder.Default
+    private Integer displayOrder = 0;
+
     @JsonIgnore
     @Builder.Default
     @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true)

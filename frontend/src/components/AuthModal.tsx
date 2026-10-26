@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { AuthResponse } from '@/types';
 import { loginApi, registerApi } from '@/services/api';
@@ -20,6 +20,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialTab = 'login',
 }) => {
   const [tab, setTab] = useState<'login' | 'register'>(initialTab);
+
+  // Khóa cuộn background khi AuthModal mở
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
 
   // Login form state
   const [loginUsername, setLoginUsername] = useState('');
@@ -54,6 +66,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const user = await loginApi(loginUsername.trim(), loginPassword, rememberMe);
       onAuthSuccess(user);
       onClose();
+      if (user.roles?.includes('ROLE_ADMIN')) {
+        window.location.href = '/admin/dashboard';
+      }
     } catch (err: any) {
       setError(err.message || 'Đăng nhập không thành công!');
     } finally {
@@ -103,11 +118,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-3 sm:p-4">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={onClose} />
 
-      <div className="relative bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl z-10 max-h-[92vh] overflow-y-auto border border-[#EAECE8]">
+      <div className="relative bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl z-10 max-h-[90vh] overflow-y-auto overscroll-contain border border-[#EAECE8] animate-in fade-in zoom-in-95 duration-150">
         {/* Close Button */}
         <button
           onClick={onClose}

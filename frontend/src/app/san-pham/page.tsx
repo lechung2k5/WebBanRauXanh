@@ -11,8 +11,7 @@ import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import { getProducts } from '@/services/api';
-import { trackProductView, trackAddToCart } from '@/services/recommendationService';
-import { useApp } from '@/context/AppContext';
+import { trackProductView } from '@/services/recommendationService';
 import {
   Filter,
   SlidersHorizontal,
@@ -41,7 +40,6 @@ function ProductListContent() {
   const initialCategory = normalizeCategory(searchParams.get('category'));
   const initialSearch = searchParams.get('search') || '';
 
-  const { addToCart, setIsCartOpen } = useApp();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -393,11 +391,6 @@ function ProductListContent() {
                     <ProductCard
                       key={product.id}
                       product={product}
-                      onAddToCart={(p) => {
-                        trackAddToCart(p);
-                        addToCart(p, p.moq || 1);
-                        setIsCartOpen(true);
-                      }}
                       onViewDetail={(p) => {
                         trackProductView(p);
                         setSelectedProduct(p);
@@ -427,14 +420,7 @@ function ProductListContent() {
         product={selectedProduct}
         isOpen={!!selectedProduct}
         onClose={() => setSelectedProduct(null)}
-        onAddToCart={(p, qty) => {
-          addToCart(p, qty);
-          setIsCartOpen(true);
-        }}
-        onBuyNow={(p, qty) => {
-          addToCart(p, qty);
-          window.location.href = '/thanh-toan';
-        }}
+        onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
       />
 
       {/* B2B RFQ Negotiation Modal */}

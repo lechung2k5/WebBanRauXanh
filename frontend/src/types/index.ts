@@ -27,7 +27,73 @@ export interface Category {
   slug: string;
   description?: string;
   imageUrl?: string;
+  displayOrder?: number;
   productCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface HarvestLotTierPrice {
+  minKg: number;
+  price: number;
+}
+
+export interface HarvestLot {
+  id: number;
+  lotCode: string;
+  farmerId?: number;
+  farmerName: string;
+  productName: string;
+  category: string;
+  categoryId?: number;
+  pucCode: string;
+  certification?: string;
+  harvestDate: string;
+  expiryDate: string;
+  totalWeightKg: number;
+  availableWeightKg: number;
+  basePricePerKg: number;
+  tierPricingJson?: string;
+  reqTempMin?: number;
+  reqTempMax?: number;
+  status: 'OPEN' | 'PENDING_APPROVAL' | 'REJECTED' | 'SUSPENDED' | 'SOLD_OUT' | string;
+  imageUrl?: string;
+  rejectionReason?: string;
+  auditNote?: string;
+  warehouseLocation?: string;
+  region?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface HarvestLotRequest {
+  lotCode?: string;
+  farmerId?: number;
+  farmerName: string;
+  productName: string;
+  category: string;
+  categoryId?: number;
+  pucCode: string;
+  certification?: string;
+  harvestDate: string;
+  expiryDate: string;
+  totalWeightKg: number;
+  availableWeightKg?: number;
+  basePricePerKg: number;
+  tierPricingJson?: string;
+  reqTempMin?: number;
+  reqTempMax?: number;
+  status?: string;
+  imageUrl?: string;
+  auditNote?: string;
+  warehouseLocation?: string;
+  region?: string;
+}
+
+export interface HarvestLotStatusUpdateRequest {
+  status: string;
+  rejectionReason?: string;
+  auditNote?: string;
 }
 
 export interface TieredPrice {

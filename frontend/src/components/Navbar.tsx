@@ -15,13 +15,14 @@ import {
   Sprout,
   ReceiptText,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { AuthResponse, Product } from '@/types';
 import { getProducts, hybridSearchApi } from '@/services/api';
 
 interface NavbarProps {
-  cartCount: number;
-  onOpenCart: () => void;
+  cartCount?: number;
+  onOpenCart?: () => void;
   onOpenTracking: () => void;
   onOpenPromo: () => void;
   onOpenLocation: () => void;
@@ -365,6 +366,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Kho Lô Nông Sản</span>
               </Link>
 
+              {/* Nút Admin Nhanh Nếu Là Admin */}
+              {currentUser?.roles?.includes('ROLE_ADMIN') && (
+                <Link
+                  href="/admin/dashboard"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
+                >
+                  <ShieldCheck className="w-4 h-4 text-[#8BC34A]" />
+                  <span className="hidden md:inline">👑 Quản Trị Sàn</span>
+                  <span className="md:hidden">Admin</span>
+                </Link>
+              )}
+
               {/* Nút Theo dõi Hợp Đồng / Lô Đặt Cọc */}
               <button
                 type="button"
@@ -374,23 +387,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Clock className="w-4 h-4 text-[#4CAF50]" />
                 <span className="hidden lg:inline">Hợp đồng & Lô cọc</span>
                 <span className="lg:hidden">Hợp đồng</span>
-              </button>
-
-              {/* Giỏ Lô Hàng Đặt Cọc */}
-              <button
-                type="button"
-                onClick={onOpenCart}
-                className="relative px-3 py-2 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                aria-label="Lô hàng đặt cọc"
-                title="Danh sách lô hàng chuẩn bị đặt cọc"
-              >
-                <ShoppingBag className="w-4 h-4 text-[#8BC34A]" />
-                <span className="text-xs font-bold hidden sm:inline">Lô đã chọn</span>
-                {cartCount > 0 && (
-                  <span className="bg-[#E53935] text-white text-[10px] font-black px-1.5 py-0.2 rounded-full border-2 border-white animate-pulse">
-                    {cartCount}
-                  </span>
-                )}
               </button>
 
               {/* Khối Tài Khoản */}
@@ -419,6 +415,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </p>
                         <p className="text-[11px] text-[#6B7280] truncate">{currentUser.email}</p>
                       </div>
+                      {currentUser?.roles?.includes('ROLE_ADMIN') && (
+                        <Link
+                          href="/admin/dashboard"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-[#EAF5E9] font-bold flex items-center gap-2 cursor-pointer border-b border-[#EAECE8]"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-[#4CAF50]" />
+                          <span>👑 Quản Trị Hệ Thống Admin</span>
+                        </Link>
+                      )}
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false);
