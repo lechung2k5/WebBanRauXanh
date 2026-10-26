@@ -30,8 +30,8 @@ interface ProductDetailModalProps {
   product: Product | null;
   isOpen: boolean;
   onClose: () => void;
-  onAddToCart: (product: Product, quantity: number) => void;
-  onBuyNow: (product: Product, quantity: number) => void;
+  onAddToCart?: (product: Product, quantity: number) => void;
+  onBuyNow?: (product: Product, quantity: number) => void;
   onOpenNegotiation?: (product: Product) => void;
 }
 
@@ -312,11 +312,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => onBuyNow(product, quantity)}
+                  onClick={() => {
+                    if (onOpenNegotiation) onOpenNegotiation(product);
+                    else if (onBuyNow) onBuyNow(product, quantity);
+                  }}
                   className="py-3 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Package className="w-4 h-4 text-[#8BC34A]" />
-                  <span>Đặt cọc giữ lô hàng</span>
+                  <span>Gửi yêu cầu đặt cọc lô</span>
                 </button>
               </div>
 

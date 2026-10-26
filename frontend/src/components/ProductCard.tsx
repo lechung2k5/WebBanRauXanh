@@ -17,7 +17,7 @@ import {
 
 interface ProductCardProps {
   product: Product;
-  onAddToCart: (product: Product, quantity?: number) => void;
+  onAddToCart?: (product: Product, quantity?: number) => void;
   onViewDetail?: (product: Product) => void;
   onNegotiate?: (product: Product) => void;
 }
@@ -233,13 +233,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onAddToCart(product, product.moq || 1);
+              if (onNegotiate) onNegotiate(product);
+              else if (onViewDetail) onViewDetail(product);
             }}
             className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
-            title="Đặt cọc lô hàng"
+            title="Đàm phán hoặc đặt cọc giữ lô hàng"
           >
             <Package className="w-3.5 h-3.5 text-[#8BC34A]" />
-            <span>Đặt cọc lô ({moqText})</span>
+            <span>Liên hệ đặt cọc lô ({moqText})</span>
           </button>
         </div>
       </div>

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Category, Product, CartItem, OrderResponse, AuthResponse } from '@/types';
+import { Category, Product, OrderResponse, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
@@ -11,9 +11,6 @@ import CreateProcurementModal from '@/components/CreateProcurementModal';
 import ProcurementBoardSection from '@/components/ProcurementBoardSection';
 import FarmCooperativesSection from '@/components/FarmCooperativesSection';
 import { ProductCard } from '@/components/ProductCard';
-import { CartDrawer } from '@/components/CartDrawer';
-import { CheckoutModal } from '@/components/CheckoutModal';
-import { OrderSuccessModal } from '@/components/OrderSuccessModal';
 import { OrderTrackingModal } from '@/components/OrderTrackingModal';
 import { AuthModal } from '@/components/AuthModal';
 import { LocationModal } from '@/components/LocationModal';
@@ -21,8 +18,7 @@ import { PromotionModal } from '@/components/PromotionModal';
 import { ProductDetailModal } from '@/components/ProductDetailModal';
 import AiAssistantModal from '@/components/AiAssistantModal';
 import Pagination from '@/components/Pagination';
-import RecommendationSection from '@/components/RecommendationSection';
-import { trackProductView, trackAddToCart } from '@/services/recommendationService';
+import { trackProductView } from '@/services/recommendationService';
 import {
   ShieldCheck,
   Truck,
@@ -74,43 +70,17 @@ export default function HomePage() {
   const [catalogPage, setCatalogPage] = useState(1);
   const catalogPageSize = 16;
 
-  // Today's Menu suggestion Tab (RuleLayout B.2)
-  const [menuTab, setMenuTab] = useState<'soup' | 'meat' | 'stirfry' | 'salad'>('soup');
-
-  // Flash sale countdown timer state (RuleLayout B.1)
-  const [timeLeft, setTimeLeft] = useState({ hours: 4, minutes: 28, seconds: 45 });
-
   // Modals
   const [isLocationOpen, setIsLocationOpen] = useState(false);
   const [currentLocation, setCurrentLocation] = useState('Phường Bến Nghé, Quận 1, TP.HCM');
   const [isPromoOpen, setIsPromoOpen] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
-  const [voucherDiscount, setVoucherDiscount] = useState(0);
 
   // User Auth State
   const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-
-  // Cart State
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<OrderResponse | null>(null);
-
-  // Countdown effect
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev.seconds > 0) return { ...prev, seconds: prev.seconds - 1 };
-        if (prev.minutes > 0) return { ...prev, minutes: 59, seconds: 59 };
-        if (prev.hours > 0) return { hours: prev.hours - 1, minutes: 59, seconds: 59 };
-        return { hours: 4, minutes: 0, seconds: 0 };
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Load User & Catalog on mount
   useEffect(() => {
@@ -181,76 +151,13 @@ export default function HomePage() {
     }
   };
 
-  const handleAddToCart = (product: Product, quantity?: number) => {
-    const qty = quantity || product.moq || 1;
-    trackAddToCart(product);
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + qty } : item
-        );
-      }
-      return [...prev, { product, quantity: qty }];
-    });
-    setIsCartOpen(true);
-  };
-
-  const handleBuyNow = (product: Product, quantity?: number) => {
-    const qty = quantity || product.moq || 1;
-    handleAddToCart(product, qty);
-    setIsCartOpen(false);
-    setIsCheckoutOpen(true);
-  };
-
-  const handleUpdateQuantity = (productId: number | string, newQty: number) => {
-    if (newQty <= 0) return;
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, quantity: newQty } : item
-      )
-    );
-  };
-
-  const handleRemoveCartItem = (productId: number | string) => {
-    setCartItems((prev) => prev.filter((item) => item.product.id !== productId));
-  };
-
-  const handleOrderSuccess = (order: OrderResponse) => {
-    setCartItems([]);
-    setIsCheckoutOpen(false);
-    setCompletedOrder(order);
-  };
-
   const handleLogout = async () => {
+    const isAdmin = currentUser?.roles?.includes('ROLE_ADMIN');
     await logoutApi();
     setCurrentUser(null);
-  };
-
-  // Re-order past order products
-  const handleReorder = (items: OrderResponse['items']) => {
-    if (!items || items.length === 0) return;
-    const reorderCartItems: CartItem[] = items.map((it) => ({
-      product: {
-        id: it.productId,
-        name: it.productName,
-        slug: it.productName.toLowerCase().replace(/\s+/g, '-'),
-        description: 'Lô nông sản thu hoạch xuất vườn',
-        price: it.unitPrice,
-        stockQuantity: 50,
-        unit: it.unit || '1000kg',
-        imageUrl: it.productImageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=500',
-        origin: 'Đà Lạt',
-        isOrganic: true,
-        isFeatured: true,
-        isActive: true,
-        categoryId: 1,
-      },
-      quantity: it.quantity,
-    }));
-
-    setCartItems((prev) => [...prev, ...reorderCartItems]);
-    setIsCartOpen(true);
+    if (isAdmin || (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'))) {
+      window.location.href = '/dang-nhap';
+    }
   };
 
   // Lô nông sản xuất sắc thu hái rộ nổi bật
@@ -302,14 +209,10 @@ export default function HomePage() {
     catalogPage * catalogPageSize
   );
 
-  const cartTotalCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-
   return (
     <div className="min-h-screen bg-[#F9F9F5] text-[#2C3E2E] flex flex-col selection:bg-[#4CAF50] selection:text-white pb-20 md:pb-0">
       {/* 2-Tier Header (Top Bar 36px + Main Header 76px) */}
       <Navbar
-        cartCount={cartTotalCount}
-        onOpenCart={() => setIsCartOpen(true)}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}
@@ -476,11 +379,11 @@ export default function HomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleAddToCart(featuredHarvestLot, featuredHarvestLot.moq || 500)}
+                  onClick={() => setNegotiatingProduct(featuredHarvestLot)}
                   className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
                 >
-                  <ShoppingBag className="w-3.5 h-3.5 text-[#8BC34A]" />
-                  <span>Đặt cọc lô</span>
+                  <HeartHandshake className="w-3.5 h-3.5 text-[#8BC34A]" />
+                  <span>Đặt cọc giữ lô</span>
                 </button>
               </div>
             </div>
@@ -547,16 +450,6 @@ export default function HomePage() {
         <div id="vung-trong-htx">
           <FarmCooperativesSection />
         </div>
-
-        {/* SECTION GỢI Ý CHO BẠN (AI / ML RECOMMENDATION) */}
-        <RecommendationSection
-          products={products}
-          onAddToCart={(p, qty) => handleAddToCart(p, qty || p.moq || 1)}
-          onViewDetail={(p) => {
-            trackProductView(p);
-            setSelectedProductForDetail(p);
-          }}
-        />
 
         {/* QUY CÁCH NÔNG SẢN XUẤT VƯỜN (B2B Categories) */}
         <section className="space-y-3">
@@ -853,7 +746,6 @@ export default function HomePage() {
                       <ProductCard
                         key={product.id}
                         product={product}
-                        onAddToCart={(p) => handleAddToCart(p, p.moq || 1)}
                         onViewDetail={(p) => {
                           trackProductView(p);
                           setSelectedProductForDetail(p);
@@ -947,23 +839,16 @@ export default function HomePage() {
           <span className="text-[10px] font-bold">Lô hàng</span>
         </a>
 
-        <button
-          onClick={() => setIsCartOpen(true)}
-          className="relative flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
+        <a
+          href="#san-chao-mua"
+          className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
-          <div className="relative">
-            <ShoppingBag className="w-5 h-5" />
-            {cartTotalCount > 0 && (
-              <span className="absolute -top-1.5 -right-2 bg-[#E53935] text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center">
-                {cartTotalCount}
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] font-bold">Lô cọc</span>
-        </button>
+          <Scale className="w-5 h-5" />
+          <span className="text-[10px] font-bold">Chào mua</span>
+        </a>
 
         <Link
-          href={currentUser ? "/admin" : "/dang-nhap"}
+          href={currentUser ? "/admin/dashboard" : "/dang-nhap"}
           className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <UserIcon className="w-5 h-5" />
@@ -984,17 +869,13 @@ export default function HomePage() {
       <PromotionModal
         isOpen={isPromoOpen}
         onClose={() => setIsPromoOpen(false)}
-        onApplyCode={(code) => {
-          if (code === 'HONAFRESH10') setVoucherDiscount(20000);
-        }}
+        onApplyCode={() => {}}
       />
 
       <ProductDetailModal
         product={selectedProductForDetail}
         isOpen={selectedProductForDetail !== null}
         onClose={() => setSelectedProductForDetail(null)}
-        onAddToCart={(p, q) => handleAddToCart(p, q)}
-        onBuyNow={(p, q) => handleBuyNow(p, q)}
         onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
       />
 
@@ -1014,33 +895,9 @@ export default function HomePage() {
         }}
       />
 
-      <CartDrawer
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
-        onUpdateQuantity={handleUpdateQuantity}
-        onRemoveItem={handleRemoveCartItem}
-        onOpenCheckout={(discount) => {
-          setVoucherDiscount(discount);
-          setIsCartOpen(false);
-          setIsCheckoutOpen(true);
-        }}
-      />
-
-      <CheckoutModal
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-        cartItems={cartItems}
-        onOrderSuccess={handleOrderSuccess}
-        voucherDiscount={voucherDiscount}
-      />
-
-      <OrderSuccessModal order={completedOrder} onClose={() => setCompletedOrder(null)} />
-
       <OrderTrackingModal
         isOpen={isTrackingOpen}
         onClose={() => setIsTrackingOpen(false)}
-        onReorder={handleReorder}
       />
 
       <AuthModal

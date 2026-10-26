@@ -1,4 +1,6 @@
 -- Script tự động nạp 633 sản phẩm nông sản từ BHX kèm vector 768 chiều vào PostgreSQL pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS embedding vector(768);
 BEGIN;
 INSERT INTO products (
     name, slug, category_id, category_slug, brand, origin, unit, image_url,
@@ -17726,4 +17728,5 @@ INSERT INTO products (
   );
 COMMIT;
 -- Cập nhật lại chỉ mục HNSW vector search để tối ưu tìm kiếm
+CREATE INDEX IF NOT EXISTS products_embedding_hnsw_idx ON products USING hnsw (embedding vector_cosine_ops);
 REINDEX INDEX products_embedding_hnsw_idx;

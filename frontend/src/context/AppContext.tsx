@@ -14,7 +14,7 @@ interface AppContextType {
   cartTotal: number;
   currentUser: AuthResponse | null;
   setCurrentUser: (user: AuthResponse | null) => void;
-  logout: () => void;
+  logout: () => void | Promise<void>;
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
   isAuthOpen: boolean;
@@ -99,9 +99,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCartItems([]);
   };
 
-  const logout = () => {
-    logoutApi();
+  const logout = async () => {
+    const isAdmin =
+      currentUser?.roles?.includes('ROLE_ADMIN') ||
+      (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'));
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('xanhfarm_user');
+      sessionStorage.removeItem('xanhfarm_user');
+    }
     setCurrentUser(null);
+
+    try {
+      await logoutApi();
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      if (isAdmin || window.location.pathname.startsWith('/admin')) {
+        window.location.href = '/dang-nhap';
+      }
+    }
   };
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);

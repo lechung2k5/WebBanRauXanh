@@ -4,7 +4,6 @@ import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Navbar } from './Navbar';
-import { CartDrawer } from './CartDrawer';
 import { AuthModal } from './AuthModal';
 import { LocationModal } from './LocationModal';
 import { PromotionModal } from './PromotionModal';
@@ -19,12 +18,6 @@ function HeaderInner() {
   const catParam = searchParams.get('category');
 
   const {
-    cartCount,
-    cartItems,
-    updateQuantity,
-    removeFromCart,
-    isCartOpen,
-    setIsCartOpen,
     isAuthOpen,
     setIsAuthOpen,
     isLocationOpen,
@@ -82,8 +75,6 @@ function HeaderInner() {
   return (
     <>
       <Navbar
-        cartCount={cartCount}
-        onOpenCart={() => setIsCartOpen(true)}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}
@@ -97,19 +88,6 @@ function HeaderInner() {
         onOpenAuth={() => router.push('/dang-nhap')}
         onLogout={logout}
         onOpenAi={() => setIsAiOpen(true)}
-      />
-
-      {/* Cart Drawer */}
-      <CartDrawer
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
-        onUpdateQuantity={updateQuantity}
-        onRemoveItem={removeFromCart}
-        onOpenCheckout={() => {
-          setIsCartOpen(false);
-          router.push('/thanh-toan');
-        }}
       />
 
       {/* Auth Modal */}

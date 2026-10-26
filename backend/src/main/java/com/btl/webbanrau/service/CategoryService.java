@@ -7,6 +7,7 @@ import com.btl.webbanrau.repository.CategoryRepository;
 import com.btl.webbanrau.repository.ProductRepository;
 import com.btl.webbanrau.util.SlugUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +20,11 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final com.btl.webbanrau.repository.HarvestLotRepository harvestLotRepository;
 
     @Transactional(readOnly = true)
     public List<CategoryResponse> getAllCategories() {
-        return categoryRepository.findAll().stream()
+        return categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "displayOrder").and(Sort.by(Sort.Direction.ASC, "id"))).stream()
                 .map(this::mapToResponse)
                 .toList();
     }
@@ -48,11 +50,16 @@ public class CategoryService {
             throw new IllegalArgumentException("Tên danh mục đã tồn tại!");
         }
 
+        String slug = (request.getSlug() != null && !request.getSlug().isBlank())
+                ? SlugUtil.toSlug(request.getSlug())
+                : SlugUtil.toSlug(request.getName());
+
         Category category = Category.builder()
                 .name(request.getName().trim())
-                .slug(SlugUtil.toSlug(request.getName()))
+                .slug(slug)
                 .description(request.getDescription())
                 .imageUrl(request.getImageUrl())
+                .displayOrder(request.getDisplayOrder() != null ? request.getDisplayOrder() : 0)
                 .build();
 
         return mapToResponse(categoryRepository.save(category));
@@ -64,10 +71,17 @@ public class CategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy danh mục!"));
 
+        String slug = (request.getSlug() != null && !request.getSlug().isBlank())
+                ? SlugUtil.toSlug(request.getSlug())
+                : SlugUtil.toSlug(request.getName());
+
         category.setName(request.getName().trim());
-        category.setSlug(SlugUtil.toSlug(request.getName()));
+        category.setSlug(slug);
         category.setDescription(request.getDescription());
         category.setImageUrl(request.getImageUrl());
+        if (request.getDisplayOrder() != null) {
+            category.setDisplayOrder(request.getDisplayOrder());
+        }
 
         return mapToResponse(categoryRepository.save(category));
     }
@@ -75,17 +89,25 @@ public class CategoryService {
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public void deleteCategory(Long id) {
+        long count = productRepository.countByCategoryId(id);
+        if (count > 0) {
+            throw new IllegalStateException("Không thể xóa danh mục đang có " + count + " nông sản liên kết!");
+        }
         categoryRepository.deleteById(id);
     }
 
     private CategoryResponse mapToResponse(Category c) {
-        long count = productRepository.countByCategoryId(c.getId());
+        long count = harvestLotRepository.countByCategoryId(c.getId());
+        if (count == 0) {
+            count = productRepository.countByCategoryId(c.getId());
+        }
         return CategoryResponse.builder()
                 .id(c.getId())
                 .name(c.getName())
                 .slug(c.getSlug())
                 .description(c.getDescription())
                 .imageUrl(c.getImageUrl())
+                .displayOrder(c.getDisplayOrder() != null ? c.getDisplayOrder() : 0)
                 .productCount((int) count)
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())

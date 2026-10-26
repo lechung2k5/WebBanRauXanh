@@ -89,7 +89,7 @@ export const Footer: React.FC = () => {
             <h4 className="font-heading font-bold text-sm mb-4 text-[#10542C]">Quy Trình Giao Dịch B2B</h4>
             <ul className="space-y-2.5 text-xs text-[#6B7280]">
               <li><Link href="/don-hang" className="hover:text-[#10542C] transition-colors">Tra cứu hợp đồng & Lô cọc</Link></li>
-              <li><Link href="/gio-hang" className="hover:text-[#10542C] transition-colors">Danh sách lô đặt cọc</Link></li>
+              <li><Link href="/san-pham" className="hover:text-[#10542C] transition-colors">Kho lô nông sản chào bán</Link></li>
               <li><span className="hover:text-[#10542C] transition-colors cursor-pointer">Quy chế đàm phán giá sỉ (RFQ)</span></li>
               <li><span className="hover:text-[#10542C] transition-colors cursor-pointer">Kiểm định chất lượng tại vườn</span></li>
               <li><span className="hover:text-[#10542C] transition-colors cursor-pointer">Bảo hiểm chuỗi lạnh & Vận chuyển</span></li>
@@ -100,7 +100,7 @@ export const Footer: React.FC = () => {
             <h4 className="font-heading font-bold text-sm mb-4 text-[#10542C]">Cổng Kết Nối & Quản Trị</h4>
             <ul className="space-y-2.5 text-xs text-[#6B7280]">
               <li>
-                <Link href="/admin" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#10542C] text-white rounded-lg hover:bg-[#0C3E20] transition-colors font-bold">
+                <Link href="/admin/dashboard" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#10542C] text-white rounded-lg hover:bg-[#0C3E20] transition-colors font-bold">
                   Cổng Quản Trị Hệ Thống
                 </Link>
               </li>
