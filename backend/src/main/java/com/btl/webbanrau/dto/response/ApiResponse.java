@@ -20,6 +20,10 @@ public class ApiResponse<T> {
 
     private T result;
 
+    public T getData() {
+        return result;
+    }
+
     @Builder.Default
     private LocalDateTime timestamp = LocalDateTime.now();
 

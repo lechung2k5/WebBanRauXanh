@@ -1,5 +1,6 @@
 'use client';
 
+import { portalFor } from '@/services/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -423,6 +424,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                         >
                           <ShieldCheck className="w-4 h-4 text-[#4CAF50]" />
                           <span>👑 Quản Trị Hệ Thống Admin</span>
+                        </Link>
+                      )}
+                      {currentUser?.roles && !currentUser.roles.includes('ROLE_ADMIN') && portalFor(currentUser.roles) !== '/' && (
+                        <Link
+                          href={portalFor(currentUser.roles)}
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-[#EAF5E9] font-bold flex items-center gap-2 cursor-pointer border-b border-[#EAECE8]"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-[#4CAF50]" />
+                          <span>Không gian làm việc</span>
                         </Link>
                       )}
                       <button

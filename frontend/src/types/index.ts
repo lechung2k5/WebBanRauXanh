@@ -18,7 +18,19 @@ export interface AuthResponse {
   address?: string;
   enabled: boolean;
   roles: string[];
-  token?: string;
+  emailVerified: boolean;
+  companyName?: string;
+  taxCode?: string;
+  warehouseAddress?: string;
+  bankAccountNo?: string;
+  bankName?: string;
+  householdFarmer?: boolean;
+  pucCode?: string;
+  certification?: string;
+  certificationUrl?: string;
+  kycStatus: 'PENDING' | 'VERIFIED' | 'REJECTED';
+  kycNote?: string;
+  profileComplete: boolean;
 }
 
 export interface Category {

@@ -145,9 +145,19 @@ export default function AdminLayout({
       iconColor: 'text-sky-600',
       description: 'Khách hàng & phân quyền',
     },
+    {
+      name: 'B2B Console',
+      href: '/admin/console',
+      icon: ShieldCheck,
+      badge: 'Vận hành B2B',
+      badgeColor: 'bg-purple-50 text-purple-800 border-purple-200/80',
+      iconColor: 'text-purple-600',
+      description: 'Hợp đồng, IoT Chuỗi lạnh & QC',
+    },
   ];
 
   const getPageTitle = () => {
+    if (pathname.includes('/admin/console')) return 'B2B Operational Console';
     if (pathname.includes('/admin/dashboard') || pathname === '/admin') return 'Bảng Điều Khiển';
     if (pathname.includes('/admin/harvest-lots')) return 'Quản Lý Lô Nông Sản';
     if (pathname.includes('/admin/categories')) return 'Quản Lý Danh Mục';

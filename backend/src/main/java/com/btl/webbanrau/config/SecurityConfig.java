@@ -45,27 +45,53 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter, AuthRateLimitFilter rateLimit) throws Exception {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
-                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
+                        .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
+                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/harvest-lots/**", "/cold-assets/public-status").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
 
-                        // 2. Chức năng quản trị viên
+                        // 2. Portal Nông Trại: Chỉ dành cho FARMER
+                        .requestMatchers("/farmer/**", "/harvest-lots/my-lots/**", "/contracts/farmer/**").hasRole("FARMER")
+
+                        // 3. Portal Thương Lái: Chỉ dành cho BUYER
+                        .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasRole("BUYER")
+
+                        // 4. Portal Trạm Trung Chuyển & QC: WAREHOUSE_QC hoặc ADMIN
+                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**").hasAnyRole("WAREHOUSE_QC", "ADMIN")
+
+                        // 5. Portal Tài Xế Lạnh: DRIVER hoặc ADMIN
+                        .requestMatchers("/driver/**", "/shipments/epod/**").hasAnyRole("DRIVER", "ADMIN")
+
+                        // 6. Portal Kế Toán & Thuế VAS: ACCOUNTANT hoặc ADMIN
+                        .requestMatchers("/accounting/**", "/escrow/settlement/**", "/invoices/**").hasAnyRole("ACCOUNTANT", "ADMIN")
+
+                        // Hợp đồng dùng chung giữa 2 bên
+                        .requestMatchers("/portal/contracts").hasAnyRole("FARMER", "BUYER", "ADMIN")
+
+                        // Quản lý Đơn hàng & Quản trị viên
+                        .requestMatchers("/orders/**").hasRole("ADMIN")
                         .requestMatchers("/admin/**", "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/products/**", "/categories/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/products/**", "/categories/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/products/**", "/categories/**").hasRole("ADMIN")
 
-                        // 3. Mọi request khác
-                        .anyRequest().permitAll())
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
-                .securityContext(securityContext -> securityContext.requireExplicitSave(false))
+                        // 7. Mọi request khác
+                        .anyRequest().authenticated())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(errors -> errors
+                    .authenticationEntryPoint((req,res,ex)->{res.setStatus(401);res.setContentType("application/json;charset=UTF-8");res.getWriter().write("{\"code\":401,\"message\":\"Vui lòng đăng nhập\"}");})
+                    .accessDeniedHandler((req,res,ex)->{res.setStatus(403);res.setContentType("application/json;charset=UTF-8");res.getWriter().write("{\"code\":403,\"message\":\"Bạn không có quyền truy cập\"}");}))
+                .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimit, JwtAuthenticationFilter.class)
                 .authenticationProvider(authenticationProvider())
                 .formLogin(form -> form.disable());
 

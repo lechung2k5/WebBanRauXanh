@@ -16,6 +16,7 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final TokenService tokens;
 
     @Transactional(readOnly = true)
     @PreAuthorize("hasRole('ADMIN')")
@@ -39,11 +40,12 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dùng!"));
 
-        if ("admin".equals(user.getUsername())) {
+        if (AuthService.has(user,"ADMIN")) {
             throw new IllegalStateException("Không thể khoá tài khoản quản trị viên chính!");
         }
 
         user.setEnabled(!user.isEnabled());
+        tokens.revoke(user);
         userRepository.save(user);
         return user.isEnabled();
     }
