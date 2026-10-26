@@ -36,6 +36,9 @@ public class RegisterRequest {
     @Builder.Default
     @com.fasterxml.jackson.annotation.JsonProperty("isHouseholdFarmer")
     private boolean isHouseholdFarmer = true;
+    @Builder.Default
+    @com.fasterxml.jackson.annotation.JsonProperty("isIndividualBuyer")
+    private boolean isIndividualBuyer = false;
     @Size(max=150) private String companyName;
     @Size(max=50) private String taxCode;
     @Size(max=50) private String bankAccountNo;

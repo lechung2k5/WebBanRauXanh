@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product, CartItem, AuthResponse, Category } from '@/types';
-import { getCurrentUserApi, logoutApi, getCategories } from '@/services/api';
+import { getCurrentUserApi, logoutApi, getCategories, getStoredUser } from '@/services/api';
 
 interface AppContextType {
   cartItems: CartItem[];
@@ -34,9 +34,25 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(() => getStoredUser());
   const [authLoading, setAuthLoading] = useState(true);
-  const refreshUser = async () => { try { setCurrentUser(await getCurrentUserApi()); } catch { setCurrentUser(null); } finally { setAuthLoading(false); } };
+  const refreshUser = async () => {
+    try {
+      const u = await getCurrentUserApi();
+      setCurrentUser(u);
+      if (typeof window !== 'undefined' && u) {
+        sessionStorage.setItem('xanhfarm_user', JSON.stringify(u));
+      }
+    } catch {
+      setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('xanhfarm_user');
+        sessionStorage.removeItem('xanhfarm_user');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -54,18 +70,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
-    localStorage.removeItem('xanhfarm_user');
-    sessionStorage.removeItem('xanhfarm_user');
     void refreshUser();
     const sync = () => void refreshUser();
-    window.addEventListener('focus', sync);
     const channel = new BroadcastChannel('hona-auth');
     channel.onmessage = sync;
 
-
     // Load categories
     getCategories().then(setCategories).catch(() => {});
-    return () => { window.removeEventListener('focus', sync); channel.close(); };
+    return () => { channel.close(); };
   }, []);
 
   // Save cart to localStorage

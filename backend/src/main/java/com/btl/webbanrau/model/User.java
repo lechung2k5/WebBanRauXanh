@@ -47,6 +47,8 @@ public class User extends BaseEntity {
     private String taxCode;
     @Builder.Default
     private boolean householdFarmer = true;
+    @Builder.Default
+    private boolean individualBuyer = false;
     private String bankAccountNo;
     private String bankName;
     private String warehouseAddress;

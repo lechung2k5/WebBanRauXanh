@@ -26,6 +26,7 @@ public class AuthResponse {
     private String bankAccountNo;
     private String bankName;
     private boolean householdFarmer;
+    private boolean individualBuyer;
     private String pucCode;
     private String certification;
     private String certificationUrl;

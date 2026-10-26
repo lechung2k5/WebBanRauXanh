@@ -88,14 +88,14 @@ public class TokenService {
         boolean farmer=u.getRoles().stream().anyMatch(r->r.getName().equals("ROLE_FARMER"));
         if(!buyer&&!farmer) return true;
         return present(u.getCompanyName()) && present(u.getPhone()) && present(u.getAddress()) &&
-            (buyer ? present(u.getTaxCode())&&present(u.getWarehouseAddress()) : present(u.getBankAccountNo())&&present(u.getBankName())&&(u.isHouseholdFarmer()||present(u.getTaxCode())));
+            (buyer ? present(u.getWarehouseAddress()) : (u.isHouseholdFarmer() || present(u.getTaxCode())));
     }
     private static boolean present(String s) { return s!=null&&!s.isBlank(); }
     public static AuthResponse view(User u) {
         return AuthResponse.builder().id(u.getId()).username(u.getUsername()).fullName(u.getFullName()).email(u.getEmail())
             .phone(u.getPhone()).address(u.getAddress()).roles(u.getRoles().stream().map(Role::getName).toList()).enabled(u.isEnabled())
             .emailVerified(u.isEmailVerified()).companyName(u.getCompanyName()).taxCode(u.getTaxCode()).warehouseAddress(u.getWarehouseAddress())
-            .bankAccountNo(u.getBankAccountNo()).bankName(u.getBankName()).householdFarmer(u.isHouseholdFarmer()).pucCode(u.getPucCode())
+            .bankAccountNo(u.getBankAccountNo()).bankName(u.getBankName()).householdFarmer(u.isHouseholdFarmer()).individualBuyer(u.isIndividualBuyer()).pucCode(u.getPucCode())
             .certification(u.getCertification()).certificationUrl(u.getCertificationUrl()).kycStatus(u.getKycStatus()).kycNote(u.getKycNote()).profileComplete(profileComplete(u)).build();
     }
 }

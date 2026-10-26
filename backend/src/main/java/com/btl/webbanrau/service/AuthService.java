@@ -44,6 +44,7 @@ public class AuthService {
         checkPassword(r.getPassword());
         User u=User.builder().username(username).email(email).password(encoder.encode(r.getPassword())).fullName(r.getFullName().trim())
             .phone(r.getPhone()).address(r.getAddress()).companyName(r.getCompanyName()).taxCode(r.getTaxCode()).householdFarmer(r.isHouseholdFarmer())
+            .individualBuyer(r.isIndividualBuyer())
             .bankAccountNo(r.getBankAccountNo()).bankName(r.getBankName()).warehouseAddress(r.getWarehouseAddress()).pucCode(r.getPucCode()).certification(r.getCertification())
             .roles(new HashSet<>(Set.of(roles.findByName("ROLE_"+r.getRegisterRole()).orElseThrow()))).build();
         u.setCertificationUrl(r.getCertificationUrl());
