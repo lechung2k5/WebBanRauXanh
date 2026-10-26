@@ -1,70 +1,13 @@
 import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
-
-// Authentication APIs
-export const loginApi = async (username: string, password: string, rememberMe: boolean): Promise<AuthResponse> => {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, rememberMe }),
-  });
-
-  const data: ApiResponse<AuthResponse> = await res.json();
-  if (!res.ok || data.code !== 200) {
-    throw new Error(data.message || 'Đăng nhập thất bại!');
-  }
-
-  // Save in localStorage if Remember-me is checked
-  if (rememberMe) {
-    localStorage.setItem('xanhfarm_user', JSON.stringify(data.result));
-  } else {
-    sessionStorage.setItem('xanhfarm_user', JSON.stringify(data.result));
-  }
-
-  return data.result;
-};
-
-export const registerApi = async (form: {
-  username: string;
-  password: string;
-  fullName: string;
-  email: string;
-  phone?: string;
-  address?: string;
-}): Promise<AuthResponse> => {
-  const res = await fetch(`${API_BASE_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(form),
-  });
-
-  const data: ApiResponse<AuthResponse> = await res.json();
-  if (!res.ok || (data.code !== 200 && data.code !== 201)) {
-    throw new Error(data.message || 'Đăng ký thất bại!');
-  }
-  return data.result;
-};
-
-export const logoutApi = async (): Promise<void> => {
-  try {
-    await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-  } catch {
-    // ignore
-  }
-  localStorage.removeItem('xanhfarm_user');
-  sessionStorage.removeItem('xanhfarm_user');
-};
-
-export const getStoredUser = (): AuthResponse | null => {
-  if (typeof window === 'undefined') return null;
-  const local = localStorage.getItem('xanhfarm_user');
-  if (local) return JSON.parse(local);
-  const session = sessionStorage.getItem('xanhfarm_user');
-  if (session) return JSON.parse(session);
-  return null;
-};
+import { api } from './auth';
+export { api } from './auth';
+const API_BASE_URL = '/api/backend';
+export const loginApi = async (username: string, password: string, rememberMe: boolean) => api<import('./auth').AuthResult>('auth/login', 'POST', { username, password, rememberMe });
+export const registerApi = async (form: Record<string, unknown>) => api<import('./auth').OtpChallenge>('auth/register', 'POST', form);
+export const logoutApi = async (): Promise<void> => { await api('auth/logout','POST',{}); };
+export const getStoredUser = (): AuthResponse | null => null;
+export const getCurrentUserApi = () => api<AuthResponse>('auth/me');
 
 // User Management (ADMIN)
 export const getUsersApi = async (): Promise<User[]> => {
@@ -80,6 +23,7 @@ export const getUsersApi = async (): Promise<User[]> => {
 export const toggleUserStatusApi = async (userId: number): Promise<boolean> => {
   const res = await fetch(`${API_BASE_URL}/users/${userId}/toggle-status`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}',
     credentials: 'include',
   });
   const data: ApiResponse<boolean> = await res.json();
@@ -416,7 +360,7 @@ export const getProductBySlug = async (slug: string): Promise<Product | null> =>
 export const createProductApi = async (productData: any): Promise<Product> => {
   const res = await fetch(`${API_BASE_URL}/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify(productData),
   });
   const data: ApiResponse<Product> = await res.json();
@@ -427,7 +371,7 @@ export const createProductApi = async (productData: any): Promise<Product> => {
 export const updateProductApi = async (id: number, productData: any): Promise<Product> => {
   const res = await fetch(`${API_BASE_URL}/products/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify(productData),
   });
   const data: ApiResponse<Product> = await res.json();
@@ -437,7 +381,7 @@ export const updateProductApi = async (id: number, productData: any): Promise<Pr
 
 export const deleteProductApi = async (id: number): Promise<void> => {
   const res = await fetch(`${API_BASE_URL}/products/${id}`, {
-    method: 'DELETE',
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}',
   });
   if (!res.ok) throw new Error('Lỗi khi xoá sản phẩm');
 };
@@ -446,27 +390,14 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
   try {
     const res = await fetch(`${API_BASE_URL}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
       body: JSON.stringify(orderReq),
     });
     const data: ApiResponse<OrderResponse> = await res.json();
     if (!res.ok) throw new Error(data.message || 'Lỗi khi đặt hàng');
     return data.result;
-  } catch (err: any) {
-    return {
-      id: Date.now(),
-      orderCode: `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
-      recipientName: orderReq.recipientName,
-      recipientPhone: orderReq.recipientPhone,
-      shippingAddress: orderReq.shippingAddress,
-      note: orderReq.note,
-      totalAmount: 95000,
-      paymentMethod: orderReq.paymentMethod,
-      isPaid: false,
-      status: 'PENDING',
-      items: [],
-      createdAt: new Date().toISOString(),
-    };
+  } catch (err: unknown) {
+    throw err;
   }
 };
 
@@ -489,7 +420,7 @@ export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageRespon
 };
 
 export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
-  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}', credentials: 'include' });
   const data: ApiResponse<OrderResponse> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
   return data.result;
@@ -511,7 +442,7 @@ export const semanticSearchApi = async (query: string, limit: number = 6): Promi
 export const aiChatRagApi = async (message: string): Promise<AiChatResponse> => {
   const res = await fetch(`${API_BASE_URL}/ai/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify({ message }),
   });
   const data: ApiResponse<AiChatResponse> = await res.json();
@@ -533,7 +464,7 @@ export const getAiStatusApi = async (): Promise<AiStatusResponse> => {
 export const configGeminiKeyApi = async (apiKey: string): Promise<boolean> => {
   const res = await fetch(`${API_BASE_URL}/ai/config-key`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify({ apiKey }),
   });
   const data: ApiResponse<{ hasGeminiKey: boolean }> = await res.json();
@@ -544,7 +475,11 @@ export const configGeminiKeyApi = async (apiKey: string): Promise<boolean> => {
 };
 
 export const syncAiEmbeddingsApi = async (): Promise<number> => {
-  const res = await fetch(`${API_BASE_URL}/ai/sync-embeddings`, { method: 'POST' });
+  const res = await fetch(`${API_BASE_URL}/ai/sync-embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
+    body: '{}',
+  });
   const data: ApiResponse<{ syncedCount: number }> = await res.json();
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi đồng bộ vector');

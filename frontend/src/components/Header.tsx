@@ -83,7 +83,7 @@ function HeaderInner() {
     <>
       <Navbar
         cartCount={cartCount}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => router.push('/lo-hang')}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}

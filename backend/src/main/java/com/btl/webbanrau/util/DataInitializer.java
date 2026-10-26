@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 
 @Component
+@org.springframework.context.annotation.Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 public class DataInitializer implements CommandLineRunner {
@@ -34,51 +35,128 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // 1. Tạo Roles
-        Role roleAdmin = roleRepository.findByName("ROLE_ADMIN")
-                .orElseGet(() -> roleRepository.save(new Role("ROLE_ADMIN", "Quản trị viên toàn quyền")));
-        Role roleUser = roleRepository.findByName("ROLE_USER")
-                .orElseGet(() -> roleRepository.save(new Role("ROLE_USER", "Khách hàng mua rau")));
+        for (String name : List.of("ADMIN","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER")) {
+            roleRepository.findByName("ROLE_"+name).orElseGet(()->roleRepository.save(new Role("ROLE_"+name,name)));
+        }
 
-        // 2. Tạo Users mẫu nếu DB chưa có
-        if (userRepository.count() == 0) {
-            log.info("Seeding users for BTL Web Ban Rau...");
+        // 1. Seed Quản trị viên tối cao (ROLE_ADMIN)
+        String adminEmail = System.getenv("ADMIN_EMAIL") != null ? System.getenv("ADMIN_EMAIL") : "admin@honafresh.vn";
+        String adminPassword = System.getenv("ADMIN_PASSWORD") != null ? System.getenv("ADMIN_PASSWORD") : "Admin@123456";
+        User adminUser = userRepository.findByUsername("admin").orElse(null);
+        if (adminUser == null) {
+            userRepository.save(User.builder()
+                .username("admin")
+                .email(adminEmail.trim().toLowerCase())
+                .password(passwordEncoder.encode(adminPassword))
+                .fullName("HoNa Administrator")
+                .phone("0901234567")
+                .address("Hội sở HoNa Fresh, TP.HCM")
+                .companyName("HoNa Fresh Platform Co.")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ADMIN").orElseThrow())))
+                .build());
+            log.info("Seeded default admin account: admin / {}", adminPassword);
+        } else {
+            adminUser.setEmail(adminEmail.trim().toLowerCase());
+            adminUser.setPassword(passwordEncoder.encode(adminPassword));
+            adminUser.setEmailVerified(true);
+            adminUser.setKycStatus("VERIFIED");
+            if (adminUser.getRoles() == null || adminUser.getRoles().isEmpty()) {
+                adminUser.setRoles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ADMIN").orElseThrow())));
+            }
+            userRepository.save(adminUser);
+            log.info("Synchronized existing admin account: admin / {}", adminPassword);
+        }
 
-            User admin = User.builder()
-                    .username("admin")
-                    .password(passwordEncoder.encode("admin123"))
-                    .fullName("Quản Trị Viên")
-                    .email("admin@webbanrau.com")
-                    .phone("0988888888")
-                    .address("Hà Nội")
-                    .enabled(true)
-                    .roles(new HashSet<>(Set.of(roleAdmin, roleUser)))
-                    .build();
+        // 2. Seed Nông dân B2B (ROLE_FARMER)
+        if (!userRepository.existsByUsername("farmer_dalat")) {
+            userRepository.save(User.builder()
+                .username("farmer_dalat")
+                .email("farmer@honafresh.vn")
+                .password(passwordEncoder.encode("Farmer@123456"))
+                .fullName("Nguyễn Văn Nông")
+                .phone("0912345678")
+                .address("Xã Lạc Dương, TP. Đà Lạt, Lâm Đồng")
+                .companyName("Nông Trại Hữu Cơ Đà Lạt Fresh")
+                .taxCode("5801234567")
+                .householdFarmer(true)
+                .bankName("VietinBank")
+                .bankAccountNo("102839281928")
+                .pucCode("PUC-LD-001")
+                .certification("VietGAP")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_FARMER").orElseThrow())))
+                .build());
+            log.info("Seeded default farmer account: farmer_dalat / Farmer@123456");
+        }
 
-            User user = User.builder()
-                    .username("user")
-                    .password(passwordEncoder.encode("user123"))
-                    .fullName("Nguyễn Văn Khách")
-                    .email("user@gmail.com")
-                    .phone("0912345678")
-                    .address("Cầu Giấy, Hà Nội")
-                    .enabled(true)
-                    .roles(new HashSet<>(Set.of(roleUser)))
-                    .build();
+        // 3. Seed Thương lái B2B (ROLE_BUYER)
+        if (!userRepository.existsByUsername("buyer_sg")) {
+            userRepository.save(User.builder()
+                .username("buyer_sg")
+                .email("buyer@honafresh.vn")
+                .password(passwordEncoder.encode("Buyer@123456"))
+                .fullName("Trần Thị Thương")
+                .phone("0987654321")
+                .address("Quận Bình Tân, TP.HCM")
+                .companyName("Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn")
+                .taxCode("0312345678")
+                .warehouseAddress("Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_BUYER").orElseThrow())))
+                .build());
+            log.info("Seeded default buyer account: buyer_sg / Buyer@123456");
+        }
 
-            User lockedUser = User.builder()
-                    .username("locked")
-                    .password(passwordEncoder.encode("user123"))
-                    .fullName("Tài Khoản Bị Khoá")
-                    .email("locked@gmail.com")
-                    .phone("0900000000")
-                    .address("Đống Đa, Hà Nội")
-                    .enabled(false) // Tài khoản bị khoá
-                    .roles(new HashSet<>(Set.of(roleUser)))
-                    .build();
+        // 4. Seed Kiểm định viên Trạm QC (ROLE_WAREHOUSE_QC)
+        if (!userRepository.existsByUsername("qc_tram1")) {
+            userRepository.save(User.builder()
+                .username("qc_tram1")
+                .email("qc@honafresh.vn")
+                .password(passwordEncoder.encode("Qcstaff@123456"))
+                .fullName("Kỹ Thuật Viên Kiểm Định 01")
+                .phone("0933112233")
+                .address("Trạm Trung Chuyển Dầu Giây, Đồng Nai")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_WAREHOUSE_QC").orElseThrow())))
+                .build());
+            log.info("Seeded default QC account: qc_tram1 / Qcstaff@123456");
+        }
 
-            userRepository.saveAll(List.of(admin, user, lockedUser));
-            log.info("Seeded 3 sample accounts: admin/admin123, user/user123, locked/user123");
+        // 5. Seed Tài xế vận tải lạnh TMS (ROLE_DRIVER)
+        if (!userRepository.existsByUsername("driver_tms")) {
+            userRepository.save(User.builder()
+                .username("driver_tms")
+                .email("driver@honafresh.vn")
+                .password(passwordEncoder.encode("Driver@123456"))
+                .fullName("Tài Xế Nguyễn Văn Tài")
+                .phone("0944556677")
+                .address("Đội xe Lạnh HoNa Express, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_DRIVER").orElseThrow())))
+                .build());
+            log.info("Seeded default driver account: driver_tms / Driver@123456");
+        }
+
+        // 6. Seed Kế toán sàn VAS (ROLE_ACCOUNTANT)
+        if (!userRepository.existsByUsername("accountant_vas")) {
+            userRepository.save(User.builder()
+                .username("accountant_vas")
+                .email("accountant@honafresh.vn")
+                .password(passwordEncoder.encode("Account@123456"))
+                .fullName("Kế Toán Viên Lê Thị Thu")
+                .phone("0977889900")
+                .address("Phòng Tài Chính - Kế Toán HoNa Fresh, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ACCOUNTANT").orElseThrow())))
+                .build());
+            log.info("Seeded default accountant account: accountant_vas / Account@123456");
         }
 
         // 3. Tạo Categories nếu DB chưa có

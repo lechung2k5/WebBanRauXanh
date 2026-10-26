@@ -1,5 +1,6 @@
 'use client';
 
+import { portalFor } from '@/services/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -419,6 +420,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </p>
                         <p className="text-[11px] text-[#6B7280] truncate">{currentUser.email}</p>
                       </div>
+                      <Link href={portalFor(currentUser.roles)} className="block px-3 py-2 text-green-900 font-semibold">Không gian làm việc</Link>
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false);

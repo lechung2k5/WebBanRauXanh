@@ -17,7 +17,7 @@ public class RegisterRequest {
     private String username;
 
     @NotBlank(message = "Mật khẩu không được để trống")
-    @Size(min = 6, message = "Mật khẩu tối thiểu 6 ký tự")
+    @Size(min = 10, max = 72, message = "Mật khẩu từ 10 đến 72 ký tự")
     private String password;
 
     @NotBlank(message = "Họ và tên không được để trống")
@@ -29,4 +29,19 @@ public class RegisterRequest {
 
     private String phone;
     private String address;
+
+    @NotBlank
+    @jakarta.validation.constraints.Pattern(regexp="FARMER|BUYER")
+    private String registerRole;
+    @Builder.Default
+    @com.fasterxml.jackson.annotation.JsonProperty("isHouseholdFarmer")
+    private boolean isHouseholdFarmer = true;
+    @Size(max=150) private String companyName;
+    @Size(max=50) private String taxCode;
+    @Size(max=50) private String bankAccountNo;
+    @Size(max=50) private String bankName;
+    @Size(max=255) private String warehouseAddress;
+    @Size(max=50) private String pucCode;
+    @Size(max=100) private String certification;
+    @Size(max=500) @jakarta.validation.constraints.Pattern(regexp="^$|https://[^\\s]+") private String certificationUrl;
 }

@@ -1,5 +1,8 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useApp } from '@/context/AppContext';
+import { portalFor } from '@/services/auth';
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -54,6 +57,7 @@ import {
 } from 'lucide-react';
 
 export default function HomePage() {
+  const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
@@ -89,7 +93,7 @@ export default function HomePage() {
   const [voucherDiscount, setVoucherDiscount] = useState(0);
 
   // User Auth State
-  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
+  const { currentUser, setCurrentUser, logout } = useApp();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Cart State
@@ -114,7 +118,7 @@ export default function HomePage() {
 
   // Load User & Catalog on mount
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    // Authentication is restored by the shared AppProvider.
   }, []);
 
   useEffect(() => {
@@ -182,26 +186,9 @@ export default function HomePage() {
   };
 
   const handleAddToCart = (product: Product, quantity?: number) => {
-    const qty = quantity || product.moq || 1;
-    trackAddToCart(product);
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + qty } : item
-        );
-      }
-      return [...prev, { product, quantity: qty }];
-    });
-    setIsCartOpen(true);
+    router.push('/lo-hang');
   };
-
-  const handleBuyNow = (product: Product, quantity?: number) => {
-    const qty = quantity || product.moq || 1;
-    handleAddToCart(product, qty);
-    setIsCartOpen(false);
-    setIsCheckoutOpen(true);
-  };
+  const handleBuyNow = (product: Product, quantity?: number) => { router.push('/lo-hang'); };
 
   const handleUpdateQuantity = (productId: number | string, newQty: number) => {
     if (newQty <= 0) return;
@@ -223,8 +210,7 @@ export default function HomePage() {
   };
 
   const handleLogout = async () => {
-    await logoutApi();
-    setCurrentUser(null);
+    await logout();
   };
 
   // Re-order past order products
@@ -309,7 +295,7 @@ export default function HomePage() {
       {/* 2-Tier Header (Top Bar 36px + Main Header 76px) */}
       <Navbar
         cartCount={cartTotalCount}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => router.push('/lo-hang')}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}
@@ -948,7 +934,7 @@ export default function HomePage() {
         </a>
 
         <button
-          onClick={() => setIsCartOpen(true)}
+          onClick={() => router.push('/lo-hang')}
           className="relative flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <div className="relative">
@@ -963,7 +949,7 @@ export default function HomePage() {
         </button>
 
         <Link
-          href={currentUser ? "/admin" : "/dang-nhap"}
+          href={currentUser ? portalFor(currentUser.roles) : "/dang-nhap"}
           className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <UserIcon className="w-5 h-5" />
