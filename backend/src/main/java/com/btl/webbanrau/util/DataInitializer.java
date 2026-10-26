@@ -43,6 +43,8 @@ public class DataInitializer implements CommandLineRunner {
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_ADMIN", "Quản trị viên toàn quyền")));
         Role roleUser = roleRepository.findByName("ROLE_USER")
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_USER", "Khách hàng mua rau")));
+        Role roleBuyer = roleRepository.findByName("ROLE_BUYER")
+                .orElseGet(() -> roleRepository.save(new Role("ROLE_BUYER", "Thương lái/doanh nghiệp thu mua B2B")));
 
         // 2. Tạo Users mẫu nếu DB chưa có
         if (userRepository.count() == 0) {
@@ -83,6 +85,21 @@ public class DataInitializer implements CommandLineRunner {
 
             userRepository.saveAll(List.of(admin, user, lockedUser));
             log.info("Seeded 3 sample accounts: admin/admin123, user/user123, locked/user123");
+        }
+
+        if (userRepository.findByUsername("buyer").isEmpty()) {
+            User buyer = User.builder()
+                    .username("buyer")
+                    .password(passwordEncoder.encode("buyer123"))
+                    .fullName("Đại diện Buyer Demo")
+                    .email("buyer@honafresh.vn")
+                    .phone("0909123456")
+                    .address("Kho Buyer Demo, TP.HCM")
+                    .enabled(true)
+                    .roles(new HashSet<>(Set.of(roleBuyer)))
+                    .build();
+            userRepository.save(buyer);
+            log.info("Seeded Buyer account: buyer/buyer123");
         }
 
         // Đảm bảo tài khoản admin chỉ có ROLE_ADMIN, loại bỏ ROLE_USER nếu có

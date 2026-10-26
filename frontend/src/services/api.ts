@@ -785,6 +785,47 @@ export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageRespon
   return data.result;
 };
 
+export const createBuyerRfqApi = async (request: {
+  harvestLotId: number;
+  quantityKg: number;
+  proposedPricePerKg: number;
+  desiredDeliveryDate: string;
+  deliveryLocation: string;
+  shippingOption?: string;
+  notes?: string;
+}) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<unknown> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể gửi RFQ');
+  return data.result;
+};
+
+export const getBuyerContractsApi = async (): Promise<Array<{ id: number; contractCode: string; totalAmount: number; depositAmount: number; status: string; depositStatus: string }>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts`, { cache: 'no-store', credentials: 'include' });
+  const data: ApiResponse<Array<{ id: number; contractCode: string; totalAmount: number; depositAmount: number; status: string; depositStatus: string }>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách hợp đồng');
+  return data.result || [];
+};
+
+export const getBuyerTelemetryApi = async (contractId: number): Promise<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/telemetry`, { cache: 'no-store', credentials: 'include' });
+  const data: ApiResponse<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải dữ liệu IoT');
+  return data.result || [];
+};
+
+export const getBuyerQcReportApi = async (contractId: number): Promise<Array<Record<string, unknown>>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/qc-report`, { cache: 'no-store', credentials: 'include' });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải báo cáo QC');
+  return data.result || [];
+};
+
 export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
   const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', credentials: 'include' });
   const data: ApiResponse<OrderResponse> = await res.json();

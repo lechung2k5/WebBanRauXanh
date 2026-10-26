@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Product } from '@/types';
+import { createBuyerRfqApi } from '@/services/api';
 
 interface B2BNegotiationModalProps {
   product: Product | null;
@@ -57,7 +58,7 @@ export default function B2BNegotiationModal({
   const originalTotal = quantity * basePrice;
   const totalSavings = originalTotal - estimatedTotal;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!traderName || !traderPhone) {
       alert('Vui lòng nhập tên người đại diện và số điện thoại liên hệ!');
@@ -68,7 +69,21 @@ export default function B2BNegotiationModal({
       return;
     }
 
-    const code = `RFQ-${Math.floor(100000 + Math.random() * 900000)}`;
+    let code = `RFQ-${Math.floor(100000 + Math.random() * 900000)}`;
+    try {
+      const saved = await createBuyerRfqApi({
+        harvestLotId: Number(product.id),
+        quantityKg: quantity,
+        proposedPricePerKg: targetPrice,
+        desiredDeliveryDate: deliveryDate,
+        deliveryLocation,
+        shippingOption,
+        notes,
+      }) as { rfqCode?: string };
+      code = saved?.rfqCode || code;
+    } catch (error) {
+      console.warn('Buyer API unavailable, saving RFQ locally for demo:', error);
+    }
     setRfqCode(code);
 
     // Save to local storage RFQ history

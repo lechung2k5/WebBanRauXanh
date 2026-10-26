@@ -53,6 +53,7 @@ public class SecurityConfig {
                         // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
                         .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
+                        .requestMatchers("/buyer/**").hasRole("BUYER")
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
 
