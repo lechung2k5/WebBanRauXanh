@@ -382,10 +382,10 @@ export default function AuthForm({
               </p>
               <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200/80 rounded-xl text-amber-800 text-xs text-left">
                 <p className="font-semibold flex items-center gap-1.5">
-                  <span>💡</span> <span>Lưu ý môi trường thử nghiệm:</span>
+                  <span>💡</span> <span>Lưu ý kiểm tra hộp thư:</span>
                 </p>
                 <p className="mt-0.5 text-gray-600">
-                  Nếu chưa cấu hình <strong>Mật khẩu ứng dụng Gmail (GMAIL_APP_PASSWORD)</strong>, mã OTP được in trực tiếp tại Terminal log của Backend (hoặc kiểm tra hộp thư Spam).
+                  Vui lòng kiểm tra <strong>Hộp thư đến (Inbox)</strong> hoặc thư mục <strong>Thư rác (Spam)</strong> trong email của bạn để nhận mã xác thực OTP 6 số.
                 </p>
               </div>
             </div>

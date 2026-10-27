@@ -15,11 +15,8 @@ public class MailService {
 
     private final JavaMailSender sender;
 
-    @Value("${app.mail.from:honafresh.service@gmail.com}")
+    @Value("${app.mail.from}")
     private String from;
-
-    @Value("${spring.mail.password:}")
-    private String mailPassword;
 
     public void send(String email, String subject, String body) {
         String html = "<div style=\"font-family:sans-serif;padding:20px;\"><h2 style=\"color:#10542C;\">HoNa Fresh B2B</h2><p>"
@@ -39,21 +36,13 @@ public class MailService {
             sender.send(mimeMessage);
             log.info("Email sent successfully to [{}] via SMTP", email);
         } catch (Exception ex) {
-            log.warn("Could not dispatch email via SMTP (GMAIL_APP_PASSWORD may not be set or network offline): {}", ex.getMessage());
-            if (mailPassword != null && !mailPassword.isBlank()) {
-                // If password is set and still failed, throw exception
-                throw new AuthException(503, "MAIL_UNAVAILABLE", "Không thể gửi email xác thực qua Gmail SMTP. Vui lòng kiểm tra cấu hình mạng hoặc mật khẩu ứng dụng Gmail.");
-            }
+            log.error("Failed to send email to [{}]: {}", email, ex.getMessage());
+            throw new AuthException(503, "MAIL_UNAVAILABLE", "Không thể gửi email xác thực qua Gmail SMTP. Vui lòng kiểm tra cấu hình mạng hoặc mật khẩu ứng dụng Gmail.");
         }
     }
 
     public void otp(String email, String code) {
-        log.info("===============================================================================");
-        log.info("  [HONA FRESH OTP VERIFICATION]");
-        log.info("  Email: {}", email);
-        log.info("  Mã OTP 6 số: >>> {} <<<", code);
-        log.info("  Thời hạn hiệu lực: 5 phút | Số lần thử tối đa: 5 lần");
-        log.info("===============================================================================");
+        log.info("Preparing OTP email for [{}]", email);
 
         String htmlTemplate = """
             <!DOCTYPE html>
@@ -104,3 +93,4 @@ public class MailService {
         sendHtml(email, "Mã xác thực tài khoản B2B", htmlTemplate, "Mã OTP của bạn là: " + code);
     }
 }
+
