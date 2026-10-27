@@ -3,29 +3,24 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Header } from '@/components/Header';
-import { Footer } from '@/components/Footer';
 import { useApp } from '@/context/AppContext';
-import {
-  loginApi,
-  getStoredUser,
-  getUsersApi,
-  getAdminOrdersApi,
-  getAdminLotStatsApi,
-  getCategories,
-} from '@/services/api';
+import { getStoredUser } from '@/services/api';
 import {
   LayoutDashboard,
-  Package,
-  Layers,
-  ShoppingBag,
   Users,
-  ShieldCheck,
-  DollarSign,
+  Sprout,
+  Handshake,
+  Warehouse,
+  Thermometer,
+  Truck,
+  Receipt,
+  LogOut,
+  Menu,
+  X,
   ChevronRight,
-  Lock,
+  ShieldCheck,
+  Activity,
   Loader2,
-  XCircle,
 } from 'lucide-react';
 
 export default function AdminLayout({
@@ -35,16 +30,10 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, authLoading } = useApp();
+  const { currentUser, authLoading, logout } = useApp();
 
   const [authChecked, setAuthChecked] = useState(false);
-  const [stats, setStats] = useState({
-    totalLots: 0,
-    openLots: 0,
-    categoriesCount: 0,
-    ordersCount: 0,
-    usersCount: 0,
-  });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -61,163 +50,199 @@ export default function AdminLayout({
     setAuthChecked(true);
   }, [currentUser, authLoading, pathname, router]);
 
+  // Đóng menu mobile khi chuyển trang
   useEffect(() => {
-    if (authChecked) {
-      void fetchTopStats();
-    }
-  }, [authChecked]);
+    setMobileNavOpen(false);
+  }, [pathname]);
 
-  const fetchTopStats = async () => {
-    try {
-      const [userRes, orderRes, lotRes, catRes] = await Promise.all([
-        getUsersApi().catch(() => []),
-        getAdminOrdersApi().catch(() => ({ data: [] })),
-        getAdminLotStatsApi().catch(() => ({ totalLots: 0, openLots: 0 })),
-        getCategories().catch(() => []),
-      ]);
-
-      setStats({
-        totalLots: lotRes.totalLots || 0,
-        openLots: lotRes.openLots || 0,
-        categoriesCount: Array.isArray(catRes) ? catRes.length : 5,
-        ordersCount: orderRes.data?.length || 0,
-        usersCount: userRes.length || 0,
-      });
-    } catch (err) {
-      console.warn('Error fetching top admin stats:', err);
-    }
-  };
-
-
-
-  // Danh sách các Tabs Quản Trị Cụ Thể (Mỗi Tab 1 Endpoint Riêng Biệt)
-  const navTabs = [
+  // 8 Modules chuẩn hóa theo B2B Console Sidebar
+  const modules = [
     {
-      name: 'Bảng Điều Khiển',
+      id: 'dashboard',
+      name: 'Tổng quan',
       href: '/admin/dashboard',
       icon: LayoutDashboard,
-      badge: 'Tổng quan',
-      badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200/80',
-      iconColor: 'text-emerald-600',
-      description: 'Giám sát chỉ số vận hành hệ thống',
     },
     {
-      name: 'Lô Nông Sản',
-      href: '/admin/harvest-lots',
-      icon: Package,
-      badge: stats.totalLots > 0 ? `${stats.openLots}/${stats.totalLots} lô` : '594/642 lô',
-      badgeColor: 'bg-teal-50 text-teal-800 border-teal-200/80',
-      iconColor: 'text-teal-600',
-      description: 'Quản lý & kiểm duyệt lô vụ mùa B2B',
-    },
-    {
-      name: 'Danh Mục',
-      href: '/admin/categories',
-      icon: Layers,
-      badge: `${stats.categoriesCount || 5} ngành hàng`,
-      badgeColor: 'bg-indigo-50 text-indigo-800 border-indigo-200/80',
-      iconColor: 'text-indigo-600',
-      description: 'Phân loại nông sản sàn',
-    },
-    {
-      name: 'Đơn Hàng',
-      href: '/admin/orders',
-      icon: ShoppingBag,
-      badge: stats.ordersCount > 0 ? `${stats.ordersCount} đơn` : '1 đơn',
-      badgeColor: 'bg-amber-50 text-amber-800 border-amber-200/80',
-      iconColor: 'text-amber-600',
-      description: 'Theo dõi giao nhận & vận đơn',
-    },
-    {
-      name: 'Người Dùng',
+      id: 'users',
+      name: 'Tài khoản & KYC',
       href: '/admin/users',
       icon: Users,
-      badge: stats.usersCount > 0 ? `${stats.usersCount} tài khoản` : '3',
-      badgeColor: 'bg-sky-50 text-sky-800 border-sky-200/80',
-      iconColor: 'text-sky-600',
-      description: 'Khách hàng & phân quyền',
     },
     {
-      name: 'B2B Console',
-      href: '/admin/console',
-      icon: ShieldCheck,
-      badge: 'Vận hành B2B',
-      badgeColor: 'bg-purple-50 text-purple-800 border-purple-200/80',
-      iconColor: 'text-purple-600',
-      description: 'Hợp đồng, IoT Chuỗi lạnh & QC',
+      id: 'lots',
+      name: 'Nguồn cung & danh mục',
+      href: '/admin/harvest-lots',
+      icon: Sprout,
+    },
+    {
+      id: 'contracts',
+      name: 'Hợp đồng & ký quỹ',
+      href: '/admin/contracts',
+      icon: Handshake,
+    },
+    {
+      id: 'qc',
+      name: 'Trạm QC & FEFO',
+      href: '/admin/qc',
+      icon: Warehouse,
+    },
+    {
+      id: 'iot',
+      name: 'Giám sát chuỗi lạnh',
+      href: '/admin/iot',
+      icon: Thermometer,
+    },
+    {
+      id: 'shipments',
+      name: 'Vận tải & ePOD',
+      href: '/admin/shipments',
+      icon: Truck,
+    },
+    {
+      id: 'accounting',
+      name: 'Kế toán & cài đặt',
+      href: '/admin/accounting',
+      icon: Receipt,
     },
   ];
 
-  const getPageTitle = () => {
-    if (pathname.includes('/admin/console')) return 'B2B Operational Console';
-    if (pathname.includes('/admin/dashboard') || pathname === '/admin') return 'Bảng Điều Khiển';
-    if (pathname.includes('/admin/harvest-lots')) return 'Quản Lý Lô Nông Sản';
-    if (pathname.includes('/admin/categories')) return 'Quản Lý Danh Mục';
-    if (pathname.includes('/admin/orders')) return 'Quản Lý Đơn Hàng & Vận Đơn';
-    if (pathname.includes('/admin/users')) return 'Quản Lý Người Dùng & Phân Quyền';
-    return 'Quản Trị HoNa Fresh';
+  const isModuleActive = (href: string) => {
+    if (href === '/admin/dashboard') {
+      return pathname === '/admin/dashboard' || pathname === '/admin';
+    }
+    if (href === '/admin/harvest-lots') {
+      return pathname.startsWith('/admin/harvest-lots') || pathname.startsWith('/admin/categories');
+    }
+    return pathname.startsWith(href);
   };
 
+  const currentModule = modules.find((m) => isModuleActive(m.href)) || modules[0];
+
   return (
-    <div className="min-h-screen bg-[#F9F9F5] flex flex-col justify-between">
-      <Header />
+    <div className="min-h-screen bg-[#F5F6F2] text-[#243A2A] flex flex-col lg:flex-row">
+      {/* Backdrop trên Mobile khi mở menu */}
+      {mobileNavOpen && (
+        <div
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-xs transition-opacity"
+          aria-hidden="true"
+        />
+      )}
 
-      <main className="max-w-[1240px] mx-auto px-4 py-8 w-full flex-1">
-        {/* Breadcrumb động theo URL */}
-        <div className="flex items-center gap-2 text-xs text-[#6B7280] mb-6">
-          <Link href="/" className="hover:text-[#10542C]">Trang chủ</Link>
-          <ChevronRight className="w-3 h-3" />
-          <Link href="/admin/dashboard" className="hover:text-[#10542C]">Quản trị hệ thống</Link>
-          <ChevronRight className="w-3 h-3" />
-          <span className="text-[#10542C] font-bold">{getPageTitle()}</span>
-        </div>
+      {/* Sidebar Dọc Bên Trái Chuẩn B2B Console */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 w-64 bg-[#123E2B] text-white p-5 z-50 flex flex-col justify-between transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        }`}
+      >
+        <div>
+          {/* Logo & Header Sidebar */}
+          <div className="flex items-center justify-between mb-2">
+            <Link href="/" className="font-heading font-black text-2xl tracking-tight text-white flex items-center gap-1.5">
+              <span>HoNa</span>
+              <span className="text-[#8BC34A]">Fresh</span>
+            </Link>
+            <button
+              onClick={() => setMobileNavOpen(false)}
+              className="lg:hidden p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10"
+              aria-label="Đóng menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-[10px] font-bold tracking-wider text-emerald-300/80 uppercase mb-6 flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#8BC34A]" />
+            <span>Trung Tâm Điều Hành B2B</span>
+          </p>
 
-        {/* Thanh Điều Hướng Endpoint Cụ Thể (Router Navigation Tabs) */}
-        <div className="bg-white rounded-2xl p-2 border border-[#EAECE8] shadow-sm mb-6 flex items-center gap-2 overflow-x-auto">
-          {navTabs.map((tab) => {
-            const isActive =
-              pathname === tab.href ||
-              (tab.href === '/admin/dashboard' && pathname === '/admin');
-            const IconComponent = tab.icon;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={`py-2.5 px-4 text-xs font-bold transition-all relative flex items-center gap-2.5 shrink-0 rounded-xl cursor-pointer select-none ${
-                  isActive
-                    ? 'bg-[#10542C] text-white shadow-md shadow-[#10542C]/20 ring-1 ring-[#10542C]'
-                    : 'text-[#2C3E2E] bg-[#FDFDFB] hover:bg-[#F4F6F2] hover:text-[#10542C] border border-[#EAECE8] hover:border-[#CFD6C8] hover:shadow-xs'
-                }`}
-              >
-                {isActive ? (
-                  <span className="w-2 h-2 rounded-full bg-[#8BC34A] shadow-[0_0_8px_#8BC34A] animate-pulse shrink-0" />
-                ) : (
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
-                )}
-                <IconComponent
-                  className={`w-4 h-4 transition-transform shrink-0 ${
-                    isActive ? 'text-[#8BC34A]' : tab.iconColor
+          {/* Danh Sách 8 Modules Dọc (Chuẩn B2B Console) */}
+          <nav className="space-y-1">
+            {modules.map((item) => {
+              const active = isModuleActive(item.href);
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    active
+                      ? 'bg-white/15 text-white shadow-xs border-l-4 border-[#8BC34A]'
+                      : 'text-emerald-100/80 hover:bg-white/10 hover:text-white'
                   }`}
-                />
-                <span className="font-heading tracking-tight text-xs font-bold">{tab.name}</span>
-                {tab.badge && (
-                  <span
-                    className={`text-[10px] font-black px-2 py-0.5 rounded-full border transition-all whitespace-nowrap shrink-0 ${
-                      isActive
-                        ? 'bg-white/20 text-white border-white/30 backdrop-blur-xs'
-                        : `${tab.badgeColor}`
-                    }`}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                >
+                  <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#8BC34A]' : 'text-emerald-300/70'}`} />
+                  <span className="truncate">{item.name}</span>
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* Nội Dung Của Từng Endpoint Cụ Thể */}
-        <div className="transition-all">
+        {/* Footer Sidebar: Chỉ giữ nút Đăng xuất */}
+        <div className="pt-4 border-t border-white/10 space-y-2">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-xs font-bold text-emerald-200/80 hover:text-white transition-colors px-2 py-1.5 rounded-lg hover:bg-white/5"
+          >
+            <span>← Xem sàn giao dịch</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => void logout().then(() => router.replace('/dang-nhap'))}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/10 hover:bg-rose-500/20 text-emerald-100 hover:text-rose-300 text-xs font-bold transition-all cursor-pointer border border-white/5 hover:border-rose-500/30"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Đăng xuất</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Vùng Nội Dung Chính Bên Phải */}
+      <div className="lg:ml-64 flex-1 flex flex-col min-w-0">
+        {/* Top Header Thanh Tiêu Đề Admin */}
+        <header className="bg-white border-b border-[#EAECE8] px-4 sm:px-8 py-3.5 flex justify-between items-center sticky top-0 z-30 shadow-xs print:hidden">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileNavOpen(true)}
+              className="lg:hidden p-2 rounded-xl text-gray-700 hover:bg-gray-100"
+              aria-label="Mở menu quản trị"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div>
+              <div className="flex items-center gap-1.5 text-xs text-[#6B7280]">
+                <span>Quản trị hệ thống</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+                <span className="font-bold text-[#10542C]">{currentModule.name}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 sm:gap-4">
+            <span className="hidden md:flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+              <Activity className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+              Sàn B2B Trực Tuyến
+            </span>
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-bold text-[#2C3E2E] hidden sm:inline">{currentUser?.fullName}</span>
+              <button
+                onClick={() => void logout().then(() => router.replace('/dang-nhap'))}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Đăng xuất</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Nội dung Module Đang Chọn */}
+        <main className="p-4 sm:p-6 lg:p-8 flex-1">
           {!authChecked ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 bg-white/70 rounded-3xl border border-[#EAECE8]">
               <Loader2 className="w-8 h-8 text-[#10542C] animate-spin" />
@@ -229,10 +254,8 @@ export default function AdminLayout({
           ) : (
             children
           )}
-        </div>
-      </main>
-
-      <Footer />
+        </main>
+      </div>
     </div>
   );
 }

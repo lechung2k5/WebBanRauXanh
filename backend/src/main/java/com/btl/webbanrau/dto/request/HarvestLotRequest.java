@@ -34,11 +34,19 @@ public class HarvestLotRequest {
 
     private String certification; // VietGAP, GlobalGAP, Organic, OCOP 4 Sao
 
-    @NotNull(message = "Ngày thu hoạch không được để trống")
+    @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate harvestDate;
 
-    @NotNull(message = "Hạn sử dụng (FEFO) không được để trống")
+    public LocalDate getHarvestDate() {
+        return harvestDate != null ? harvestDate : LocalDate.now();
+    }
+
+    @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate expiryDate;
+
+    public LocalDate getExpiryDate() {
+        return expiryDate != null ? expiryDate : (getHarvestDate().plusDays(14));
+    }
 
     @NotNull(message = "Tổng sản lượng không được để trống")
     @DecimalMin(value = "1.0", message = "Tổng sản lượng tối thiểu là 1 kg")

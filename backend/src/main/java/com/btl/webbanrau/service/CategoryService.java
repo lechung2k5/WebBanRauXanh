@@ -46,13 +46,18 @@ public class CategoryService {
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public CategoryResponse createCategory(CategoryRequest request) {
-        if (categoryRepository.existsByName(request.getName())) {
+        if (categoryRepository.existsByName(request.getName().trim())) {
             throw new IllegalArgumentException("Tên danh mục đã tồn tại!");
         }
 
-        String slug = (request.getSlug() != null && !request.getSlug().isBlank())
+        String baseSlug = (request.getSlug() != null && !request.getSlug().isBlank())
                 ? SlugUtil.toSlug(request.getSlug())
                 : SlugUtil.toSlug(request.getName());
+        String slug = baseSlug;
+        int count = 1;
+        while (categoryRepository.existsBySlug(slug)) {
+            slug = baseSlug + "-" + count++;
+        }
 
         Category category = Category.builder()
                 .name(request.getName().trim())
@@ -71,9 +76,14 @@ public class CategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy danh mục!"));
 
-        String slug = (request.getSlug() != null && !request.getSlug().isBlank())
+        String baseSlug = (request.getSlug() != null && !request.getSlug().isBlank())
                 ? SlugUtil.toSlug(request.getSlug())
                 : SlugUtil.toSlug(request.getName());
+        String slug = baseSlug;
+        int count = 1;
+        while (categoryRepository.existsBySlug(slug) && !slug.equals(category.getSlug())) {
+            slug = baseSlug + "-" + count++;
+        }
 
         category.setName(request.getName().trim());
         category.setSlug(slug);
@@ -90,16 +100,20 @@ public class CategoryService {
     @PreAuthorize("hasRole('ADMIN')")
     public void deleteCategory(Long id) {
         long count = productRepository.countByCategoryId(id);
-        if (count > 0) {
-            throw new IllegalStateException("Không thể xóa danh mục đang có " + count + " nông sản liên kết!");
+        long lotCount = harvestLotRepository.countByCategoryId(id);
+        if (count > 0 || lotCount > 0) {
+            throw new IllegalStateException("Không thể xóa danh mục đang có " + (count + lotCount) + " nông sản hoặc lô hàng liên kết!");
         }
         categoryRepository.deleteById(id);
     }
 
     private CategoryResponse mapToResponse(Category c) {
-        long count = harvestLotRepository.countByCategoryId(c.getId());
+        long count = harvestLotRepository.countByCategoryIdAndStatus(c.getId(), "OPEN");
         if (count == 0) {
-            count = productRepository.countByCategoryId(c.getId());
+            long total = harvestLotRepository.countByCategoryId(c.getId());
+            if (total == 0) {
+                count = productRepository.countByCategoryId(c.getId());
+            }
         }
         return CategoryResponse.builder()
                 .id(c.getId())

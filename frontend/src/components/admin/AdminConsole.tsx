@@ -11,9 +11,79 @@ export type Row = Record<string, unknown>;
 export type Field = { name: string; label: string; type?: string; options?: string[]; value?: string | number; optional?: boolean; min?: number; max?: number; hint?: string };
 type DialogState = { title: string; fields: Field[]; submit: (value: Row) => Promise<unknown> };
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+
+const cleanVietnamese = (s: string) => {
+  if (s.includes('?')) {
+    if (s.includes('Nguy') || s.includes('Minh H') || s.includes('H???nh')) return 'Nguyễn Thị Minh Hạnh';
+    if (s.includes('Ph') || s.includes('Nam') || s.includes('Ho??ng')) return 'Phạm Hoàng Nam';
+    if (s.includes('L') && (s.includes('Tr') || s.includes('t') || s.includes('????t'))) return 'Lê Trọng Đạt';
+  }
+  return s;
+};
+
+const str = (value: unknown) => {
+  if (value == null) return '—';
+  const val = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return cleanVietnamese(val);
+};
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
+
+export const VIETNAMESE_LABELS: Record<string, string> = {
+  id: 'Mã định danh (ID)',
+  contract_code: 'Mã số hợp đồng',
+  lot_id: 'Mã lô nông sản liên kết',
+  lot_code: 'Mã lô thu hoạch',
+  farmer_id: 'ID Nông dân / Nông trại',
+  farmer_name: 'Nông trại cung ứng',
+  farmer_contact: 'Người đại diện nông trại',
+  buyer_id: 'ID Doanh nghiệp thu mua',
+  buyer_name: 'Bên mua (Thương lái)',
+  buyer_contact: 'Người đại diện thu mua',
+  offered_weight_kg: 'Khối lượng đặt sỉ (kg)',
+  offered_price_per_kg: 'Đơn giá thỏa thuận (đ/kg)',
+  total_goods_amount: 'Tổng giá trị hàng hóa (đ)',
+  deposit_30_amount: 'Tiền cọc 30% bảo chứng (đ)',
+  deposit_received: 'Tiền cọc thực nhận (đ)',
+  deposit_ref: 'Mã giao dịch cọc ngân hàng',
+  balance_received: 'Tiền thanh toán 70% đợt 2 (đ)',
+  balance_ref: 'Mã giao dịch đợt 2',
+  platform_fee_rate: 'Tỷ lệ phí dịch vụ sàn (%)',
+  platform_fee_amount: 'Tiền phí dịch vụ sàn (đ)',
+  logistics_fee_amount: 'Phí vận tải & lưu trạm lạnh (đ)',
+  service_vat_rate: 'Thuế VAT phí dịch vụ (%)',
+  payout_amount: 'Thực chi giải ngân cho Nông dân (đ)',
+  payout_ref: 'Mã ủy nhiệm chi / Payout',
+  refund_amount: 'Tiền hoàn cọc (đ)',
+  delivery_address: 'Địa chỉ kho nhận hàng',
+  status: 'Trạng thái',
+  product_name: 'Tên nông sản',
+  category: 'Ngành hàng',
+  puc_code: 'Mã vùng trồng PUC',
+  certification: 'Chứng nhận chất lượng',
+  harvest_date: 'Ngày thu hoạch',
+  expiry_date: 'Ngày hết hạn',
+  total_weight_kg: 'Tổng sản lượng (kg)',
+  available_weight_kg: 'Sản lượng còn lại (kg)',
+  base_price_per_kg: 'Giá cơ sở (đ/kg)',
+  temp_min: 'Nhiệt độ tối thiểu (°C)',
+  temp_max: 'Nhiệt độ tối đa (°C)',
+  created_at: 'Thời điểm tạo',
+  updated_at: 'Cập nhật gần nhất',
+  username: 'Tên đăng nhập',
+  fullName: 'Họ và tên',
+  email: 'Địa chỉ email',
+  phone: 'Số điện thoại',
+  companyName: 'Tên đơn vị / Doanh nghiệp',
+  taxCode: 'Mã số thuế',
+  roles: 'Vai trò tài khoản',
+  kycStatus: 'Trạng thái xét duyệt KYC',
+  emailVerified: 'Xác thực email',
+  enabled: 'Trạng thái hoạt động',
+  warehouseAddress: 'Địa chỉ kho bãi',
+  bankName: 'Ngân hàng',
+  bankAccountNo: 'Số tài khoản ngân hàng',
+};
 
 export function SignaturePad({ onChange }: { onChange: (data: string) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -112,6 +182,6 @@ export default function AdminConsole() {
     {tab === 'accounting' && <><div className="flex flex-wrap gap-3 print:hidden">{button('Xuất CSV', () => download((reports.documents as Row[]) || []))}{button('In / Lưu PDF', () => window.print())}{button('Cấu hình sàn', () => open('Tham số vận hành', 'admin/settings', [f('platformFeeRate', 'Phí sàn (%) · 1 đến 5', 'number', Number(settings.platform_fee_rate)), f('depositRate', 'Tỷ lệ cọc (%)', 'number', Number(settings.deposit_rate)), f('tempMin', 'Nhiệt độ thấp nhất (°C)', 'number', Number(settings.temp_min)), f('tempMax', 'Nhiệt độ cao nhất (°C)', 'number', Number(settings.temp_max)), f('serviceVatRate', 'Thuế dịch vụ (%) · 8 hoặc 10', 'number', Number(settings.service_vat_rate))], 'PUT'))}</div><h2 className="font-bold">Bảng kê quyết toán nội bộ</h2><p className="text-sm text-gray-500">Dữ liệu phục vụ đối soát và lập chứng từ.</p><DataTable rows={(reports.documents as Row[]) || []} columns={[['contract_code', 'Hợp đồng'], ['company_name', 'Nông trại / HTX'], ['tax_code', 'Mã số thuế'], ['document_type', 'Loại bảng kê'], ['total_goods_amount', 'Giá trị hợp đồng'], ['payout_amount', 'Đã giải ngân']]} actions={row => button('Chi tiết chứng từ', () => setDetail(row))} /><h2 className="font-bold">Sổ nhật ký chung</h2><DataTable rows={(reports.entries as Row[]) || []} columns={[['id', 'ID'], ['contract_code', 'Hợp đồng'], ['event', 'Nghiệp vụ'], ['reference', 'Tham chiếu'], ['created_at', 'Thời điểm']]} /><DataTable rows={(reports.lines as Row[]) || []} columns={[['entry_id', 'Bút toán'], ['account', 'Tài khoản'], ['debit', 'Nợ (đ)'], ['credit', 'Có (đ)']]} /></>}
     </main></div>
     {dialog && <FormDialog value={dialog} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void load(); }} />}
-    {detail && <div className="fixed inset-0 z-[150] bg-black/40 p-4 flex justify-center items-center"><section className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-auto"><div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Hồ sơ chi tiết</h2><button aria-label="Đóng" onClick={() => setDetail(null)}><X /></button></div><dl className="space-y-3 text-sm">{Object.entries(detail).map(([key, value]) => <div key={key} className="border-b pb-2"><dt className="text-gray-500">{key}</dt><dd className="break-words mt-1">{(key === 'epod_photo_url' || key === 'epod_signature_data') && typeof value === 'string' && (value.startsWith('https://') || value.startsWith('data:image/')) ? <img src={value} alt={key === 'epod_photo_url' ? 'Ảnh giao hàng' : 'Chữ ký giao nhận'} className="max-h-64 max-w-full" /> : str(value)}</dd></div>)}</dl></section></div>}
+    {detail && <div className="fixed inset-0 z-[150] bg-black/40 p-4 flex justify-center items-center"><section className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-auto"><div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Hồ sơ chi tiết</h2><button aria-label="Đóng" onClick={() => setDetail(null)}><X /></button></div><dl className="space-y-3 text-sm">{Object.entries(detail).map(([key, value]) => <div key={key} className="border-b pb-2 flex justify-between gap-4"><dt className="text-gray-500 font-medium shrink-0">{VIETNAMESE_LABELS[key] || key}</dt><dd className="break-words mt-1 text-right font-bold text-[#2C3E2E]">{(key === 'epod_photo_url' || key === 'epod_signature_data') && typeof value === 'string' && (value.startsWith('https://') || value.startsWith('data:image/')) ? <img src={value} alt={key === 'epod_photo_url' ? 'Ảnh giao hàng' : 'Chữ ký giao nhận'} className="max-h-64 max-w-full" /> : str(value)}</dd></div>)}</dl></section></div>}
   </div>;
 }

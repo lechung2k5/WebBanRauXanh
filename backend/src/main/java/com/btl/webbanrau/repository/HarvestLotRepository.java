@@ -39,4 +39,6 @@ public interface HarvestLotRepository extends JpaRepository<HarvestLot, Long> {
     long countByStatus(String status);
 
     long countByCategoryId(Long categoryId);
+
+    long countByCategoryIdAndStatus(Long categoryId, String status);
 }

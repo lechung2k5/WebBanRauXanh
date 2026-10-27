@@ -91,9 +91,20 @@ public class HarvestLotService {
         BigDecimal minTemp = request.getReqTempMin() != null ? request.getReqTempMin() : new BigDecimal("2.0");
         BigDecimal maxTemp = request.getReqTempMax() != null ? request.getReqTempMax() : new BigDecimal("6.0");
 
+        Long resolvedFarmerId = request.getFarmerId();
+        if (resolvedFarmerId == null) {
+            resolvedFarmerId = userRepository.findByUsername("farmer_dalat")
+                    .map(com.btl.webbanrau.model.User::getId)
+                    .orElseGet(() -> userRepository.findAll().stream()
+                            .filter(u -> u.getRoles() != null && u.getRoles().stream().anyMatch(r -> "ROLE_FARMER".equals(r.getName())))
+                            .map(com.btl.webbanrau.model.User::getId)
+                            .findFirst()
+                            .orElse(1L));
+        }
+
         String resolvedFarmerName = request.getFarmerName();
-        if ((resolvedFarmerName == null || resolvedFarmerName.isBlank()) && request.getFarmerId() != null) {
-            resolvedFarmerName = userRepository.findById(request.getFarmerId())
+        if ((resolvedFarmerName == null || resolvedFarmerName.isBlank()) && resolvedFarmerId != null) {
+            resolvedFarmerName = userRepository.findById(resolvedFarmerId)
                     .map(u -> (u.getCompanyName() != null && !u.getCompanyName().isBlank()) ? u.getCompanyName() : u.getFullName())
                     .orElse("Nông trại");
         }
@@ -103,7 +114,7 @@ public class HarvestLotService {
 
         HarvestLot lot = HarvestLot.builder()
                 .lotCode(lotCode.trim().toUpperCase())
-                .farmerId(request.getFarmerId())
+                .farmerId(resolvedFarmerId)
                 .farmerName(resolvedFarmerName.trim())
                 .productName(request.getProductName().trim())
                 .category(request.getCategory().trim().toUpperCase())
@@ -140,14 +151,19 @@ public class HarvestLotService {
             lot.setLotCode(request.getLotCode().trim().toUpperCase());
         }
 
-        lot.setFarmerName(request.getFarmerName().trim());
+        if (request.getFarmerId() != null) {
+            lot.setFarmerId(request.getFarmerId());
+        }
+        if (request.getFarmerName() != null && !request.getFarmerName().isBlank()) {
+            lot.setFarmerName(request.getFarmerName().trim());
+        }
         lot.setProductName(request.getProductName().trim());
         lot.setCategory(request.getCategory().trim().toUpperCase());
         if (request.getCategoryId() != null) lot.setCategoryId(request.getCategoryId());
-        lot.setPucCode(request.getPucCode().trim().toUpperCase());
+        if (request.getPucCode() != null && !request.getPucCode().isBlank()) lot.setPucCode(request.getPucCode().trim().toUpperCase());
         if (request.getCertification() != null) lot.setCertification(request.getCertification().trim());
-        lot.setHarvestDate(request.getHarvestDate());
-        lot.setExpiryDate(request.getExpiryDate());
+        if (request.getHarvestDate() != null) lot.setHarvestDate(request.getHarvestDate());
+        if (request.getExpiryDate() != null) lot.setExpiryDate(request.getExpiryDate());
         lot.setTotalWeightKg(request.getTotalWeightKg());
         if (request.getAvailableWeightKg() != null) {
             lot.setAvailableWeightKg(request.getAvailableWeightKg());

@@ -19,30 +19,38 @@ public class HarvestLotController {
     private final HarvestLotService harvestLotService;
 
     @GetMapping
-    @Operation(summary = "Lấy danh sách các lô nông sản đang mở bán (OPEN) hoặc lọc theo ngành hàng")
+    @Operation(summary = "Lấy danh sách các lô nông sản đang mở bán (OPEN) trên sàn nông sản")
     public ResponseEntity<ApiResponse<PageResponse<HarvestLotResponse>>> getPublicLots(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "DESC") String sortDir
     ) {
+        // Chỉ có sản phẩm/lô nông sản đang mở bán ("OPEN") mới được hiển thị trên sàn
         PageResponse<HarvestLotResponse> result = harvestLotService.getLots(
-                keyword, status, category, page, size, sortBy, sortDir);
+                keyword, "OPEN", category, page, size, sortBy, sortDir);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Xem chi tiết lô nông sản")
+    @Operation(summary = "Xem chi tiết lô nông sản trên sàn (Chỉ hiển thị khi đang mở bán)")
     public ResponseEntity<ApiResponse<HarvestLotResponse>> getLotById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(harvestLotService.getLotById(id)));
+        HarvestLotResponse lot = harvestLotService.getLotById(id);
+        if (!"OPEN".equalsIgnoreCase(lot.getStatus())) {
+            throw new IllegalArgumentException("Lô nông sản này hiện chưa mở bán hoặc đã tạm khóa trên sàn.");
+        }
+        return ResponseEntity.ok(ApiResponse.success(lot));
     }
 
     @GetMapping("/code/{code}")
-    @Operation(summary = "Tra cứu nguồn gốc lô theo mã lô (QR Code / Mã số vùng trồng)")
+    @Operation(summary = "Tra cứu nguồn gốc lô theo mã lô trên sàn (Chỉ hiển thị khi đang mở bán)")
     public ResponseEntity<ApiResponse<HarvestLotResponse>> getLotByCode(@PathVariable String code) {
-        return ResponseEntity.ok(ApiResponse.success(harvestLotService.getLotByCode(code)));
+        HarvestLotResponse lot = harvestLotService.getLotByCode(code);
+        if (!"OPEN".equalsIgnoreCase(lot.getStatus())) {
+            throw new IllegalArgumentException("Lô nông sản này hiện chưa mở bán hoặc đã tạm khóa trên sàn.");
+        }
+        return ResponseEntity.ok(ApiResponse.success(lot));
     }
 }

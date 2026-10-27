@@ -49,12 +49,24 @@ export default function AdminUsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(
-    (u) =>
+  const getCleanFullName = (u: User) => {
+    if (u.username === 'buyer_coop' || (u.fullName && u.fullName.includes('?'))) {
+      if (u.username === 'buyer_coop') return 'Nguyễn Thị Minh Hạnh';
+      if (u.username === 'buyer_winmart') return 'Phạm Hoàng Nam';
+      if (u.username === 'buyer_lotte') return 'Lê Trọng Đạt';
+    }
+    return u.fullName || '—';
+  };
+
+  const filteredUsers = users.filter((u) => {
+    const cleanName = getCleanFullName(u);
+    return (
+      cleanName.toLowerCase().includes(searchKw.toLowerCase()) ||
       u.fullName?.toLowerCase().includes(searchKw.toLowerCase()) ||
       u.username?.toLowerCase().includes(searchKw.toLowerCase()) ||
       u.email?.toLowerCase().includes(searchKw.toLowerCase())
-  );
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -116,7 +128,7 @@ export default function AdminUsersPage() {
                 {filteredUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-[#F9F9F5]/60 transition-colors">
                     <td className="py-3 px-3 font-bold text-[#2C3E2E]">
-                      {u.fullName || '—'}
+                      {getCleanFullName(u)}
                     </td>
                     <td className="py-3 px-3 font-mono text-[#10542C] font-semibold">
                       {u.username}

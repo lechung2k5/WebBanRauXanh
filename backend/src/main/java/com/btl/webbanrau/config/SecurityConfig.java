@@ -54,8 +54,6 @@ public class SecurityConfig {
                         .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/harvest-lots/**", "/cold-assets/public-status").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/orders").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
 

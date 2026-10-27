@@ -1,7 +1,5 @@
-'use client';
-
-import AdminConsole from '@/components/admin/AdminConsole';
+import { redirect } from 'next/navigation';
 
 export default function AdminConsolePage() {
-  return <AdminConsole />;
+  redirect('/admin/dashboard');
 }

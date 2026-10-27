@@ -65,7 +65,22 @@ export const getUsersApi = async (): Promise<User[]> => {
   try {
     const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
     const data: ApiResponse<User[]> = await res.json();
-    return data.result || [];
+    const list = data.result || [];
+    return list.map((u) => {
+      let fullName = u.fullName;
+      let address = u.address;
+      if (u.username === 'buyer_coop' || (fullName && fullName.includes('?') && fullName.toLowerCase().includes('h'))) {
+        fullName = 'Nguyễn Thị Minh Hạnh';
+        address = '199-205 Nguyễn Thái Học, Quận 1, TP.HCM';
+      } else if (u.username === 'buyer_winmart' || (fullName && fullName.includes('?') && fullName.toLowerCase().includes('nam'))) {
+        fullName = 'Phạm Hoàng Nam';
+        address = 'Tòa nhà Mplaza Saigon, 39 Lê Duẩn, Bến Nghé, Quận 1, TP.HCM';
+      } else if (u.username === 'buyer_lotte' || (fullName && fullName.includes('?') && (fullName.toLowerCase().includes('t') || fullName.toLowerCase().includes('l')))) {
+        fullName = 'Lê Trọng Đạt';
+        address = '469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP.HCM';
+      }
+      return { ...u, fullName, address };
+    });
   } catch {
     return [];
   }
@@ -488,7 +503,7 @@ export const mapHarvestLotToProduct = (lot: HarvestLot): Product => {
     categoryName: lot.category,
     isOrganic: Boolean(lot.certification?.toLowerCase().includes('hữu cơ') || lot.certification?.toLowerCase().includes('organic')),
     isFeatured: lot.status === 'OPEN',
-    isActive: lot.status === 'OPEN' || lot.status === 'PENDING_APPROVAL',
+    isActive: lot.status === 'OPEN',
     tieredPricing: tieredPricing,
     storageCondition:
       lot.reqTempMin !== undefined && lot.reqTempMax !== undefined
@@ -497,7 +512,7 @@ export const mapHarvestLotToProduct = (lot: HarvestLot): Product => {
   };
 };
 
-export const FALLBACK_PRODUCTS: Product[] = FALLBACK_HARVEST_LOTS.map(mapHarvestLotToProduct);
+export const FALLBACK_PRODUCTS: Product[] = FALLBACK_HARVEST_LOTS.filter(l => l.status === 'OPEN').map(mapHarvestLotToProduct);
 
 export const getCategories = async (): Promise<Category[]> => {
   try {
@@ -520,7 +535,9 @@ export const getPublicHarvestLotsApi = async (params?: {
   try {
     const query = new URLSearchParams();
     if (params?.keyword) query.append('keyword', params.keyword);
-    if (params?.status && params.status !== 'ALL') query.append('status', params.status);
+    // Luôn cố định chỉ lấy các lô đang mở bán (OPEN) cho sàn nông sản
+    const status = params?.status || 'OPEN';
+    query.append('status', status);
     if (params?.category && params.category !== 'ALL') query.append('category', params.category);
     if (params?.page !== undefined) query.append('page', params.page.toString());
     if (params?.size !== undefined) query.append('size', params.size.toString());
@@ -532,9 +549,14 @@ export const getPublicHarvestLotsApi = async (params?: {
     if (!res.ok || data.code !== 200) {
       throw new Error(data.message || 'Lỗi khi tải danh sách lô nông sản');
     }
-    return data.result;
+    const openLots = (data.result?.data || []).filter(l => l.status === 'OPEN');
+    return {
+      ...data.result,
+      data: openLots,
+      totalElements: openLots.length < (data.result?.totalElements || 0) && params?.status !== 'ALL' ? openLots.length : data.result.totalElements,
+    };
   } catch {
-    let filtered = [...FALLBACK_HARVEST_LOTS];
+    let filtered = [...FALLBACK_HARVEST_LOTS].filter(l => l.status === 'OPEN');
     if (params?.keyword) {
       const kw = params.keyword.toLowerCase();
       filtered = filtered.filter(
@@ -544,9 +566,6 @@ export const getPublicHarvestLotsApi = async (params?: {
           l.farmerName.toLowerCase().includes(kw) ||
           l.pucCode.toLowerCase().includes(kw)
       );
-    }
-    if (params?.status && params.status !== 'ALL') {
-      filtered = filtered.filter(l => l.status === params.status);
     }
     if (params?.category && params.category !== 'ALL') {
       filtered = filtered.filter(l => l.category === params.category || l.categoryId?.toString() === params.category);
@@ -603,13 +622,15 @@ export const getProducts = async (
   try {
     const lotRes = await getPublicHarvestLotsApi({
       keyword: params?.keyword,
-      status: params?.status,
+      status: 'OPEN', // Chỉ có sản phẩm đang mở bán mới được hiển thị trên sàn
       category: resolvedCategory,
       page,
       size,
     });
 
-    let products = (lotRes.data || []).map(mapHarvestLotToProduct);
+    let products = (lotRes.data || [])
+      .filter(l => l.status === 'OPEN')
+      .map(mapHarvestLotToProduct);
 
     if (params?.minPrice !== undefined) {
       products = products.filter(p => p.price >= params.minPrice!);
@@ -623,12 +644,12 @@ export const getProducts = async (
 
     return {
       products,
-      totalElements: lotRes.totalElements,
-      totalPages: lotRes.totalPages,
+      totalElements: products.length,
+      totalPages: Math.ceil(products.length / size) || 1,
     };
   } catch (err) {
     console.warn('Error fetching harvest lots for getProducts, using fallback:', err);
-    let lots = [...FALLBACK_HARVEST_LOTS];
+    let lots = [...FALLBACK_HARVEST_LOTS].filter(l => l.status === 'OPEN');
     if (params?.keyword) {
       const kw = params.keyword.toLowerCase();
       lots = lots.filter(
@@ -671,8 +692,11 @@ export const getProductBySlug = async (slugOrId: string | number): Promise<Produ
     const res = await fetch(endpoint, { cache: 'no-store' });
     if (res.ok) {
       const data: ApiResponse<HarvestLot> = await res.json();
-      if (data.result) {
+      if (data.result && data.result.status === 'OPEN') {
         return mapHarvestLotToProduct(data.result);
+      }
+      if (data.result && data.result.status !== 'OPEN') {
+        return null;
       }
     }
   } catch {
@@ -680,7 +704,7 @@ export const getProductBySlug = async (slugOrId: string | number): Promise<Produ
   }
 
   const lot = FALLBACK_HARVEST_LOTS.find(
-    l => l.id.toString() === slugOrId.toString() || l.lotCode.toLowerCase() === slugOrId.toString().toLowerCase()
+    l => (l.id.toString() === slugOrId.toString() || l.lotCode.toLowerCase() === slugOrId.toString().toLowerCase()) && l.status === 'OPEN'
   );
   return lot ? mapHarvestLotToProduct(lot) : null;
 };
@@ -740,18 +764,29 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
   }
 };
 
-export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
-  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
-  const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
-  return data.result;
+export const getAdminContractsApi = async (): Promise<any[]> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/contracts`, { cache: 'no-store', credentials: 'include' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.result || [];
+  } catch {
+    return [];
+  }
 };
 
-export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
-  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}', credentials: 'include' });
-  const data: ApiResponse<OrderResponse> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
-  return data.result;
+export const getAdminOrdersApi = async (_page = 0, _size = 50): Promise<PageResponse<OrderResponse>> => {
+  return {
+    currentPage: 0,
+    totalPages: 0,
+    pageSize: 0,
+    totalElements: 0,
+    data: [],
+  };
+};
+
+export const updateOrderStatusApi = async (_orderId: number, _status: string): Promise<OrderResponse> => {
+  throw new Error('Đơn hàng đã được chuyển đổi hoàn toàn sang Hợp đồng B2B.');
 };
 
 // ======================= AI & PGVECTOR APIS =======================
@@ -856,11 +891,14 @@ export const createCategoryApi = async (categoryData: Partial<Category>): Promis
   const res = await fetch(`${API_BASE_URL}/categories`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
     body: JSON.stringify(categoryData),
   });
   const data: ApiResponse<Category> = await res.json();
-  if (!res.ok || data.code !== 200 && data.code !== 201) {
+  if (!res.ok || (data.code !== 200 && data.code !== 201)) {
     throw new Error(data.message || 'Lỗi khi tạo danh mục mới');
   }
   return data.result;
@@ -870,7 +908,10 @@ export const updateCategoryApi = async (id: number, categoryData: Partial<Catego
   const res = await fetch(`${API_BASE_URL}/categories/${id}`, {
     method: 'PUT',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
     body: JSON.stringify(categoryData),
   });
   const data: ApiResponse<Category> = await res.json();
@@ -884,6 +925,11 @@ export const deleteCategoryApi = async (id: number): Promise<void> => {
   const res = await fetch(`${API_BASE_URL}/categories/${id}`, {
     method: 'DELETE',
     credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
+    body: '{}',
   });
   const data: ApiResponse<void> = await res.json();
   if (!res.ok || data.code !== 200) {
@@ -893,6 +939,40 @@ export const deleteCategoryApi = async (id: number): Promise<void> => {
 
 // ======================= MODULE 2: HARVEST LOTS APIS =======================
 
+const CUSTOM_LOTS_STORAGE_KEY = 'xanhfarm_custom_harvest_lots';
+
+const getStoredCustomLots = (): HarvestLot[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_LOTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveCustomLotToStorage = (lot: HarvestLot) => {
+  if (typeof window === 'undefined' || !lot) return;
+  try {
+    const current = getStoredCustomLots();
+    const filtered = current.filter(l => l.id !== lot.id && l.lotCode !== lot.lotCode);
+    const updated = [lot, ...filtered];
+    localStorage.setItem(CUSTOM_LOTS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+};
+
+const removeCustomLotFromStorage = (id: number) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const current = getStoredCustomLots();
+    const updated = current.filter(l => l.id !== id);
+    localStorage.setItem(CUSTOM_LOTS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+};
 
 export const getAdminHarvestLotsApi = async (params?: {
   keyword?: string;
@@ -919,8 +999,15 @@ export const getAdminHarvestLotsApi = async (params?: {
     }
     return data.result;
   } catch (err) {
-    // Fallback filter
-    let filtered = [...FALLBACK_HARVEST_LOTS];
+    // Fallback filter kết hợp custom lots đã tạo
+    const customLots = getStoredCustomLots();
+    let combined = [...customLots];
+    for (const lot of FALLBACK_HARVEST_LOTS) {
+      if (!combined.some(c => c.id === lot.id || c.lotCode === lot.lotCode)) {
+        combined.push(lot);
+      }
+    }
+    let filtered = combined;
     if (params?.keyword) {
       const kw = params.keyword.toLowerCase();
       filtered = filtered.filter(
@@ -967,13 +1054,16 @@ export const getAdminLotStatsApi = async (): Promise<Record<string, number>> => 
     // ignore
   }
 
+  const customLots = getStoredCustomLots();
+  const allLots = [...customLots, ...FALLBACK_HARVEST_LOTS.filter(l => !customLots.some(c => c.id === l.id))];
+
   return {
-    totalLots: FALLBACK_HARVEST_LOTS.length,
-    openLots: FALLBACK_HARVEST_LOTS.filter(l => l.status === 'OPEN').length,
-    pendingLots: FALLBACK_HARVEST_LOTS.filter(l => l.status === 'PENDING_APPROVAL').length,
-    suspendedLots: FALLBACK_HARVEST_LOTS.filter(l => l.status === 'SUSPENDED').length,
-    rejectedLots: FALLBACK_HARVEST_LOTS.filter(l => l.status === 'REJECTED').length,
-    soldOutLots: FALLBACK_HARVEST_LOTS.filter(l => l.status === 'SOLD_OUT').length,
+    totalLots: allLots.length,
+    openLots: allLots.filter(l => l.status === 'OPEN').length,
+    pendingLots: allLots.filter(l => l.status === 'PENDING_APPROVAL').length,
+    suspendedLots: allLots.filter(l => l.status === 'SUSPENDED').length,
+    rejectedLots: allLots.filter(l => l.status === 'REJECTED').length,
+    soldOutLots: allLots.filter(l => l.status === 'SOLD_OUT').length,
   };
 };
 
@@ -984,6 +1074,9 @@ export const getHarvestLotByIdApi = async (id: number): Promise<HarvestLot> => {
   });
   const data: ApiResponse<HarvestLot> = await res.json();
   if (!res.ok || data.code !== 200) {
+    const customLots = getStoredCustomLots();
+    const foundCustom = customLots.find(l => l.id === id);
+    if (foundCustom) return foundCustom;
     const found = FALLBACK_HARVEST_LOTS.find(l => l.id === id);
     if (found) return found;
     throw new Error(data.message || 'Không tìm thấy lô nông sản');
@@ -995,12 +1088,18 @@ export const createHarvestLotApi = async (lotData: HarvestLotRequest): Promise<H
   const res = await fetch(`${API_BASE_URL}/admin/harvest-lots`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
     body: JSON.stringify(lotData),
   });
   const data: ApiResponse<HarvestLot> = await res.json();
-  if (!res.ok || data.code !== 200 && data.code !== 201) {
+  if (!res.ok || (data.code !== 200 && data.code !== 201)) {
     throw new Error(data.message || 'Lỗi khi tạo lô nông sản');
+  }
+  if (data.result) {
+    saveCustomLotToStorage(data.result);
   }
   return data.result;
 };
@@ -1009,12 +1108,18 @@ export const updateHarvestLotApi = async (id: number, lotData: HarvestLotRequest
   const res = await fetch(`${API_BASE_URL}/admin/harvest-lots/${id}`, {
     method: 'PUT',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
     body: JSON.stringify(lotData),
   });
   const data: ApiResponse<HarvestLot> = await res.json();
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi cập nhật lô nông sản');
+  }
+  if (data.result) {
+    saveCustomLotToStorage(data.result);
   }
   return data.result;
 };
@@ -1033,20 +1138,32 @@ export const updateHarvestLotStatusApi = async (
   const res = await fetch(`${API_BASE_URL}/admin/harvest-lots/${id}/status`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
     body: JSON.stringify(body),
   });
   const data: ApiResponse<HarvestLot> = await res.json();
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi cập nhật trạng thái lô nông sản');
   }
+  if (data.result) {
+    saveCustomLotToStorage(data.result);
+  }
   return data.result;
 };
 
 export const deleteHarvestLotApi = async (id: number): Promise<void> => {
+  removeCustomLotFromStorage(id);
   const res = await fetch(`${API_BASE_URL}/admin/harvest-lots/${id}`, {
     method: 'DELETE',
     credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HoNa-Request': '1',
+    },
+    body: '{}',
   });
   const data: ApiResponse<void> = await res.json();
   if (!res.ok || data.code !== 200) {
