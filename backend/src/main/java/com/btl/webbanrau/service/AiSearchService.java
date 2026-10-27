@@ -129,11 +129,15 @@ public class AiSearchService {
         try {
             String expandedTerm = cleanQuery;
             if (queryLower.contains("canh chua")) {
-                expandedTerm = "cà chua|đậu bắp|bạc hà|dọc mùng|khóm|dứa|ngò gai";
-            } else if (queryLower.contains("nấu lẩu") || queryLower.contains("ăn lẩu")) {
-                expandedTerm = "nấm|cải thảo|rau muống|hoa chuối|bắp ngọt";
-            } else if (queryLower.contains("xào tỏi") || queryLower.contains("món xào")) {
-                expandedTerm = "cải thìa|bông cải|đậu cove|rau muống";
+                expandedTerm = "cà chua|đậu bắp|bạc hà|dọc mùng|khóm|dứa|ngò gai|rau muống|thơm|me";
+            } else if (queryLower.contains("nấu lẩu") || queryLower.contains("ăn lẩu") || queryLower.contains("lẩu")) {
+                expandedTerm = "nấm|cải thảo|rau muống|hoa chuối|bắp ngọt|mồng tơi|đậu phụ";
+            } else if (queryLower.contains("xào tỏi") || queryLower.contains("món xào") || queryLower.contains("xào")) {
+                expandedTerm = "cải thìa|bông cải|đậu cove|rau muống|bắp cải|đậu bắp";
+            } else if (queryLower.contains("salad") || queryLower.contains("trộn") || queryLower.contains("giảm cân")) {
+                expandedTerm = "xà lách|dưa leo|cà chua|bắp cải|ớt chuông|cải bó xôi";
+            } else if (queryLower.contains("canh") || queryLower.contains("súp") || queryLower.contains("hầm")) {
+                expandedTerm = "bí đỏ|cà rốt|khoai tây|cải bó xôi|rau ngót|bắp cải";
             }
 
             String sql = """
@@ -142,7 +146,7 @@ public class AiSearchService {
                     LOWER(name) LIKE ? OR LOWER(slug) LIKE ? OR LOWER(origin) LIKE ? 
                     OR LOWER(brand) LIKE ? OR LOWER(description) LIKE ?
                     OR (CASE WHEN ? != ? THEN (
-                        LOWER(name) ~ ? OR LOWER(description) ~ ?
+                        LOWER(name) ~* ? OR LOWER(description) ~* ?
                     ) ELSE false END)
                 )
                 ORDER BY (
@@ -435,11 +439,20 @@ public class AiSearchService {
                     .map(productService::mapToResponse)
                     .collect(Collectors.toList());
         } else {
-            // Tìm kiếm vector ngữ nghĩa (pgvector)
-            SemanticSearchResponse vectorResults = searchByVector(userQuery, 4);
-            recommendedProducts = vectorResults.getItems().stream()
-                    .map(SemanticSearchResponse.SemanticProductItem::getProduct)
+            // Tìm kiếm lai thông minh Hybrid Search (pgvector + Keyword + RRF)
+            HybridSearchResponse hybridResults = hybridSearch(userQuery, 6);
+            recommendedProducts = hybridResults.getItems().stream()
+                    .map(HybridSearchResponse.HybridProductItem::getProduct)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
+
+            if (recommendedProducts.isEmpty()) {
+                SemanticSearchResponse vectorResults = searchByVector(userQuery, 4);
+                recommendedProducts = vectorResults.getItems().stream()
+                        .map(SemanticSearchResponse.SemanticProductItem::getProduct)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+            }
         }
 
         // Lấy top 2 sản phẩm ưu đãi sỉ
@@ -497,14 +510,14 @@ public class AiSearchService {
 
         // System Prompt & Guardrails chuẩn
         String systemPrompt = """
-            Bạn là trợ lý AI chuyên nghiệp, nhiệt tình và am hiểu về hệ thống sàn giao dịch nông sản B2B - nơi kết nối trực tiếp các trang trại, nhà vườn với thương lái và doanh nghiệp thu mua.
+            Bạn là trợ lý AI chuyên nghiệp, nhiệt tình và am hiểu về hệ thống sàn giao dịch nông sản B2B HoNa Fresh - nơi kết nối trực tiếp các trang trại, nhà vườn với thương lái và doanh nghiệp thu mua.
 
             NHIỆM VỤ CỦA BẠN:
-            Trả lời các câu hỏi của khách hàng về sản phẩm nông sản, thông tin mùa vụ, chính sách vận chuyển, giá cả, và cách sử dụng nền tảng, CHỈ DỰA TRÊN thông tin được cung cấp trong phần "Ngữ cảnh được trích xuất" bên dưới.
+            Trả lời các câu hỏi của khách hàng về sản phẩm nông sản, tư vấn nguyên liệu cho các món ăn (như canh chua, nấu lẩu, món xào, món canh, salad...), thông tin mùa vụ, chính sách vận chuyển, giá cả, và cách sử dụng nền tảng, CHỈ DỰA TRÊN thông tin được cung cấp trong phần "Ngữ cảnh được trích xuất" bên dưới.
 
             QUY TẮC BẮT BUỘC (GUARDRAILS):
-            1. GIỚI HẠN CHỦ ĐỀ: Chỉ trả lời các câu hỏi liên quan đến nông nghiệp, sản phẩm trên sàn, mua bán, vận chuyển, và hướng dẫn sử dụng hệ thống.
-            2. TỪ CHỐI NGOÀI LỀ: Nếu người dùng hỏi về chính trị, tôn giáo, thời tiết chung, giải toán, viết code, người nổi tiếng, hoặc bất kỳ chủ đề nào không liên quan đến sàn giao dịch nông sản, BẠN PHẢI TỪ CHỐI LỊCH SỰ. Hãy dùng cấu trúc: "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản và giao dịch trên hệ thống. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?".
+            1. TƯ VẤN MÓN ĂN & CÔNG DỤNG NÔNG SẢN: Khi khách hỏi về nguyên liệu cho món ăn cụ thể (ví dụ: "nguyên liệu nấu canh chua", "rau ăn lẩu"...), hãy giới thiệu các loại nông sản phù hợp có trong ngữ cảnh và giải thích ngắn gọn vai trò của từng loại (ví dụ: cà chua và khóm tạo vị chua ngọt thanh mát, đậu bắp và bạc hà tạo độ giòn ngọt mọng nước, rau muống ăn kèm giải nhiệt, ngò gai/húng quế dậy mùi thơm nồng đặc trưng). Nếu món ăn còn thiếu nguyên liệu nào chưa có trên sàn (như cá tươi, me chua), hãy giải thích lịch sự.
+            2. GIỚI HẠN CHỦ ĐỀ & TỪ CHỐI NGOÀI LỀ: Chỉ trả lời các câu hỏi liên quan đến nông nghiệp, sản phẩm trên sàn, món ăn chế biến từ nông sản, mua bán, vận chuyển. Nếu người dùng hỏi về chính trị, tôn giáo, viết code, giải toán, người nổi tiếng... BẠN PHẢI TỪ CHỐI LỊCH SỰ: "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản và giao dịch trên hệ thống. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?".
             3. KHÔNG BỊA ĐẶT (NO HALLUCINATION): Nếu câu hỏi liên quan đến sản phẩm nhưng trong "Ngữ cảnh được trích xuất" không có thông tin, tuyệt đối không tự bịa ra dữ liệu. Hãy trả lời: "Dạ, hiện tại em chưa tìm thấy thông tin chính xác về sản phẩm/vấn đề này trên hệ thống. Anh/chị có thể cung cấp thêm chi tiết hoặc từ khóa khác để em kiểm tra lại không ạ?".
             4. NGÔN NGỮ & GIỌNG ĐIỆU: Giao tiếp bằng tiếng Việt chuẩn, xưng hô "em" và gọi khách hàng là "anh/chị". Thái độ tôn trọng, hỗ trợ và hướng tới việc thúc đẩy giao dịch. Trả lời súc tích, ngắn gọn, đúng trọng tâm.
             """;
@@ -535,9 +548,12 @@ public class AiSearchService {
      */
     private String buildSemanticText(Product p) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Lô hàng sỉ: ").append(p.getName()).append(". ");
+        sb.append("Nông sản: ").append(p.getName()).append(". ");
         if (p.getCategory() != null) {
-            sb.append("Ngành hàng: ").append(p.getCategory().getName()).append(". ");
+            sb.append("Danh mục: ").append(p.getCategory().getName()).append(". ");
+        }
+        if (p.getDescription() != null && !p.getDescription().isBlank()) {
+            sb.append("Mô tả, công dụng và cách chế biến món ăn: ").append(p.getDescription()).append(". ");
         }
         if (p.getOrigin() != null) {
             sb.append("Vùng trồng & Xuất xứ: ").append(p.getOrigin()).append(". ");
@@ -545,13 +561,9 @@ public class AiSearchService {
         if (p.getBrand() != null) {
             sb.append("Đơn vị canh tác / HTX: ").append(p.getBrand()).append(". ");
         }
-        sb.append("Tiêu chuẩn nông sản: ").append(Boolean.TRUE.equals(p.getIsOrganic()) ? "Hữu cơ Organic, OCOP 4 sao" : "Chuẩn VietGAP, mã số vùng trồng PUC").append(". ");
-        sb.append("Quy cách & Đơn vị: Lô sỉ (Tấn/Tạ/Kg), Đơn tối thiểu MOQ từ 200kg - 500kg. ");
-        sb.append("Giá sỉ tham chiếu: ").append(p.getPrice()).append(" đồng/kg. ");
-        sb.append("Tình trạng vụ mùa: Đang vào mùa thu hoạch rầm rộ, sản lượng dồi dào tại vườn. ");
-        if (p.getDescription() != null && !p.getDescription().isBlank()) {
-            sb.append("Đặc tính & Chất lượng: ").append(p.getDescription());
-        }
+        sb.append("Tiêu chuẩn: ").append(Boolean.TRUE.equals(p.getIsOrganic()) ? "Hữu cơ Organic, OCOP" : "Chuẩn VietGAP, PUC").append(". ");
+        sb.append("Quy cách: Lô sỉ (Tấn/Tạ/Kg), Đơn tối thiểu MOQ từ 200kg - 500kg. ");
+        sb.append("Giá sỉ tham chiếu: ").append(p.getPrice()).append(" đồng/kg.");
         return sb.toString();
     }
 
