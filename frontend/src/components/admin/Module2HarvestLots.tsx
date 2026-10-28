@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import ImageUploadField from '../ImageUploadField';
 import {
   HarvestLot,
   HarvestLotRequest,
@@ -1546,12 +1547,13 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                     />
                   </div>
                   <div>
-                    <label className="block font-bold mb-1">Link hình ảnh</label>
-                    <input
-                      type="text"
+                    <ImageUploadField
+                      name="imageUrl"
+                      label="Ảnh lô nông sản"
+                      purpose="LOT"
                       value={lotForm.imageUrl}
-                      onChange={(e) => setLotForm({ ...lotForm, imageUrl: e.target.value })}
-                      className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
+                      onChange={(url) => setLotForm({ ...lotForm, imageUrl: url })}
+                      hint="Chọn tệp ảnh từ máy để tải lên Cloudinary."
                     />
                   </div>
                 </div>
@@ -1625,12 +1627,13 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 </div>
 
                 <div>
-                  <label className="block font-bold mb-1">Ảnh đại diện danh mục</label>
-                  <input
-                    type="text"
+                  <ImageUploadField
+                    name="categoryImageUrl"
+                    label="Ảnh đại diện danh mục"
+                    purpose="CATEGORY"
                     value={categoryForm.imageUrl}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, imageUrl: e.target.value })}
-                    className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
+                    onChange={(url) => setCategoryForm({ ...categoryForm, imageUrl: url })}
+                    hint="Chọn tệp ảnh từ máy để tải lên Cloudinary."
                   />
                 </div>
               </div>

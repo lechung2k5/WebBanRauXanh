@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { api, AuthResult, isChallenge, OtpChallenge, portalFor } from '@/services/auth';
 import { useApp } from '@/context/AppContext';
 import type { AuthResponse } from '@/types';
+import ImageUploadField from './ImageUploadField';
 
 type GoogleWindow = Window & {
   google?: {
@@ -713,15 +714,13 @@ export default function AuthForm({
                           'Chứng nhận nông sản sạch để được gắn nhãn kiểm định uy tín.'
                         )}
                       </div>
-                      {field(
-                        'certificationUrl',
-                        'Đường dẫn ảnh chứng chỉ (HTTPS)',
-                        'url',
-                        false,
-                        '',
-                        'https://example.com/chung-chi.jpg',
-                        'Đường link xem ảnh chứng nhận (có thể cập nhật sau khi hoàn tất vụ mùa).'
-                      )}
+                      <ImageUploadField
+                        name="certificationUrl"
+                        label="Ảnh chứng chỉ chất lượng (VietGAP / GlobalGAP)"
+                        purpose="CERTIFICATE"
+                        required={false}
+                        hint="Chọn tệp ảnh chụp chứng nhận từ thiết bị (JPEG, PNG, WebP ≤ 5MB) thay vì nhập link."
+                      />
                     </div>
                   )}
                 </div>

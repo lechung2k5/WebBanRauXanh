@@ -34,9 +34,9 @@ public class AdminUserController {
         int limit=Math.max(1,Math.min(size,100)), start=Math.min(matched.size(),Math.max(0,page)*limit);
         return ApiResponse.success(Map.of("data",matched.subList(start,Math.min(start+limit,matched.size())).stream().map(TokenService::view).toList(),"totalElements",matched.size(),"totalPages",(matched.size()+limit-1)/limit,"currentPage",Math.max(0,page)));
     }
-    @GetMapping("/{id}") public Object detail(@PathVariable Long id) { return ApiResponse.success(TokenService.view(find(id))); }
+    @GetMapping("/{id}") public Object detail(@PathVariable Long id) { return ApiResponse.success(tokens.viewUser(find(id))); }
     @PatchMapping("/{id}/toggle-status") @Transactional public Object toggle(@PathVariable Long id) {
-        User u=find(id); protectAdmin(u);u.setEnabled(!u.isEnabled());tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"TOGGLE_STATUS"));return ApiResponse.success(TokenService.view(u));
+        User u=find(id); protectAdmin(u);u.setEnabled(!u.isEnabled());tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"TOGGLE_STATUS"));return ApiResponse.success(tokens.viewUser(u));
     }
     @PostMapping("/{id}/revoke-sessions") @Transactional public Object revoke(@PathVariable Long id) {
         User u=find(id);tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"REVOKE_SESSIONS"));return ApiResponse.success("Đã thu hồi phiên",null);
@@ -47,7 +47,7 @@ public class AdminUserController {
         if(!Set.of("VERIFIED","REJECTED").contains(r.status())||("REJECTED".equals(r.status())&&(r.note()==null||r.note().isBlank()))) throw new AuthException(400,"INVALID_KYC","Chọn trạng thái hợp lệ và lý do từ chối");
         if("VERIFIED".equals(r.status())&&(!u.isEmailVerified()||!TokenService.profileComplete(u))) throw new AuthException(400,"INCOMPLETE_PROFILE","Chưa xác thực email hoặc chưa đủ hồ sơ");
         mail.send(u.getEmail(),"Kết quả duyệt hồ sơ",r.status()+"\n"+Objects.toString(r.note(),""));
-        u.setKycStatus(r.status());u.setKycNote(r.note());tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"KYC_"+r.status()));return ApiResponse.success(TokenService.view(u));
+        u.setKycStatus(r.status());u.setKycNote(r.note());tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"KYC_"+r.status()));return ApiResponse.success(tokens.viewUser(u));
     }
     @PostMapping("/provision") @Transactional public Object provision(@Valid @RequestBody AuthRequests.Provision r) {
         if(!Set.of("ACCOUNTANT","WAREHOUSE_QC","DRIVER").contains(r.role())) throw new AuthException(400,"INVALID_ROLE","Chỉ cấp tài khoản QC, tài xế, kế toán");
@@ -56,7 +56,7 @@ public class AdminUserController {
         User u=User.builder().username(name).email(AuthService.email(r.email())).fullName(r.fullName())
             .password(encoder.encode(TokenService.randomToken())).kycStatus("VERIFIED")
             .roles(new HashSet<>(Set.of(roles.findByName("ROLE_"+r.role()).orElseThrow()))).build();
-        users.saveAndFlush(u);otp.send(u.getEmail(),"STAFF_ACTIVATION");audit.save(new AuthAudit(AuthService.current().getId(),u.getId(),"PROVISION_"+r.role()));return ApiResponse.success(TokenService.view(u));
+        users.saveAndFlush(u);otp.send(u.getEmail(),"STAFF_ACTIVATION");audit.save(new AuthAudit(AuthService.current().getId(),u.getId(),"PROVISION_"+r.role()));return ApiResponse.success(tokens.viewUser(u));
     }
     @PostMapping("/{id}/resend-invitation") @Transactional public Object invite(@PathVariable Long id) {
         User u=find(id);if(u.isEmailVerified()||AuthService.has(u,"ADMIN")||AuthService.has(u,"FARMER")||AuthService.has(u,"BUYER")) throw new AuthException(400,"INVALID_ACCOUNT","Tài khoản không cần kích hoạt nhân sự");
@@ -65,7 +65,7 @@ public class AdminUserController {
     @PatchMapping("/{id}/role") @Transactional public Object role(@PathVariable Long id,@Valid @RequestBody AuthRequests.RoleChange r) {
         User u=find(id);
         if(AuthService.has(u,"ADMIN")||AuthService.has(u,"FARMER")||AuthService.has(u,"BUYER")||!Set.of("ACCOUNTANT","WAREHOUSE_QC","DRIVER").contains(r.role())) throw new AuthException(400,"INVALID_ROLE","Chỉ thay đổi vai trò nhân sự nội bộ");
-        u.setRoles(new HashSet<>(Set.of(roles.findByName("ROLE_"+r.role()).orElseThrow())));tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"STAFF_ROLE_"+r.role()));return ApiResponse.success(TokenService.view(u));
+        u.setRoles(new HashSet<>(Set.of(roles.findByName("ROLE_"+r.role()).orElseThrow())));tokens.revoke(u);audit.save(new AuthAudit(AuthService.current().getId(),id,"STAFF_ROLE_"+r.role()));return ApiResponse.success(tokens.viewUser(u));
     }
     private User find(Long id) { return users.findById(id).orElseThrow(()->new AuthException(404,"NOT_FOUND","Không tìm thấy tài khoản")); }
     private void protectAdmin(User u) { if(AuthService.has(u,"ADMIN")) throw new AuthException(400,"PROTECTED_ADMIN","Không khóa Admin qua chức năng này"); }
