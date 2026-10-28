@@ -226,3 +226,170 @@ export interface HybridSearchResponse {
   searchStrategy: string;
   items: HybridProductItem[];
 }
+
+
+// ==================== FARMER PORTAL TYPES ====================
+export interface TierPricingItem {
+  minKg: number;
+  pricePerKg: number;
+}
+
+export interface HarvestLot {
+  id: number;
+  lotCode: string;
+  productName: string;
+  categorySlug: string;
+  imageUrl: string;
+  pucCode: string;
+  harvestDate: string;
+  expiryDate: string;
+  totalQuantity: number;
+  remainingQuantity: number;
+  unit: string;
+  minTemp: number;
+  maxTemp: number;
+  tierPricingJson: string;
+  tierPricing?: TierPricingItem[];
+  status: 'OPEN' | 'NEGOTIATING' | 'SOLD_OUT';
+  hubLocation: string;
+  farmerName?: string;
+  createdAt?: string;
+}
+
+export interface RfqItem {
+  id: number;
+  rfqCode: string;
+  harvestLotId: number;
+  harvestLotCode: string;
+  productName: string;
+  buyerName: string;
+  buyerPhone: string;
+  buyerCompany: string;
+  requestedQuantity: number;
+  targetPrice: number;
+  counterPrice?: number;
+  counterQuantity?: number;
+  rejectReason?: string;
+  deliveryDate: string;
+  hubLocation: string;
+  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  createdAt: string;
+}
+
+export interface B2BContract {
+  id: number;
+  contractCode: string;
+  rfqId: number;
+  rfqCode: string;
+  harvestLotId: number;
+  lotCode: string;
+  productName: string;
+  imageUrl?: string;
+  buyerName: string;
+  buyerPhone: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  depositAmount: number;
+  remainingAmount?: number;
+  depositStatus: 'PENDING_DEPOSIT' | 'DEPOSIT_PAID';
+  fulfillmentStatus: 'WAITING_HARVEST' | 'HARVESTING' | 'HUB_DELIVERED' | 'IN_TRANSIT' | 'COMPLETED';
+  depositPaidAt?: string;
+  hubDeliveryDate: string;
+  hubName: string;
+  deliveryTimeSlot?: string;
+  truckType?: string;
+  deliveryNotes?: string;
+  createdAt: string;
+  hasQc: boolean;
+  pucCode?: string;
+  farmName?: string;
+  farmerPhone?: string;
+  farmerAddress?: string;
+  settlementId?: number;
+}
+
+export interface QcInspection {
+  id: number;
+  contractId: number;
+  contractCode: string;
+  productName: string;
+  grossWeight: number;
+  netQualifiedWeight: number;
+  rejectedWeight: number;
+  qualifiedPercent: number;
+  brixScore: number;
+  moisturePercent: number;
+  inspectorName: string;
+  qcNotes: string;
+  samplePhotoUrl: string;
+  inspectedAt: string;
+}
+
+export interface Settlement {
+  id: number;
+  settlementCode: string;
+  contractId: number;
+  contractCode: string;
+  productName: string;
+  qualifiedWeight: number;
+  unitPrice: number;
+  grossAmount: number;
+  platformFeePercent: number;
+  platformFee: number;
+  payoutAmount: number;
+  bankAccount: string;
+  bankName: string;
+  bankAccountName: string;
+  bankReference: string;
+  isPaid: boolean;
+  paidAt?: string;
+  taxFormType: 'FORM_01_TNDN' | 'HOA_DON_KCT';
+  createdAt: string;
+}
+
+export interface FarmerProfile {
+  id: number;
+  farmName: string;
+  farmerType: 'HOUSEHOLD' | 'COOPERATIVE';
+  pucCode: string;
+  certifications: string;
+  certExpiryDate?: string;
+  certImageUrl?: string;
+  taxCode?: string;
+  idCardNumber?: string;
+  bankAccount: string;
+  bankAccountName: string;
+  bankName: string;
+  location: string;
+  cultivatedArea: string;
+  username: string;
+  fullName: string;
+  phone: string;
+  email: string;
+}
+
+export interface FarmerStats {
+  totalRevenue: number;
+  escrowHolding: number;
+  openLotsCount: number;
+  runningContractsCount: number;
+  pendingRfqCount: number;
+}
+
+export interface PublicRfqDepositRequest {
+  harvestLotId?: number;
+  productId?: number;
+  productName?: string;
+  buyerName: string;
+  buyerPhone: string;
+  buyerCompany?: string;
+  requestedQuantity: number;
+  targetPrice: number;
+  depositAmount?: number;
+  isDepositPaid?: boolean;
+  deliveryDate?: string;
+  hubLocation?: string;
+  shippingOption?: string;
+  notes?: string;
+}

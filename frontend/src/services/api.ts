@@ -70,9 +70,13 @@ export const getStoredUser = (): AuthResponse | null => {
 export const getUsersApi = async (): Promise<User[]> => {
   try {
     const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
+    if (!res.ok && (res.status === 401 || res.status === 403)) {
+      throw new Error('Access Denied');
+    }
     const data: ApiResponse<User[]> = await res.json();
     return data.result || [];
-  } catch {
+  } catch (err: any) {
+    if (err?.message === 'Access Denied') throw err;
     return [];
   }
 };
@@ -483,8 +487,14 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
 
 export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
   const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Access Denied');
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json().catch(() => ({}) as any);
+    throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  }
   const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
   return data.result;
 };
 
@@ -585,4 +595,17 @@ export const getSimilarProductsApi = async (idOrSlug: string | number, limit: nu
     ...p,
     imageUrl: resolveProductImageUrl(p.name, p.categorySlug, p.imageUrl),
   }));
+};
+
+export const farmerAiChatApi = async (message: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/ai-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data: ApiResponse<{ answer: string }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi kết nối với Trợ Lý Nông Dân AI');
+  }
+  return data.result?.answer || '';
 };

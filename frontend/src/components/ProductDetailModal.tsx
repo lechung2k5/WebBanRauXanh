@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Product, TieredPrice } from '@/types';
 import { getProductGallery } from '@/services/imageService';
-import { getSimilarProductsApi } from '@/services/api';
+import { getSimilarProductsApi, getProducts } from '@/services/api';
 import { Sparkles } from 'lucide-react';
 import {
   X,
@@ -33,6 +33,8 @@ interface ProductDetailModalProps {
   onAddToCart: (product: Product, quantity: number) => void;
   onBuyNow: (product: Product, quantity: number) => void;
   onOpenNegotiation?: (product: Product) => void;
+  onOpenDeposit?: (product: Product) => void;
+  onSelectProduct?: (product: Product) => void;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
@@ -42,21 +44,65 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onAddToCart,
   onBuyNow,
   onOpenNegotiation,
+  onOpenDeposit,
+  onSelectProduct,
 }) => {
   const [activeTab, setActiveTab] = useState<'specs' | 'storage' | 'farm' | 'similar'>('specs');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState<boolean>(false);
 
   const moq = product?.moq || 500;
   const [quantity, setQuantity] = useState<number>(moq);
 
+  // Tự động reset tab về 'specs' (Thông số lô & Tiêu chuẩn) mỗi khi mở modal
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab('specs');
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (product) {
+      setActiveTab('specs');
       setQuantity(product.moq || 500);
       setSelectedImage(null);
-      getSimilarProductsApi(product.id || product.slug, 4)
-        .then(res => setSimilarProducts(res.filter(p => p.id !== product.id).slice(0, 4)))
-        .catch(() => setSimilarProducts([]));
+      setLoadingSimilar(true);
+
+      const targetIdOrSlug = product.id || product.slug;
+      getSimilarProductsApi(targetIdOrSlug, 4)
+        .then(async (res) => {
+          const filtered = res.filter((p) => p.id !== product.id && p.slug !== product.slug);
+          if (filtered.length > 0) {
+            setSimilarProducts(filtered.slice(0, 4));
+          } else {
+            const fallback = await getProducts({
+              categorySlug: product.categorySlug,
+              size: 4,
+            });
+            const fallbackFiltered = (fallback.products || []).filter(
+              (p) => p.id !== product.id && p.slug !== product.slug
+            );
+            setSimilarProducts(fallbackFiltered.slice(0, 4));
+          }
+        })
+        .catch(async () => {
+          try {
+            const fallback = await getProducts({
+              categorySlug: product.categorySlug,
+              size: 4,
+            });
+            const fallbackFiltered = (fallback.products || []).filter(
+              (p) => p.id !== product.id && p.slug !== product.slug
+            );
+            setSimilarProducts(fallbackFiltered.slice(0, 4));
+          } catch {
+            setSimilarProducts([]);
+          }
+        })
+        .finally(() => {
+          setLoadingSimilar(false);
+        });
     }
   }, [product]);
 
@@ -93,15 +139,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const totalLotTons = product.totalLotVolume ? (product.totalLotVolume / 1000).toFixed(0) : '15';
   const availableTons = product.availableVolume ? (product.availableVolume / 1000).toFixed(1) : '12.5';
 
+  const handleClose = () => {
+    setActiveTab('specs');
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-3 sm:p-4">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs" onClick={handleClose} />
 
       <div className="relative bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-8 shadow-2xl z-10 max-h-[92vh] overflow-y-auto border border-[#D7EED6]">
         {/* Close button */}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 text-[#758A7A] hover:text-[#2C3E2E] rounded-full hover:bg-[#F4F5F1] transition-colors cursor-pointer z-10"
         >
           <X className="w-5 h-5" />
@@ -312,7 +363,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => onBuyNow(product, quantity)}
+                  onClick={() => { if (onOpenDeposit) { onClose(); onOpenDeposit(product); } else { onBuyNow(product, quantity); } }}
                   className="py-3 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Package className="w-4 h-4 text-[#8BC34A]" />
@@ -337,7 +388,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   { id: 'specs', label: 'Thông số lô & Tiêu chuẩn' },
                   { id: 'storage', label: 'Bảo quản & Vận chuyển' },
                   { id: 'farm', label: 'Hồ sơ năng lực HTX' },
-                  { id: 'similar', label: '✨ Sản phẩm tương tự (AI)' },
+                  { id: 'similar', label: 'Sản phẩm tương tự' },
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -408,6 +459,78 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       <span className="text-[#6B7280]">Mã số vùng trồng (PUC):</span>
                       <span className="font-mono font-bold text-[#10542C]">{product.pucCode}</span>
                     </div>
+                  </div>
+                )}
+
+                {activeTab === 'similar' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-[#EAECE8]">
+                      <span className="text-[11px] font-bold text-[#10542C] flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[#8BC34A]" />
+                        Gợi ý sản phẩm tương đồng về đặc tính & vụ mùa
+                      </span>
+                    </div>
+
+                    {loadingSimilar ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 py-2">
+                        {[1, 2].map((n) => (
+                          <div key={n} className="flex items-center gap-2.5 p-2 rounded-xl bg-gray-50 border border-gray-100 animate-pulse">
+                            <div className="w-12 h-12 bg-gray-200 rounded-lg shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 bg-gray-200 rounded w-3/4" />
+                              <div className="h-2.5 bg-gray-200 rounded w-1/2" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : similarProducts.length === 0 ? (
+                      <div className="text-center py-6 bg-[#F9F9F5] rounded-xl border border-[#EAECE8]">
+                        <p className="text-xs text-[#6B7280]">Chưa có sản phẩm tương tự trực tiếp trong hệ thống.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                        {similarProducts.map((simProd) => (
+                          <div
+                            key={simProd.id || simProd.slug}
+                            onClick={() => {
+                              if (onSelectProduct) {
+                                onSelectProduct(simProd);
+                              } else {
+                                window.location.href = `/san-pham/${simProd.slug}`;
+                              }
+                            }}
+                            className="flex items-center gap-2.5 p-2 rounded-xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-emerald-50/70 hover:border-emerald-300 transition-all cursor-pointer group"
+                            title="Click để xem chi tiết lô này"
+                          >
+                            <img
+                              src={simProd.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=100'}
+                              alt={simProd.name}
+                              className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0 group-hover:scale-105 transition-transform"
+                              onError={(e) => {
+                                const target = e.currentTarget;
+                                target.src = `/api/product-image?name=${encodeURIComponent(simProd.name)}`;
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-[#2C3E2E] group-hover:text-[#10542C] truncate">
+                                {simProd.name}
+                              </p>
+                              <p className="text-[10px] text-emerald-700 font-medium truncate">
+                                📍 {simProd.origin || simProd.farmLocation || 'Đà Lạt'}
+                              </p>
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-xs font-black text-[#10542C]">
+                                  {formatVND(simProd.price)}/kg
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-semibold">
+                                  MOQ: {simProd.moq || 500}kg
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Product } from '@/types';
+import { submitPublicRfqOrDepositApi } from '@/services/farmerApi';
 
 interface B2BNegotiationModalProps {
   product: Product | null;
@@ -71,28 +72,63 @@ export default function B2BNegotiationModal({
     const code = `RFQ-${Math.floor(100000 + Math.random() * 900000)}`;
     setRfqCode(code);
 
-    // Save to local storage RFQ history
+    // Gửi lên Backend API đồng bộ vào Database và Farmer Portal
+    submitPublicRfqOrDepositApi({
+      harvestLotId: typeof product.id === 'number' ? product.id : 1,
+      productId: typeof product.id === 'number' ? product.id : undefined,
+      productName: product.name,
+      buyerName: traderName,
+      buyerPhone: traderPhone,
+      buyerCompany: traderCompany || `Vựa Nông Sản ${traderName}`,
+      requestedQuantity: quantity,
+      targetPrice,
+      depositAmount: estimatedTotal * 0.3,
+      isDepositPaid: false,
+      deliveryDate,
+      hubLocation: deliveryLocation,
+      shippingOption,
+      notes,
+    });
+
+    // Save to local storage RFQ history & farmer queue fallback
     try {
       const history = JSON.parse(localStorage.getItem('b2b_rfq_history') || '[]');
-      history.unshift({
+      const newEntry = {
         id: code,
+        rfqCode: code,
         productId: product.id,
+        harvestLotId: product.id,
+        harvestLotCode: `LOT-2026-DL-${String(product.id).padStart(3, '0')}`,
         productName: product.name,
         farmName: product.farmName,
         quantity,
+        requestedQuantity: quantity,
         targetPrice,
         estimatedTotal,
         traderName,
+        buyerName: traderName,
         traderPhone,
+        buyerPhone: traderPhone,
         traderCompany,
+        buyerCompany: traderCompany || `Vựa Nông Sản ${traderName}`,
         deliveryLocation,
+        hubLocation: deliveryLocation,
         deliveryDate,
         shippingOption,
         notes,
         createdAt: new Date().toISOString(),
         status: 'PENDING',
-      });
+      };
+      history.unshift(newEntry);
       localStorage.setItem('b2b_rfq_history', JSON.stringify(history));
+
+      const farmerList = JSON.parse(localStorage.getItem('b2b_farmer_rfqs') || '[]');
+      farmerList.unshift(newEntry);
+      localStorage.setItem('b2b_farmer_rfqs', JSON.stringify(farmerList));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('b2b_rfq_updated'));
+      }
     } catch {}
 
     setIsSubmitted(true);

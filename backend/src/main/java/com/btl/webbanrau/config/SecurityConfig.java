@@ -56,13 +56,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
 
-                        // 2. Chức năng quản trị viên
+                        // 2. Chức năng Nông dân & Hợp tác xã (Công khai endpoint gửi RFQ/cọc, tra cứu HĐ B2B, xem QC, chứng từ và phân hệ farmer)
+                        .requestMatchers("/farmer/ai-chat", "/ai/**").permitAll()
+                        .requestMatchers("/farmer/**").permitAll()
+
+                        // 3. Chức năng quản trị viên
                         .requestMatchers("/admin/**", "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/products/**", "/categories/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/products/**", "/categories/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/products/**", "/categories/**").hasRole("ADMIN")
 
-                        // 3. Mọi request khác
+                        // 4. Mọi request khác
                         .anyRequest().permitAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
                 .securityContext(securityContext -> securityContext.requireExplicitSave(false))

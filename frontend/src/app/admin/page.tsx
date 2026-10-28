@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 
 export default function AdminPage() {
-  const { currentUser } = useApp();
+  const { currentUser, logout } = useApp();
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'users'>('products');
@@ -91,8 +91,14 @@ export default function AdminPage() {
       setTotalProducts(prodRes.totalElements || prodRes.products.length);
       setUsers(userRes);
       setOrders(orderRes.data || []);
-    } catch (err) {
-      console.error('Error fetching admin data:', err);
+    } catch (err: any) {
+      console.warn('Lỗi khi tải dữ liệu quản trị:', err?.message || err);
+      if (err?.message?.includes('Access Denied') || err?.message?.includes('SESSION_EXPIRED')) {
+        logout();
+        alert('Phiên làm việc Quản trị viên đã hết hạn hoặc không đủ quyền. Vui lòng đăng nhập lại tài khoản Admin (admin / admin123)!');
+        router.replace('/dang-nhap?redirect=/admin');
+        return;
+      }
     } finally {
       setLoading(false);
     }

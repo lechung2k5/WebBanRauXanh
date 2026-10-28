@@ -7,6 +7,7 @@ import { Category, Product, CartItem, OrderResponse, AuthResponse } from '@/type
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import B2BDepositModal from '@/components/B2BDepositModal';
 import CreateProcurementModal from '@/components/CreateProcurementModal';
 import ProcurementBoardSection from '@/components/ProcurementBoardSection';
 import FarmCooperativesSection from '@/components/FarmCooperativesSection';
@@ -68,6 +69,7 @@ export default function HomePage() {
 
   // B2B Modals State
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [depositingProduct, setDepositingProduct] = useState<Product | null>(null);
   const [isProcurementModalOpen, setIsProcurementModalOpen] = useState(false);
 
   // Pagination for Home Catalog
@@ -476,7 +478,7 @@ export default function HomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleAddToCart(featuredHarvestLot, featuredHarvestLot.moq || 500)}
+                  onClick={() => setDepositingProduct(featuredHarvestLot)}
                   className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
                 >
                   <ShoppingBag className="w-3.5 h-3.5 text-[#8BC34A]" />
@@ -996,9 +998,11 @@ export default function HomePage() {
         onAddToCart={(p, q) => handleAddToCart(p, q)}
         onBuyNow={(p, q) => handleBuyNow(p, q)}
         onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
+        onSelectProduct={(p: Product) => setSelectedProductForDetail(p)}
       />
 
       {/* B2B RFQ Negotiation Modal */}
+      <B2BDepositModal product={depositingProduct} isOpen={!!depositingProduct} onClose={() => setDepositingProduct(null)} />
       <B2BNegotiationModal
         product={negotiatingProduct}
         isOpen={!!negotiatingProduct}
