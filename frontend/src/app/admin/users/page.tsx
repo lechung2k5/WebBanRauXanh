@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Search,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {
@@ -92,9 +93,19 @@ export default function AdminUsersPage() {
               placeholder="Tìm theo họ tên, username, email..."
               value={searchKw}
               onChange={(e) => setSearchKw(e.target.value)}
-              className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+              className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-8 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C] transition-all"
             />
-            <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {searchKw && (
+              <button
+                type="button"
+                onClick={() => setSearchKw('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+                title="Xóa tìm kiếm"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <span className="text-xs text-[#6B7280]">
             Hiển thị <strong className="text-[#10542C]">{filteredUsers.length}</strong> / {users.length} người dùng

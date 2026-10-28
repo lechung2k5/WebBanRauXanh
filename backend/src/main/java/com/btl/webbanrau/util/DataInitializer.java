@@ -477,19 +477,16 @@ public class DataInitializer implements CommandLineRunner {
             log.info("Seeded initial categories and products successfully.");
         }
 
-        // 4. Khởi tạo đúng 50 Harvest Lots ban đầu nếu cơ sở dữ liệu trống (không xóa / reset đè khi người dùng đã thêm lô mới)
-        if (harvestLotRepository.count() == 0) {
-            log.info("Khởi tạo cơ sở dữ liệu: Nạp 50 lô hàng nông sản B2B ban đầu chia đều 4 danh mục...");
-            try {
-                org.springframework.core.io.ClassPathResource resource = new org.springframework.core.io.ClassPathResource("db/migration/V5__seed_50_harvest_lots.sql");
-                if (resource.exists()) {
-                    String sql = new String(resource.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                    jdbcTemplate.execute(sql);
-                    log.info("Đã đồng bộ V5__seed_50_harvest_lots.sql thành công! Tổng số lô hàng hiện tại: {}", harvestLotRepository.count());
-                }
-            } catch (Exception ex) {
-                log.warn("Lưu ý đồng bộ V5__seed_50_harvest_lots.sql: {}", ex.getMessage());
+        // 4. Luôn đồng bộ 50 Harvest Lots mới nhất từ file migration (idempotent ON CONFLICT)
+        try {
+            org.springframework.core.io.ClassPathResource resource = new org.springframework.core.io.ClassPathResource("db/migration/V5__seed_50_harvest_lots.sql");
+            if (resource.exists()) {
+                String sql = new String(resource.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                jdbcTemplate.execute(sql);
+                log.info("Đã đồng bộ 50 lô hàng vụ mùa chuẩn thành công! Tổng số lô hàng hiện tại: {}", harvestLotRepository.count());
             }
+        } catch (Exception ex) {
+            log.warn("Lưu ý đồng bộ V5__seed_50_harvest_lots.sql: {}", ex.getMessage());
         }
 
         // 5. Tự động kiểm tra và import hợp đồng mẫu B2B & ký quỹ escrow thành công (nếu b2b_contracts đang trống)
