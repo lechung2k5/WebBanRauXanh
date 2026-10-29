@@ -53,33 +53,15 @@ interface FarmerDashboardViewProps {
   formatVnd: (num?: number) => string;
 }
 
+import { formatRealtimeTimestamp } from '../utils/farmerHelpers';
+
 type TimeRange = '7days' | 'month' | 'season';
 type ChartMetric = 'both' | 'revenue' | 'volume';
 
-// Helper: Định dạng thời gian hình thành đàm phán RFQ (Không gọi new Date() trong render để tránh lỗi Next.js SSR)
+// Helper: Định dạng thời gian hình thành đàm phán RFQ (Hỗ trợ Real-time dynamic timestamp)
 export function formatRfqTimestamp(dateStr?: string) {
-  if (!dateStr) return { full: '07:15 • 26/10/2026', relative: 'Hôm nay' };
-
-  if (dateStr.includes('T')) {
-    const [datePart, timePart] = dateStr.split('T');
-    const [year, month, day] = datePart.split('-');
-    const timeClean = timePart.split('.')[0];
-    const [hour, min] = timeClean.split(':');
-    return {
-      full: `${hour || '08'}:${min || '00'} • ${day}/${month}/${year}`,
-      relative: 'Hôm nay',
-    };
-  }
-
-  if (dateStr.includes('-')) {
-    const [year, month, day] = dateStr.split('-');
-    return {
-      full: `08:00 • ${day}/${month}/${year}`,
-      relative: 'Hôm nay',
-    };
-  }
-
-  return { full: dateStr, relative: 'Hôm nay' };
+  const rt = formatRealtimeTimestamp(dateStr);
+  return { full: rt.full, relative: rt.relative };
 }
 
 export default function FarmerDashboardView({

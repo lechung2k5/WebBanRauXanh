@@ -55,6 +55,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAi,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Chỉ hiển thị Cổng Nông Trại khi đã đăng nhập với tài khoản FARMER
+  const isFarmerUser = Boolean(
+    currentUser && (
+      currentUser.roles?.some((r) =>
+        ['ROLE_FARMER', 'FARMER', 'ROLE_COOPERATIVE', 'COOPERATIVE'].includes(r)
+      ) ||
+      currentUser.username === 'farmer_dalat'
+    )
+  );
   const [isScrolled, setIsScrolled] = useState(false);
   const [navbarSuggestions, setNavbarSuggestions] = useState<Product[]>([]);
   const [navMatchedRegion, setNavMatchedRegion] = useState<string | null>(null);
@@ -444,15 +454,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="lg:hidden">Hợp đồng</span>
               </button>
 
-              {/* Cổng Nông Trại & HTX */}
-              <Link
-                href="/portal/farmer"
-                className="hidden md:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-[#10542C] bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-200"
-                title="Cổng quản lý lô vụ mùa dành cho Nông dân & Hợp tác xã"
-              >
-                <Sprout className="w-4 h-4 text-emerald-600" />
-                <span className="hidden lg:inline">Cổng Nông Trại</span>
-              </Link>
+              {/* Cổng Nông Trại & HTX (Chỉ hiển thị khi đã đăng nhập với tài khoản Farmer) */}
+              {isFarmerUser && (
+                <Link
+                  href="/portal/farmer"
+                  className="hidden md:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-[#10542C] bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-200"
+                  title="Cổng quản lý lô vụ mùa dành cho Nông dân & Hợp tác xã"
+                >
+                  <Sprout className="w-4 h-4 text-emerald-600" />
+                  <span className="hidden lg:inline">Cổng Nông Trại</span>
+                </Link>
+              )}
 
               {/* Giỏ Lô Hàng Đặt Cọc */}
               <button
@@ -497,14 +509,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </p>
                         <p className="text-[11px] text-[#6B7280] truncate">{currentUser.email}</p>
                       </div>
-                      <Link
-                        href="/portal/farmer"
-                        onClick={() => setIsUserMenuOpen(false)}
-                        className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
-                      >
-                        <Sprout className="w-4 h-4 text-emerald-600" />
-                        <span>Cổng Nông Trại & HTX</span>
-                      </Link>
+                      {isFarmerUser && (
+                        <Link
+                          href="/portal/farmer"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
+                        >
+                          <Sprout className="w-4 h-4 text-emerald-600" />
+                          <span>Cổng Nông Trại & HTX</span>
+                        </Link>
+                      )}
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false);

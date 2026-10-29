@@ -35,6 +35,16 @@ import {
   LogIn,
   Check,
   Truck,
+  Upload,
+  Image as ImageIcon,
+  Lock,
+  MapPin,
+  HelpCircle,
+  Info,
+  Edit3,
+  LogOut,
+  Wallet,
+  Eye,
 } from 'lucide-react';
 
 import {
@@ -47,6 +57,15 @@ import {
   Settlement,
   AuthResponse,
 } from '@/types';
+
+import {
+  VIETNAM_ADMINISTRATIVE_DATA,
+  predictColdChainTemp,
+  formatRealtimeTimestamp,
+  validateFarmerProfile,
+  ProfileValidationErrors,
+  ColdChainRecommendation,
+} from './utils/farmerHelpers';
 
 import {
   getFarmerStatsApi,
@@ -159,6 +178,218 @@ export default function FarmerPortalPage() {
     contactPhone: '',
   });
 
+  // REALTIME SYNCHRONIZATION FOR RFQS & NEGOTIATIONS
+  // Khởi tạo null để tránh lỗi Next.js SSR Prerender 'unstable value new Date() in Client Component'
+  const [realtimeTime, setRealtimeTime] = useState<Date | null>(null);
+  const [isSyncingRfqs, setIsSyncingRfqs] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string>('');
+
+  useEffect(() => {
+    // Chỉ gán new Date() trên Client sau khi component đã mount
+    setRealtimeTime(new Date());
+    const timer = setInterval(() => {
+      setRealtimeTime(new Date());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleSyncRfqs = async () => {
+    setIsSyncingRfqs(true);
+    try {
+      const updatedRfqs = await getFarmerRfqsApi();
+      setRfqs(updatedRfqs);
+      const nowStr = new Date().toLocaleTimeString('vi-VN');
+      setSyncNotice(`Đã đồng bộ RFQ thời gian thực lúc ${nowStr}`);
+      setTimeout(() => setSyncNotice(''), 4000);
+    } catch (e) {
+      console.error('Lỗi sync RFQs:', e);
+    } finally {
+      setIsSyncingRfqs(false);
+    }
+  };
+
+  // CREATE LOT: COLD-CHAIN AI & IMAGE UPLOAD & FORM VALIDATION
+  const [lotImageTab, setLotImageTab] = useState<'url' | 'upload'>('url');
+  const [aiTempAdvice, setAiTempAdvice] = useState<ColdChainRecommendation | null>(null);
+  const [lotFormErrors, setLotFormErrors] = useState<Record<string, string>>({});
+
+  const handleLotProductNameChange = (val: string) => {
+    const advice = predictColdChainTemp(val);
+    setAiTempAdvice(advice);
+    setNewLot((prev) => ({
+      ...prev,
+      productName: val,
+      minTemp: advice.minTemp,
+      maxTemp: advice.maxTemp,
+    }));
+    if (lotFormErrors.productName) {
+      setLotFormErrors((prev) => {
+        const copy = { ...prev };
+        delete copy.productName;
+        return copy;
+      });
+    }
+  };
+
+  const handleApplyAiColdChain = () => {
+    if (!newLot.productName) return;
+    const advice = predictColdChainTemp(newLot.productName);
+    setAiTempAdvice(advice);
+    setNewLot((prev) => ({
+      ...prev,
+      minTemp: advice.minTemp,
+      maxTemp: advice.maxTemp,
+    }));
+  };
+
+  const handleLotFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Kích thước ảnh vượt quá giới hạn 5MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setNewLot((prev) => ({ ...prev, imageUrl: result }));
+        if (lotFormErrors.imageUrl) {
+          setLotFormErrors((prev) => {
+            const copy = { ...prev };
+            delete copy.imageUrl;
+            return copy;
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleResetLotForm = () => {
+    const now = new Date();
+    const hDate = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
+    const eDate = new Date(now.getTime() + 16 * 86400000).toISOString().slice(0, 10);
+    const activePuc = profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849';
+    setNewLot({
+      productName: '',
+      categorySlug: 'rau-an-la',
+      pucCode: activePuc,
+      harvestDate: hDate,
+      expiryDate: eDate,
+      totalQuantity: 1000,
+      unit: 'kg',
+      minTemp: 2.0,
+      maxTemp: 6.0,
+      hubLocation: 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
+      imageUrl: 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop&q=80',
+      tier1Min: 200,
+      tier1Price: 15000,
+      tier2Min: 1000,
+      tier2Price: 13500,
+      tier3Min: 3000,
+      tier3Price: 12000,
+    });
+    setAiTempAdvice(null);
+    setLotFormErrors({});
+  };
+
+  // PROFILE MODULE: EDIT MODE, VALIDATION & CASCADING ADDRESS
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileErrors, setProfileErrors] = useState<ProfileValidationErrors>({});
+  const [certImageTab, setCertImageTab] = useState<'url' | 'upload'>('url');
+  const [selectedProvinceName, setSelectedProvinceName] = useState('Tỉnh Lâm Đồng');
+  const [selectedDistrictName, setSelectedDistrictName] = useState('Thành phố Đà Lạt');
+  const [selectedWardName, setSelectedWardName] = useState('Phường 8');
+  const [hamletDetail, setHamletDetail] = useState('Tiểu khu 158');
+
+  // Helper để đồng bộ địa chỉ hiện có vào 4 cấp dropdown
+  const syncAddressFieldsFromFull = (addrStr: string) => {
+    if (!addrStr) return;
+    const prov = VIETNAM_ADMINISTRATIVE_DATA.find((p) =>
+      addrStr.includes(p.name) || addrStr.includes(p.name.replace('Tỉnh ', '').replace('Thành phố ', ''))
+    );
+    if (prov) {
+      setSelectedProvinceName(prov.name);
+      const dist = prov.districts.find((d) =>
+        addrStr.includes(d.name) || addrStr.includes(d.name.replace('Huyện ', '').replace('Thành phố ', '').replace('Thị xã ', ''))
+      );
+      if (dist) {
+        setSelectedDistrictName(dist.name);
+        const ward = dist.wards.find((w) =>
+          addrStr.includes(w.name) || addrStr.includes(w.name.replace('Xã ', '').replace('Phường ', '').replace('Thị trấn ', ''))
+        );
+        if (ward) {
+          setSelectedWardName(ward.name);
+        }
+      }
+    }
+    const parts = addrStr.split(',');
+    if (parts.length > 0) {
+      setHamletDetail(parts[0].trim());
+    }
+  };
+
+  const handleProvinceSelect = (pName: string) => {
+    setSelectedProvinceName(pName);
+    const prov = VIETNAM_ADMINISTRATIVE_DATA.find((p) => p.name === pName);
+    if (prov && prov.districts.length > 0) {
+      const firstDist = prov.districts[0];
+      setSelectedDistrictName(firstDist.name);
+      if (firstDist.wards.length > 0) {
+        const firstWard = firstDist.wards[0];
+        setSelectedWardName(firstWard.name);
+        const parts = [hamletDetail.trim(), firstWard.name, firstDist.name, pName].filter(Boolean);
+        setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+        return;
+      }
+    }
+    const parts = [hamletDetail.trim(), pName].filter(Boolean);
+    setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+  };
+
+  const handleDistrictSelect = (dName: string) => {
+    setSelectedDistrictName(dName);
+    const prov = VIETNAM_ADMINISTRATIVE_DATA.find((p) => p.name === selectedProvinceName);
+    const dist = prov?.districts.find((d) => d.name === dName);
+    if (dist && dist.wards.length > 0) {
+      const firstWard = dist.wards[0];
+      setSelectedWardName(firstWard.name);
+      const parts = [hamletDetail.trim(), firstWard.name, dName, selectedProvinceName].filter(Boolean);
+      setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+    } else {
+      const parts = [hamletDetail.trim(), dName, selectedProvinceName].filter(Boolean);
+      setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+    }
+  };
+
+  const handleWardSelect = (wName: string) => {
+    setSelectedWardName(wName);
+    const parts = [hamletDetail.trim(), wName, selectedDistrictName, selectedProvinceName].filter(Boolean);
+    setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+  };
+
+  const handleHamletChange = (hText: string) => {
+    setHamletDetail(hText);
+    const parts = [hText.trim(), selectedWardName, selectedDistrictName, selectedProvinceName].filter(Boolean);
+    setProfileForm((prev) => ({ ...prev, farmAddress: parts.join(', ') }));
+  };
+
+  const handleCertFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Kích thước ảnh chứng nhận tối đa là 5MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setProfileForm((prev) => ({ ...prev, certImageUrl: result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const [isSettlingId, setIsSettlingId] = useState<number | null>(null);
   // Modal State: Lịch Giao Trạm Cross-docking Hub
   const [scheduleModalContract, setScheduleModalContract] = useState<B2BContract | null>(null);
@@ -256,6 +487,7 @@ export default function FarmerPortalPage() {
           certImageUrl: pRes.certImageUrl || 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=500&auto=format&fit=crop&q=80',
           contactPhone: pRes.phone || '',
         });
+        syncAddressFieldsFromFull(pRes.location || '');
       }
 
       // Load contract QC
@@ -308,6 +540,22 @@ export default function FarmerPortalPage() {
     }
   };
 
+  // KIỂM TRA QUYỀN TRUY CẬP: CHỈ TÀI KHOẢN FARMER / COOPERATIVE MỚI ĐƯỢC VÀO
+  const isFarmer = Boolean(
+    currentUser && (
+      currentUser.roles?.some((r) =>
+        ['ROLE_FARMER', 'FARMER', 'ROLE_COOPERATIVE', 'COOPERATIVE'].includes(r)
+      ) ||
+      currentUser.username === 'farmer_dalat'
+    )
+  );
+
+  const handleLogoutFarmer = () => {
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    setCurrentUser(null);
+  };
+
   // Format Currency
   const formatVnd = (num?: number) => {
     if (num === undefined || num === null) return '0 đ';
@@ -317,6 +565,40 @@ export default function FarmerPortalPage() {
   // Handle Create Lot
   const handleCreateLot = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Ràng buộc & Validation chặt chẽ cho Lô Vụ Mùa
+    const activePuc = profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849';
+    const errors: Record<string, string> = {};
+
+    if (!newLot.productName || newLot.productName.trim().length < 2) {
+      errors.productName = 'Vui lòng nhập tên nông sản rõ ràng (VD: Cà Chua Beef Đà Lạt).';
+    }
+    if (!newLot.imageUrl) {
+      errors.imageUrl = 'Vui lòng cung cấp hình ảnh minh họa thực tế cho lô nông sản.';
+    }
+    if (newLot.totalQuantity < 100) {
+      errors.totalQuantity = 'Sản lượng đăng bán tối thiểu cho sàn B2B là 100 kg.';
+    }
+    if (newLot.expiryDate <= newLot.harvestDate) {
+      errors.expiryDate = 'Hạn bảo quản tươi (FEFO) phải sau ngày dự kiến thu hoạch!';
+    }
+    if (newLot.minTemp > newLot.maxTemp) {
+      errors.temp = 'Nhiệt độ tối thiểu không được lớn hơn nhiệt độ tối đa!';
+    }
+    if (Number(newLot.tier1Min) >= Number(newLot.tier2Min) || Number(newLot.tier2Min) >= Number(newLot.tier3Min)) {
+      errors.tierQty = 'Khối lượng mua sỉ bậc sau phải lớn hơn bậc trước (Bậc 1 < Bậc 2 < Bậc 3).';
+    }
+    if (Number(newLot.tier1Price) < Number(newLot.tier2Price) || Number(newLot.tier2Price) < Number(newLot.tier3Price)) {
+      errors.tierPrice = 'Đơn giá sỉ mua số lượng lớn phải ưu đãi hơn hoặc bằng (Bậc 1 >= Bậc 2 >= Bậc 3).';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setLotFormErrors(errors);
+      alert('Vui lòng kiểm tra lại thông tin lô hàng chưa hợp lệ!');
+      return;
+    }
+    setLotFormErrors({});
+
     try {
       const tierPricing = [
         { minKg: Number(newLot.tier1Min), pricePerKg: Number(newLot.tier1Price) },
@@ -324,11 +606,12 @@ export default function FarmerPortalPage() {
         { minKg: Number(newLot.tier3Min), pricePerKg: Number(newLot.tier3Price) },
       ];
 
+      // MÃ SỐ VÙNG TRỒNG (PUC) ÁP CỨNG TỪ HỒ SƠ VÙNG TRỒNG ĐÃ XÁC THỰC
       const createdLot = await createHarvestLotApi({
-        productName: newLot.productName,
+        productName: newLot.productName.trim(),
         categorySlug: newLot.categorySlug,
         imageUrl: newLot.imageUrl,
-        pucCode: newLot.pucCode,
+        pucCode: activePuc,
         harvestDate: newLot.harvestDate,
         expiryDate: newLot.expiryDate,
         totalQuantity: Number(newLot.totalQuantity),
@@ -344,7 +627,7 @@ export default function FarmerPortalPage() {
         setStats({ ...stats, openLotsCount: stats.openLotsCount + 1 });
       }
 
-      alert('Đăng bán Lô Vụ Mùa thành công! Đã công khai trên sàn sỉ B2B.');
+      alert('Đăng bán Lô Vụ Mùa thành công! Mã PUC (' + activePuc + ') đã được bảo chứng xuất xứ.');
       setIsLotModalOpen(false);
       setActiveTab('lots');
     } catch (err: unknown) {
@@ -481,10 +764,19 @@ export default function FarmerPortalPage() {
 
   // Handle Save Profile
   const handleSaveProfile = async () => {
+    const errors = validateFarmerProfile(profileForm);
+    if (Object.keys(errors).length > 0) {
+      setProfileErrors(errors);
+      alert('Vui lòng kiểm tra và sửa các thông tin chưa hợp lệ (được đánh dấu đỏ)!');
+      return;
+    }
+    setProfileErrors({});
+
     try {
       const updated = await updateFarmerProfileApi(profileForm);
       setProfile(updated);
-      alert('Đã lưu hồ sơ vùng trồng PUC và thông tin thanh toán thành công!');
+      setIsEditingProfile(false);
+      alert('Đã cập nhật hồ sơ vùng trồng PUC và tài khoản thụ hưởng thành công!');
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Lỗi khi lưu hồ sơ');
     }
@@ -500,6 +792,106 @@ export default function FarmerPortalPage() {
 
   const currentTaxSettlement =
     settlements.find((s) => s.id === viewingTaxSettlementId) || settlements[0];
+
+  // =========================================================================
+  // ROLE GUARD: NẾU CHƯA ĐĂNG NHẬP HOẶC KHÔNG PHẢI TÀI KHOẢN NÔNG DÂN
+  // =========================================================================
+  if (!isFarmer) {
+    return (
+      <div className="min-h-screen bg-[#F9F9F5] flex flex-col font-sans">
+        {/* HEADER ĐƠN GIẢN */}
+        <header className="bg-[#10542C] text-white px-6 py-4 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20">
+              <Sprout className="w-6 h-6 text-emerald-400" />
+            </div>
+            <div>
+              <span className="font-heading font-black text-lg text-white">
+                HoNa Fresh <span className="text-emerald-400">B2B</span>
+              </span>
+              <p className="text-xs text-emerald-100/75">Cổng Quản Trị Vụ Mùa & Chuỗi Cung Ứng Lạnh Nông Dân</p>
+            </div>
+          </div>
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-xs bg-white text-[#10542C] hover:bg-emerald-50 font-bold px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
+          >
+            <span>Về Sàn Chợ Sỉ</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Link>
+        </header>
+
+        {/* NỘI DUNG THÔNG BÁO BẢO VỆ QUYỀN TRUY CẬP */}
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-6">
+          <div className="max-w-md w-full bg-white rounded-3xl border border-[#EAECE8] shadow-xl p-6 sm:p-8 text-center space-y-6">
+            <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-50 text-[#10542C] flex items-center justify-center border-2 border-emerald-200 shadow-inner">
+              <Lock className="w-10 h-10 text-emerald-700" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
+                Khu Vực Quản Trị Nông Dân
+              </span>
+              <h2 className="text-xl font-heading font-black text-gray-900">
+                {!currentUser
+                  ? 'Yêu Cầu Đăng Nhập Tài Khoản Nông Dân'
+                  : 'Tài Khoản Không Có Quyền Truy Cập'}
+              </h2>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {!currentUser
+                  ? 'Cổng Nông Trại dành riêng cho Nhà Vườn & Hợp Tác Xã có mã số vùng trồng PUC để quản lý lô thu hoạch, đàm phán giá sỉ và giải ngân.'
+                  : `Tài khoản hiện tại (${currentUser.fullName || currentUser.username}) có vai trò Khách Mua Hàng / Thương Lái, không có quyền quản lý vùng trồng.`}
+              </p>
+            </div>
+
+            {/* HỘP HƯỚNG DẪN TÀI KHOẢN MẪU DEMO */}
+            <div className="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-left text-xs space-y-1">
+              <span className="font-bold text-[#10542C] block">Tài khoản Nông Dân (Mẫu trải nghiệm):</span>
+              <div className="flex items-center justify-between text-gray-700 font-mono text-[11px]">
+                <span>Tài khoản: <strong>farmer_dalat</strong></span>
+                <span>Mật khẩu: <strong>farmer123</strong></span>
+              </div>
+              <span className="text-[10px] text-gray-500 block pt-0.5">
+                * Có đầy đủ dữ liệu Lô vụ mùa, Báo giá RFQ, Hợp đồng bảo chứng và Hồ sơ PUC Đà Lạt.
+              </span>
+            </div>
+
+            {/* CÁC NÚT HÀNH ĐỘNG */}
+            <div className="space-y-2.5 pt-2">
+              <button
+                type="button"
+                onClick={handleQuickLoginFarmer}
+                disabled={isLoggingIn}
+                className="w-full py-3 bg-[#10542C] hover:bg-emerald-800 text-white rounded-2xl font-heading font-black text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isLoggingIn ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sprout className="w-4 h-4 text-emerald-300" />
+                )}
+                <span>{isLoggingIn ? 'Đang Đăng Nhập...' : 'Đăng Nhập Nhanh Tài Khoản Nông Dân'}</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href="/dang-nhap?redirect=/portal/farmer"
+                  className="py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold text-xs rounded-xl transition text-center"
+                >
+                  Đăng Nhập Khác
+                </Link>
+                <Link
+                  href="/"
+                  className="py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition text-center"
+                >
+                  Về Trang Chủ
+                </Link>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -549,6 +941,16 @@ export default function FarmerPortalPage() {
             <span>Về Sàn Chợ Sỉ</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </Link>
+
+          <button
+            type="button"
+            onClick={handleLogoutFarmer}
+            className="flex items-center gap-1.5 text-xs bg-emerald-900/60 hover:bg-emerald-900 text-emerald-200 hover:text-white font-bold px-3 py-2 rounded-xl border border-emerald-700/60 transition cursor-pointer"
+            title="Đăng xuất tài khoản Nông dân"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Đăng Xuất</span>
+          </button>
         </div>
       </header>
 
@@ -868,10 +1270,36 @@ export default function FarmerPortalPage() {
               {/* SUBTAB 1: RFQ INBOX */}
               {rfqSubTab === 'inbox' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-gray-600">
-                      Danh sách đề xuất báo giá sỉ từ các thương lái và chuỗi cung ứng toàn quốc
-                    </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-heading font-black text-sm text-[#10542C]">Hộp Thư Đàm Phán Báo Giá Sỉ (RFQ)</h3>
+                        <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                          Trực Tuyến Thời Gian Thực
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600">
+                        Hệ thống tự động đồng bộ đề xuất giá sỉ từ các thương lái, siêu thị và chuỗi bán lẻ toàn quốc
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {syncNotice && (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg animate-fade-in">
+                          {syncNotice}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSyncRfqs}
+                        disabled={isSyncingRfqs}
+                        className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRfqs ? 'animate-spin text-emerald-600' : ''}`} />
+                        <span>{isSyncingRfqs ? 'Đang Đồng Bộ...' : 'Đồng Bộ Thời Gian Thực'}</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4">
@@ -935,26 +1363,38 @@ export default function FarmerPortalPage() {
                           </div>
                         </div>
 
-                        {/* THỜI GIAN HÌNH THÀNH ĐÀM PHÁN & TIẾN ĐỘ THỎA THUẬN */}
-                        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-gray-100 text-xs text-gray-500">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                            <span>
-                              Thời gian hình thành đàm phán:{' '}
-                              <strong className="text-gray-900">
-                                {formatRfqTimestamp(rfq.createdAt).full}
-                              </strong>{' '}
-                              <span className="text-gray-500 font-medium">
-                                ({formatRfqTimestamp(rfq.createdAt).relative})
-                              </span>
-                            </span>
-                          </div>
+                        {/* THỜI GIAN HÌNH THÀNH ĐÀM PHÁN THỜI GIAN THỰC & TIẾN ĐỘ */}
+                        {(() => {
+                          const rfqTime = formatRealtimeTimestamp(rfq.createdAt, realtimeTime);
+                          return (
+                            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-gray-100 text-xs text-gray-500">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                <span>
+                                  Thời gian nhận đề xuất:{' '}
+                                  <strong className="text-gray-900 font-mono">
+                                    {rfqTime.full}
+                                  </strong>{' '}
+                                  {rfqTime.isRecent ? (
+                                    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px] animate-pulse">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                      {rfqTime.relative}
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-700 font-semibold">
+                                      ({rfqTime.relative})
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
 
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                            <Calendar className="w-3 h-3 text-amber-600" />
-                            <span>Hạn chốt thỏa thuận: 18:00 ngày {rfq.deliveryDate}</span>
-                          </div>
-                        </div>
+                              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                                <Calendar className="w-3 h-3 text-amber-600" />
+                                <span>Hạn chốt đàm phán: 18:00 ngày {rfq.deliveryDate}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Counter offer info if any */}
                         {rfq.counterPrice && (
@@ -1545,286 +1985,765 @@ export default function FarmerPortalPage() {
           {/* TAB 6: HỒ SƠ VÙNG TRỒNG, CHỨNG NHẬN & TÀI KHOẢN NGÂN HÀNG */}
           {activeTab === 'profile' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-heading font-black text-[#10542C] flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-[#4CAF50]" />
-                  <span>Hồ Sơ Vùng Trồng, Chứng Nhận & Tài Khoản Ngân Hàng (Module 1)</span>
-                </h2>
-                <p className="text-xs text-gray-600">
-                  Thông tin định danh minh bạch vùng trồng PUC, giấy chứng nhận VietGAP/GlobalGAP và số tài khoản nhận giải ngân
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-heading font-black text-[#10542C] flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-[#4CAF50]" />
+                    <span>Hồ Sơ Vùng Trồng, Chứng Nhận & Tài Khoản Ngân Hàng (Module 1)</span>
+                  </h2>
+                  <p className="text-xs text-gray-600">
+                    Hồ sơ pháp lý định danh vùng trồng PUC, giấy chứng nhận VietGAP/GlobalGAP và tài khoản thụ hưởng giải ngân
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {!isEditingProfile ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingProfile(true);
+                        setProfileErrors({});
+                        syncAddressFieldsFromFull(profileForm.farmAddress);
+                      }}
+                      className="px-4 py-2.5 bg-[#10542C] hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      <span>Chỉnh Sửa Hồ Sơ</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingProfile(false);
+                          setProfileErrors({});
+                        }}
+                        className="px-3.5 py-2 border border-gray-300 text-gray-600 hover:bg-gray-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                      >
+                        Hủy Bỏ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveProfile}
+                        className="px-4 py-2 bg-[#10542C] hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Lưu Thay Đổi</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 sm:p-8 space-y-6">
-                {/* 1. Phân loại chủ thể canh tác */}
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
-                    1. Phân Loại Chủ Thể Canh Tác (Xác định chế độ xuất chứng từ thuế)
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setProfileForm({ ...profileForm, farmerType: 'HOUSEHOLD' })}
-                      className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                        profileForm.farmerType === 'HOUSEHOLD'
-                          ? 'border-[#10542C] bg-emerald-50/50 ring-2 ring-[#10542C]'
-                          : 'border-gray-200 bg-white hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-heading font-black text-sm text-[#10542C]">Hộ Nông Dân Cá Thể</span>
-                        <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                          Miễn thuế TNCN/GTGT
-                        </span>
+              {/* ================= VIEW MODE (CHẾ ĐỘ XEM HỒ SƠ ĐÃ XÁC THỰC) ================= */}
+              {!isEditingProfile ? (
+                <div className="space-y-6">
+                  {/* Banner Trạng Thái Xác Thực */}
+                  <div className="bg-gradient-to-r from-emerald-800 to-[#10542C] text-white p-6 rounded-3xl shadow-md relative overflow-hidden">
+                    <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-64 h-64 bg-white/5 rounded-full blur-2xl" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-white/20 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/30 flex items-center gap-1">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+                            ĐÃ ĐƯỢC CHI CỤC TRỒNG TRỌT & BVTV XÁC THỰC
+                          </span>
+                          <span className="text-[10px] text-emerald-200">Cập nhật: 2026</span>
+                        </div>
+                        <h3 className="font-heading font-black text-xl sm:text-2xl text-white">
+                          {profileForm.farmName || 'HTX Nông Nghiệp Rau Sạch HoNa Farm'}
+                        </h3>
+                        <p className="text-xs text-emerald-100 max-w-xl">
+                          Chủ thể: <strong>{profileForm.farmerType === 'COOPERATIVE' ? 'Hợp Tác Xã / Doanh Nghiệp (Xuất Hóa Đơn KCT)' : 'Hộ Nông Dân Cá Thể (Bảng Kê Mẫu 01/TNDN)'}</strong> • Diện tích: <strong>{profileForm.cultivatedArea || '45 Hecta'}</strong>
+                        </p>
                       </div>
-                      <p className="text-[11px] text-gray-600">
-                        Theo Thông tư 78/2021/TT-BTC, tiền bán hàng nông sản được giải ngân bảo chứng qua <strong>Bảng kê thu mua Mẫu 01/TNDN</strong> (không cần hóa đơn).
-                      </p>
-                    </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setProfileForm({ ...profileForm, farmerType: 'COOPERATIVE' })}
-                      className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                        profileForm.farmerType === 'COOPERATIVE'
-                          ? 'border-[#10542C] bg-emerald-50/50 ring-2 ring-[#10542C]'
-                          : 'border-gray-200 bg-white hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-heading font-black text-sm text-[#10542C]">Hợp Tác Xã / Doanh Nghiệp</span>
-                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                          Xuất Hóa Đơn KCT
+                      <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center shrink-0">
+                        <span className="block text-[10px] text-emerald-200 font-semibold uppercase tracking-wider">MÃ SỐ VÙNG TRỒNG (PUC)</span>
+                        <span className="text-lg font-mono font-black text-amber-300 block tracking-wider mt-0.5">
+                          {profileForm.pucCode || 'VN-LDO-PUC-0849'}
                         </span>
+                        <span className="text-[10px] text-emerald-100 mt-1 block">✓ Đạt chuẩn lưu hành toàn quốc & xuất khẩu</span>
                       </div>
-                      <p className="text-[11px] text-gray-600">
-                        Kê khai Mã số thuế (MST) của Hợp tác xã để phát hành <strong>Hóa đơn bán lẻ điện tử đối tượng KCT (Không chịu thuế GTGT)</strong> cho thương lái.
-                      </p>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 2. Thông tin vùng trồng & PUC */}
-                <div className="space-y-3 pt-2 border-t border-gray-100">
-                  <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
-                    2. Định Danh Vùng Trồng Nông Sản (PUC Profile)
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Tên Nông Trại / Hợp Tác Xã *</label>
-                      <input
-                        type="text"
-                        value={profileForm.farmName}
-                        onChange={(e) => setProfileForm({ ...profileForm, farmName: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C] font-bold text-gray-900"
-                        placeholder="Ví dụ: HTX Nông Nghiệp Đà Lạt GAP"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1 flex items-center justify-between">
-                        <span>Mã Số Vùng Trồng (PUC Code) do Chi cục Trồng trọt cấp *</span>
-                        <span className="text-[10px] text-[#10542C] font-mono font-bold">Đã xác thực</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={profileForm.pucCode}
-                        onChange={(e) => setProfileForm({ ...profileForm, pucCode: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
-                        placeholder="Ví dụ: VN-LDO-PUC-0849"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">
-                        {profileForm.farmerType === 'COOPERATIVE' ? 'Mã Số Thuế HTX (MST) *' : 'Mã Số Thuế (Nếu có)'}
-                      </label>
-                      <input
-                        type="text"
-                        value={profileForm.taxCode}
-                        onChange={(e) => setProfileForm({ ...profileForm, taxCode: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C] font-mono"
-                        placeholder="5801459201"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">
-                        Số CCCD Người Đại Diện (Hộ Cá Thể) *
-                      </label>
-                      <input
-                        type="text"
-                        value={profileForm.idCardNumber}
-                        onChange={(e) => setProfileForm({ ...profileForm, idCardNumber: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C] font-mono"
-                        placeholder="049088019284"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Địa Chỉ Vườn Trồng / Trụ Sở HTX *</label>
-                      <input
-                        type="text"
-                        value={profileForm.farmAddress}
-                        onChange={(e) => setProfileForm({ ...profileForm, farmAddress: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
-                        placeholder="Tiểu khu 158, Phường 8, TP. Đà Lạt, Tỉnh Lâm Đồng"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Quy Mô Diện Tích Canh Tác (Hecta) *</label>
-                      <input
-                        type="text"
-                        value={profileForm.cultivatedArea}
-                        onChange={(e) => setProfileForm({ ...profileForm, cultivatedArea: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
-                        placeholder="Ví dụ: 45 Hecta"
-                      />
                     </div>
                   </div>
-                </div>
 
-                {/* 3. Chứng nhận chất lượng an toàn thực phẩm */}
-                <div className="space-y-3 pt-2 border-t border-gray-100">
-                  <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
-                    3. Chứng Nhận Tiêu Chuẩn Nông Sản & Thời Hạn
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Các Tiêu Chuẩn Đạt Được</label>
-                      <input
-                        type="text"
-                        value={profileForm.certifications}
-                        onChange={(e) => setProfileForm({ ...profileForm, certifications: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
-                        placeholder="VietGAP, GlobalGAP, Organic, OCOP 4 Sao"
-                      />
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {['VietGAP', 'GlobalGAP', 'Organic (Hữu cơ)', 'OCOP 4 Sao'].map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => {
-                              const curr = profileForm.certifications || '';
-                              if (!curr.includes(tag)) {
-                                setProfileForm({
-                                  ...profileForm,
-                                  certifications: curr ? `${curr}, ${tag}` : tag,
-                                });
-                              }
-                            }}
-                            className="text-[10px] bg-emerald-50 text-[#10542C] border border-emerald-200 px-2.5 py-1 rounded-md font-semibold cursor-pointer hover:bg-emerald-100"
-                          >
-                            + {tag}
-                          </button>
-                        ))}
+                  {/* Thông Tin Chi Tiết Dạng Thẻ */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Thẻ 1: Thông tin pháp lý & Địa chỉ */}
+                    <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <h4 className="font-heading font-bold text-sm text-[#10542C] flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-emerald-600" />
+                          <span>Thông Tin Định Danh & Địa Điểm</span>
+                        </h4>
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
+                          KYC Cấp 3
+                        </span>
                       </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Thời Hạn Giấy Chứng Nhận Có Hiệu Lực</label>
-                      <input
-                        type="date"
-                        value={profileForm.certExpiryDate}
-                        onChange={(e) => setProfileForm({ ...profileForm, certExpiryDate: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
-                      />
-                    </div>
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <span className="text-gray-500 block">Địa chỉ vườn trồng / Trụ sở:</span>
+                          <p className="font-bold text-gray-900 mt-0.5 flex items-start gap-1.5">
+                            <MapPin className="w-4 h-4 text-[#10542C] shrink-0 mt-0.5" />
+                            <span>{profileForm.farmAddress || 'Tiểu khu 158, Phường 8, Thành phố Đà Lạt, Tỉnh Lâm Đồng'}</span>
+                          </p>
+                        </div>
 
-                    <div className="sm:col-span-2">
-                      <label className="block text-gray-700 font-semibold mb-1">
-                        URL Ảnh Chụp Giấy Chứng Nhận Tiêu Chuẩn (VietGAP / GlobalGAP)
-                      </label>
-                      <input
-                        type="text"
-                        value={profileForm.certImageUrl}
-                        onChange={(e) => setProfileForm({ ...profileForm, certImageUrl: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C] text-gray-600"
-                        placeholder="https://..."
-                      />
-                      {profileForm.certImageUrl && (
-                        <div className="mt-2 flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl border border-gray-200 max-w-md">
-                          <img
-                            src={profileForm.certImageUrl}
-                            alt="Giấy chứng nhận"
-                            className="w-16 h-16 object-cover rounded-lg border border-gray-300 shrink-0"
-                          />
-                          <div className="text-[11px] text-gray-600 space-y-0.5">
-                            <span className="font-bold text-[#10542C] block">Xem trước Giấy Chứng Nhận</span>
-                            <span>Hiệu lực đến: {profileForm.certExpiryDate || '31/12/2027'}</span>
-                            <span className="block text-emerald-700 font-semibold">✓ Đạt chuẩn lưu hành B2B</span>
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+                          <div>
+                            <span className="text-gray-500 block">
+                              {profileForm.farmerType === 'COOPERATIVE' ? 'Mã Số Thuế (MST):' : 'Số CCCD Đại Diện:'}
+                            </span>
+                            <span className="font-mono font-bold text-gray-900">
+                              {profileForm.farmerType === 'COOPERATIVE' ? (profileForm.taxCode || '5801459201') : (profileForm.idCardNumber || '049088019284')}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">Số Điện Thoại:</span>
+                            <span className="font-mono font-bold text-gray-900">
+                              {profileForm.contactPhone || '0912 345 678'}
+                            </span>
                           </div>
                         </div>
+
+                        <div className="pt-2 border-t border-gray-100">
+                          <span className="text-gray-500 block">Cơ chế phát hành chứng từ thuế:</span>
+                          <p className="font-semibold text-emerald-800 mt-0.5">
+                            {profileForm.farmerType === 'COOPERATIVE'
+                              ? '✓ Phát hành Hóa đơn điện tử KCT (Không chịu thuế GTGT) theo Nghị định 123/2020/NĐ-CP'
+                              : '✓ Giải ngân bảo chứng qua Bảng kê thu mua Mẫu 01/TNDN (Thông tư 78/2021/TT-BTC)'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Thẻ 2: Tài khoản thụ hưởng thanh toán */}
+                    <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <h4 className="font-heading font-bold text-sm text-[#10542C] flex items-center gap-2">
+                          <Wallet className="w-4 h-4 text-emerald-600" />
+                          <span>Tài Khoản Ngân Hàng Thụ Hưởng</span>
+                        </h4>
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
+                          Giải Ngân 24/7
+                        </span>
+                      </div>
+
+                      <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100 space-y-2">
+                        <span className="text-[11px] text-gray-500 block">Số Tài Khoản Nhận Tiền Hợp Đồng:</span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-black text-lg text-[#10542C] tracking-wider">
+                            {profileForm.bankAccount || '5400205219999'}
+                          </span>
+                          <span className="text-[10px] bg-white border border-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
+                            Khớp KYC
+                          </span>
+                        </div>
+                        <div className="text-xs space-y-0.5 pt-1 border-t border-emerald-200/50">
+                          <p className="text-gray-700">Ngân hàng: <strong>{profileForm.bankName || 'Agribank - Chi nhánh Lâm Đồng'}</strong></p>
+                          <p className="text-gray-700">Chủ tài khoản: <strong className="font-mono uppercase">{profileForm.bankAccountName || 'HTX RAU SACH DA LAT GAP'}</strong></p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-gray-500">
+                        * Tiền ký quỹ 30% cọc và 70% giải ngân sau QC Pass sẽ được hệ thống thanh toán tự động chuyển trực tiếp vào tài khoản này.
+                      </p>
+                    </div>
+
+                    {/* Thẻ 3: Giấy chứng nhận chất lượng VietGAP / GlobalGAP */}
+                    <div className="md:col-span-2 bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                        <div>
+                          <h4 className="font-heading font-bold text-sm text-[#10542C] flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                            <span>Chứng Nhận Tiêu Chuẩn Nông Sản & Kiểm Định Chất Lượng</span>
+                          </h4>
+                          <p className="text-xs text-gray-500">
+                            Tiêu chuẩn: <strong className="text-gray-900">{profileForm.certifications || 'VietGAP, GlobalGAP, OCOP 4 Sao'}</strong> • Hiệu lực đến: <strong className="text-emerald-800">{profileForm.certExpiryDate || '31/12/2027'}</strong>
+                          </p>
+                        </div>
+                        <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-xl self-start sm:self-auto">
+                          ✓ Đạt Chuẩn Sàn Sỉ HoNa Fresh
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center gap-5 bg-gray-50/80 p-4 rounded-2xl border border-gray-200">
+                        {profileForm.certImageUrl ? (
+                          <div className="relative group shrink-0">
+                            <img
+                              src={profileForm.certImageUrl}
+                              alt="Giấy chứng nhận VietGAP"
+                              className="w-36 h-48 sm:w-44 sm:h-56 object-cover rounded-xl shadow-md border border-gray-300"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none">
+                              <Eye className="w-4 h-4" /> Xem ảnh gốc
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-36 h-48 bg-gray-200 rounded-xl flex items-center justify-center text-gray-400 text-xs">
+                            Chưa có ảnh
+                          </div>
+                        )}
+
+                        <div className="space-y-2 text-xs text-gray-600">
+                          <h5 className="font-heading font-bold text-sm text-[#10542C]">
+                            Bản Gốc Giấy Chứng Nhận Tiêu Chuẩn Nông Sản An Toàn
+                          </h5>
+                          <p>
+                            • Tổ chức chứng nhận: <strong>Trung Tâm Kiểm Định & Khảo Nghiệm Nông Lâm Thủy Sản</strong>
+                          </p>
+                          <p>
+                            • Mã số chứng chỉ: <strong>GAP-VN-2024-88921/TTTT</strong>
+                          </p>
+                          <p>
+                            • Danh mục sản phẩm được cấp phép: Rau ăn lá, Cà chua, Dưa leo, Ớt chuông, Cà rốt, Củ dền.
+                          </p>
+                          <p className="text-emerald-700 font-semibold">
+                            ✓ Đã được đối soát chéo và phê duyệt bởi Ban Quản Trị Hệ Thống Chuỗi HoNa Fresh.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* ================= EDIT MODE (CHẾ ĐỘ CHỈNH SỬA BIỂU MẪU) ================= */
+                <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 sm:p-8 space-y-6">
+                  {/* 1. Phân loại chủ thể canh tác */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      1. Phân Loại Chủ Thể Canh Tác (Xác định chế độ xuất chứng từ thuế)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setProfileForm({ ...profileForm, farmerType: 'HOUSEHOLD' })}
+                        className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                          profileForm.farmerType === 'HOUSEHOLD'
+                            ? 'border-[#10542C] bg-emerald-50/50 ring-2 ring-[#10542C]'
+                            : 'border-gray-200 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-heading font-black text-sm text-[#10542C]">Hộ Nông Dân Cá Thể</span>
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                            Miễn thuế TNCN/GTGT
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-600">
+                          Theo Thông tư 78/2021/TT-BTC, tiền bán hàng nông sản được giải ngân bảo chứng qua <strong>Bảng kê thu mua Mẫu 01/TNDN</strong> (không cần hóa đơn).
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setProfileForm({ ...profileForm, farmerType: 'COOPERATIVE' })}
+                        className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                          profileForm.farmerType === 'COOPERATIVE'
+                            ? 'border-[#10542C] bg-emerald-50/50 ring-2 ring-[#10542C]'
+                            : 'border-gray-200 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-heading font-black text-sm text-[#10542C]">Hợp Tác Xã / Doanh Nghiệp</span>
+                          <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                            Xuất Hóa Đơn KCT
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-600">
+                          Kê khai Mã số thuế (MST) của Hợp tác xã để phát hành <strong>Hóa đơn bán lẻ điện tử đối tượng KCT (Không chịu thuế GTGT)</strong> cho thương lái.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. Thông tin vùng trồng & PUC */}
+                  <div className="space-y-3 pt-2 border-t border-gray-100">
+                    <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      2. Định Danh Vùng Trồng Nông Sản (PUC Profile)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Tên Nông Trại / Hợp Tác Xã *</label>
+                        <input
+                          type="text"
+                          value={profileForm.farmName}
+                          onChange={(e) => setProfileForm({ ...profileForm, farmName: e.target.value })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-bold text-gray-900 focus:outline-none ${
+                            profileErrors.farmName ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="Ví dụ: HTX Nông Nghiệp Đà Lạt GAP"
+                        />
+                        {profileErrors.farmName && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.farmName}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1 flex items-center justify-between">
+                          <span>Mã Số Vùng Trồng (PUC Code) do Chi cục Trồng trọt cấp *</span>
+                          <span className="text-[10px] text-[#10542C] font-mono font-bold">Chuẩn Chi cục</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={profileForm.pucCode}
+                          onChange={(e) => setProfileForm({ ...profileForm, pucCode: e.target.value.toUpperCase().trim() })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-mono font-bold text-[#10542C] focus:outline-none ${
+                            profileErrors.pucCode ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="Ví dụ: VN-LDO-PUC-0849"
+                        />
+                        {profileErrors.pucCode && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.pucCode}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">
+                          {profileForm.farmerType === 'COOPERATIVE' ? 'Mã Số Thuế HTX (MST) *' : 'Mã Số Thuế (Nếu có)'}
+                        </label>
+                        <input
+                          type="text"
+                          value={profileForm.taxCode}
+                          onChange={(e) => setProfileForm({ ...profileForm, taxCode: e.target.value })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-mono focus:outline-none ${
+                            profileErrors.taxCode ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="5801459201"
+                        />
+                        {profileErrors.taxCode && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.taxCode}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">
+                          {profileForm.farmerType === 'HOUSEHOLD' ? 'Số CCCD Người Đại Diện (Hộ Cá Thể) *' : 'Số CCCD Người Đại Diện Pháp Luật'}
+                        </label>
+                        <input
+                          type="text"
+                          value={profileForm.idCardNumber}
+                          onChange={(e) => setProfileForm({ ...profileForm, idCardNumber: e.target.value })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-mono focus:outline-none ${
+                            profileErrors.idCardNumber ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="049088019284"
+                        />
+                        {profileErrors.idCardNumber && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.idCardNumber}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Số Điện Thoại Liên Hệ *</label>
+                        <input
+                          type="text"
+                          value={profileForm.contactPhone}
+                          onChange={(e) => setProfileForm({ ...profileForm, contactPhone: e.target.value })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-mono focus:outline-none ${
+                            profileErrors.contactPhone ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="0912345678"
+                        />
+                        {profileErrors.contactPhone && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.contactPhone}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Quy Mô Diện Tích Canh Tác (Hecta) *</label>
+                        <input
+                          type="text"
+                          value={profileForm.cultivatedArea}
+                          onChange={(e) => setProfileForm({ ...profileForm, cultivatedArea: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
+                          placeholder="Ví dụ: 45 Hecta"
+                        />
+                      </div>
+                    </div>
+
+                    {/* CASCADING DROPDOWN: ĐỊA CHỈ HÀNH CHÍNH 4 CẤP (TỈNH -> HUYỆN -> XÃ -> ẤP/ĐƯỜNG) */}
+                    <div className="p-4 bg-gray-50/80 rounded-2xl border border-gray-200 space-y-3 mt-3">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#10542C]">
+                        <MapPin className="w-4 h-4 text-emerald-600" />
+                        <span>Địa Chỉ Vườn Trồng / Trụ Sở HTX (Chọn Phân Cấp Hành Chính Việt Nam) *</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        {/* 1. Tỉnh / Thành */}
+                        <div>
+                          <label className="block text-gray-600 font-medium mb-1">1. Tỉnh / Thành Phố *</label>
+                          <select
+                            value={selectedProvinceName}
+                            onChange={(e) => handleProvinceSelect(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-semibold text-gray-800 focus:outline-none focus:border-[#10542C]"
+                          >
+                            {VIETNAM_ADMINISTRATIVE_DATA.map((p) => (
+                              <option key={p.name} value={p.name}>
+                                {p.name} ({p.pucPrefix})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* 2. Huyện / Quận */}
+                        <div>
+                          <label className="block text-gray-600 font-medium mb-1">2. Quận / Huyện / Thị Xã *</label>
+                          {(() => {
+                            const curProv = VIETNAM_ADMINISTRATIVE_DATA.find((p) => p.name === selectedProvinceName);
+                            const distList = curProv ? curProv.districts : [];
+                            return (
+                              <select
+                                value={selectedDistrictName}
+                                onChange={(e) => handleDistrictSelect(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-semibold text-gray-800 focus:outline-none focus:border-[#10542C]"
+                              >
+                                {distList.map((d) => (
+                                  <option key={d.name} value={d.name}>
+                                    {d.name}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          })()}
+                        </div>
+
+                        {/* 3. Xã / Phường */}
+                        <div>
+                          <label className="block text-gray-600 font-medium mb-1">3. Phường / Xã / Thị Trấn *</label>
+                          {(() => {
+                            const curProv = VIETNAM_ADMINISTRATIVE_DATA.find((p) => p.name === selectedProvinceName);
+                            const curDist = curProv?.districts.find((d) => d.name === selectedDistrictName);
+                            const wardList = curDist ? curDist.wards : [];
+                            return (
+                              <select
+                                value={selectedWardName}
+                                onChange={(e) => handleWardSelect(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-semibold text-gray-800 focus:outline-none focus:border-[#10542C]"
+                              >
+                                {wardList.map((w) => (
+                                  <option key={w.name} value={w.name}>
+                                    {w.name}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* 4. Thôn / Ấp / Số nhà & Đường */}
+                      <div className="text-xs">
+                        <label className="block text-gray-600 font-medium mb-1">
+                          4. Thôn / Ấp / Tiểu Khu / Số Nhà & Tên Đường Chi Tiết *
+                        </label>
+                        <input
+                          type="text"
+                          value={hamletDetail}
+                          onChange={(e) => handleHamletChange(e.target.value)}
+                          placeholder="Ví dụ: Tiểu khu 158, Thôn Phù Đổng Thiên Vương, Đường Mai Anh Đào"
+                          className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:border-[#10542C]"
+                        />
+
+                        {/* Gợi ý ấp/thôn phổ biến của xã đã chọn */}
+                        {(() => {
+                          const curProv = VIETNAM_ADMINISTRATIVE_DATA.find((p) => p.name === selectedProvinceName);
+                          const curDist = curProv?.districts.find((d) => d.name === selectedDistrictName);
+                          const curWard = curDist?.wards.find((w) => w.name === selectedWardName);
+                          const hList = curWard?.hamlets || [];
+                          if (hList.length === 0) return null;
+                          return (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              <span className="text-[10px] text-gray-500">Ấp/Thôn gợi ý:</span>
+                              {hList.map((h) => (
+                                <button
+                                  key={h}
+                                  type="button"
+                                  onClick={() => handleHamletChange(h)}
+                                  className="text-[10px] bg-white text-gray-700 border border-gray-200 hover:border-emerald-500 px-2 py-0.5 rounded-md cursor-pointer"
+                                >
+                                  + {h}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Chuỗi địa chỉ ghép tự động hoàn chỉnh */}
+                      <div className="p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-100 text-xs">
+                        <span className="text-gray-500 block text-[11px]">Chuỗi địa chỉ hoàn chỉnh lưu hệ thống:</span>
+                        <strong className="text-[#10542C] font-semibold block mt-0.5">
+                          {profileForm.farmAddress || `${hamletDetail}, ${selectedWardName}, ${selectedDistrictName}, ${selectedProvinceName}`}
+                        </strong>
+                      </div>
+                      {profileErrors.farmAddress && (
+                        <p className="text-[11px] text-red-600 font-semibold">✕ {profileErrors.farmAddress}</p>
                       )}
                     </div>
                   </div>
-                </div>
 
-                {/* 4. Tài khoản thụ hưởng giải ngân */}
-                <div className="space-y-3 pt-2 border-t border-gray-100">
-                  <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
-                    4. Cài Đặt Tài Khoản Thụ Hưởng Nhận Giải Ngân Tự Động
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Số Tài Khoản Ngân Hàng *</label>
-                      <input
-                        type="text"
-                        value={profileForm.bankAccount}
-                        onChange={(e) => setProfileForm({ ...profileForm, bankAccount: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono font-bold text-gray-900 focus:outline-none focus:border-[#10542C]"
-                        placeholder="5400205219999"
-                        required
-                      />
+                  {/* 3. Chứng nhận chất lượng an toàn thực phẩm */}
+                  <div className="space-y-3 pt-2 border-t border-gray-100">
+                    <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      3. Chứng Nhận Tiêu Chuẩn Nông Sản & Thời Hạn
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Các Tiêu Chuẩn Đạt Được</label>
+                        <input
+                          type="text"
+                          value={profileForm.certifications}
+                          onChange={(e) => setProfileForm({ ...profileForm, certifications: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
+                          placeholder="VietGAP, GlobalGAP, Organic, OCOP 4 Sao"
+                        />
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {['VietGAP', 'GlobalGAP', 'Organic (Hữu cơ)', 'OCOP 4 Sao'].map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => {
+                                const curr = profileForm.certifications || '';
+                                if (!curr.includes(tag)) {
+                                  setProfileForm({
+                                    ...profileForm,
+                                    certifications: curr ? `${curr}, ${tag}` : tag,
+                                  });
+                                }
+                              }}
+                              className="text-[10px] bg-emerald-50 text-[#10542C] border border-emerald-200 px-2.5 py-1 rounded-md font-semibold cursor-pointer hover:bg-emerald-100"
+                            >
+                              + {tag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Thời Hạn Giấy Chứng Nhận Có Hiệu Lực</label>
+                        <input
+                          type="date"
+                          value={profileForm.certExpiryDate}
+                          onChange={(e) => setProfileForm({ ...profileForm, certExpiryDate: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
+                        />
+                      </div>
+
+                      {/* CHỌN ẢNH CHỨNG NHẬN: URL INTERNET HOẶC CHỌN TỆP TỪ MÁY */}
+                      <div className="sm:col-span-2 space-y-2">
+                        <label className="block text-gray-700 font-semibold">
+                          Ảnh Chụp Giấy Chứng Nhận Tiêu Chuẩn (VietGAP / GlobalGAP) *
+                        </label>
+
+                        {/* Tabs URL / Upload */}
+                        <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+                          <button
+                            type="button"
+                            onClick={() => setCertImageTab('url')}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                              certImageTab === 'url' ? 'bg-[#10542C] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            🌐 Nhập Đường Dẫn URL
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCertImageTab('upload')}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                              certImageTab === 'upload' ? 'bg-[#10542C] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            📁 Chọn Tệp Từ Máy (Choose File)
+                          </button>
+                        </div>
+
+                        {certImageTab === 'url' ? (
+                          <input
+                            type="text"
+                            value={profileForm.certImageUrl}
+                            onChange={(e) => setProfileForm({ ...profileForm, certImageUrl: e.target.value })}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C] text-gray-600"
+                            placeholder="https://..."
+                          />
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <label className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-300 cursor-pointer flex items-center gap-2">
+                              <Upload className="w-4 h-4" />
+                              <span>Chọn Tệp Ảnh Từ Máy Tính...</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleCertFileUpload}
+                                className="hidden"
+                              />
+                            </label>
+                            <span className="text-gray-500 text-[11px]">Hỗ trợ JPG, PNG, WEBP tối đa 5MB</span>
+                          </div>
+                        )}
+
+                        {profileForm.certImageUrl && (
+                          <div className="mt-2 flex items-center gap-4 p-3 bg-gray-50 rounded-2xl border border-gray-200 max-w-lg">
+                            <img
+                              src={profileForm.certImageUrl}
+                              alt="Xem trước Giấy chứng nhận"
+                              className="w-20 h-24 object-cover rounded-xl border border-gray-300 shrink-0 shadow-xs"
+                            />
+                            <div className="text-[11px] text-gray-600 space-y-1">
+                              <span className="font-bold text-[#10542C] block text-xs">Xem Trước Giấy Chứng Nhận</span>
+                              <p>Hiệu lực đến: <strong>{profileForm.certExpiryDate || '31/12/2027'}</strong></p>
+                              <span className="inline-block text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                ✓ Đủ điều kiện xác thực hồ sơ lưu hành
+                              </span>
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => setProfileForm({ ...profileForm, certImageUrl: '' })}
+                                  className="text-red-600 hover:text-red-700 font-semibold cursor-pointer underline text-[11px]"
+                                >
+                                  ✕ Xóa ảnh này
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Ngân Hàng Thụ Hưởng *</label>
-                      <input
-                        type="text"
-                        value={profileForm.bankName}
-                        onChange={(e) => setProfileForm({ ...profileForm, bankName: e.target.value })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
-                        placeholder="Agribank - CN Lâm Đồng"
-                        required
-                      />
+                  {/* 4. Tài khoản thụ hưởng giải ngân */}
+                  <div className="space-y-3 pt-2 border-t border-gray-100">
+                    <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      4. Cài Đặt Tài Khoản Thụ Hưởng Nhận Giải Ngân Tự Động
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Số Tài Khoản Ngân Hàng *</label>
+                        <input
+                          type="text"
+                          value={profileForm.bankAccount}
+                          onChange={(e) => setProfileForm({ ...profileForm, bankAccount: e.target.value.replace(/\s/g, '') })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-mono font-bold text-gray-900 focus:outline-none ${
+                            profileErrors.bankAccount ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="5400205219999"
+                        />
+                        {profileErrors.bankAccount && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.bankAccount}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Ngân Hàng Thụ Hưởng *</label>
+                        <input
+                          type="text"
+                          value={profileForm.bankName}
+                          onChange={(e) => setProfileForm({ ...profileForm, bankName: e.target.value })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border focus:outline-none ${
+                            profileErrors.bankName ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="Agribank - CN Lâm Đồng"
+                        />
+                        {profileErrors.bankName && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.bankName}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Tên Chủ Tài Khoản (In Hoa Không Dấu) *</label>
+                        <input
+                          type="text"
+                          value={profileForm.bankAccountName}
+                          onChange={(e) => setProfileForm({ ...profileForm, bankAccountName: e.target.value.toUpperCase() })}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border font-bold focus:outline-none ${
+                            profileErrors.bankAccountName ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                          }`}
+                          placeholder="HTX RAU SACH DA LAT GAP"
+                        />
+                        {profileErrors.bankAccountName && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {profileErrors.bankAccountName}</p>
+                        )}
+                      </div>
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-1">Tên Chủ Tài Khoản (In Hoa Không Dấu) *</label>
-                      <input
-                        type="text"
-                        value={profileForm.bankAccountName}
-                        onChange={(e) => setProfileForm({ ...profileForm, bankAccountName: e.target.value.toUpperCase() })}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 font-bold focus:outline-none focus:border-[#10542C]"
-                        placeholder="HTX RAU SACH DA LAT GAP"
-                        required
-                      />
+                  <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span className="text-xs text-gray-500">
+                      * Mọi thay đổi sẽ được cập nhật tự động lên hệ thống Bảng Kê Thu Mua 01/TNDN và Hóa Đơn KCT.
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingProfile(false);
+                          setProfileErrors({});
+                        }}
+                        className="px-5 py-2.5 border border-gray-300 text-gray-600 hover:bg-gray-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveProfile}
+                        className="px-7 py-2.5 bg-[#10542C] hover:bg-emerald-800 text-white font-heading font-black text-xs rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Lưu Hồ Sơ Vùng Trồng & Ngân Hàng</span>
+                      </button>
                     </div>
                   </div>
                 </div>
+              )}
 
-                <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-xs text-gray-500">
-                    * Mọi thay đổi sẽ được cập nhật tự động lên hệ thống Bảng Kê Thu Mua 01/TNDN và Hóa Đơn KCT.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleSaveProfile}
-                    className="px-7 py-3 bg-[#10542C] hover:bg-emerald-800 text-white font-heading font-black text-xs rounded-xl shadow-md transition cursor-pointer"
-                  >
-                    Lưu Hồ Sơ Vùng Trồng & Tài Khoản Ngân Hàng
-                  </button>
+              {/* ================= KHỐI GIẢI THÍCH CHUYÊN SÂU: MÃ SỐ VÙNG TRỒNG (PUC) & CƠ CHẾ XÁC THỰC ================= */}
+              <div className="bg-gradient-to-br from-emerald-50/90 to-teal-50/70 rounded-3xl border border-emerald-200/80 p-6 sm:p-7 space-y-4">
+                <div className="flex items-center gap-2.5 text-[#10542C]">
+                  <HelpCircle className="w-5 h-5 text-emerald-700 shrink-0" />
+                  <h4 className="font-heading font-black text-sm sm:text-base">
+                    Cẩm Nang Pháp Lý & Hướng Dẫn Nhận Biết Mã Số Vùng Trồng (PUC) Đã Xác Thực
+                  </h4>
+                </div>
+
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  <strong>Mã Số Vùng Trồng (Production Unit Code - PUC)</strong> là mã định danh bắt buộc do <strong>Chi cục Trồng trọt và Bảo vệ Thực vật các tỉnh</strong> trực tiếp cấp cho từng diện tích canh tác xác định, tuân thủ Tiêu chuẩn cơ sở <strong>TCCS 774:2020/BVTV</strong> của Bộ Nông nghiệp & Phát triển Nông thôn.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-emerald-900 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#10542C] flex items-center justify-center text-xs">1</span>
+                      <span>Tra Cứu CSDL Quốc Gia</span>
+                    </div>
+                    <p className="text-gray-600 text-[11px] leading-relaxed">
+                      Mọi mã số PUC hợp lệ đều được đồng bộ trên Cổng phần mềm Cơ sở Dữ liệu Quốc gia của Cục Bảo vệ Thực vật (<code className="font-mono bg-gray-100 px-1 py-0.5 rounded text-[#10542C]">csdl.ppd.gov.vn</code>). Thương lái và người tiêu dùng có thể tra cứu minh bạch nhật ký canh tác và tọa độ ranh giới GPS.
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-emerald-900 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#10542C] flex items-center justify-center text-xs">2</span>
+                      <span>Văn Bản Mộc Đỏ Chi Cục</span>
+                    </div>
+                    <p className="text-gray-600 text-[11px] leading-relaxed">
+                      Hồ sơ bắt buộc phải có Giấy xác nhận / Quyết định cấp mã vùng trồng bản gốc có dấu mộc đỏ pháp lý của Chi cục Trồng trọt & BVTV Tỉnh ký duyệt sau khi đã kiểm tra thực địa, phân tích mẫu đất và dư lượng thuốc BVTV đạt chuẩn.
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-emerald-900 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#10542C] flex items-center justify-center text-xs">3</span>
+                      <span>Cơ Chế Khóa Cứng Trên Sàn</span>
+                    </div>
+                    <p className="text-gray-600 text-[11px] leading-relaxed">
+                      Trên Sàn B2B HoNa Fresh, sau khi Nông dân được Ban Quản Trị duyệt hồ sơ KYC, mã PUC sẽ được <strong>áp cứng và khóa chặt (read-only)</strong> vào mọi lô thu hoạch. Nông dân không thể tùy tiện sửa mã để tuyệt đối ngăn chặn hiện tượng mượn danh hoặc giả mạo xuất xứ.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-          )}
-
-                    {/* TAB 7: AGRI-AI ASSISTANT (TRỢ LÝ HONA FRESH) */}
+          )}{/* TAB 7: AGRI-AI ASSISTANT (TRỢ LÝ HONA FRESH) */}
           {activeTab === 'ai' && (
             <FarmerAiChatView farmerName={profile?.farmName || profile?.fullName} />
           )}
@@ -1834,45 +2753,74 @@ export default function FarmerPortalPage() {
       {/* ================= MODAL: CREATE HARVEST LOT ================= */}
       {isLotModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6 sm:p-7 space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2 text-[#10542C]">
-                <Sprout className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-heading font-black text-base">Đăng Lô Thu Hoạch Vụ Mùa Mới</h3>
+              <div className="flex items-center gap-2.5 text-[#10542C]">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#10542C] flex items-center justify-center">
+                  <Sprout className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-base">Đăng Lô Thu Hoạch Vụ Mùa Mới</h3>
+                  <p className="text-[11px] text-gray-500">Thiết lập dải nhiệt bảo quản AI Cold-Chain và bảng giá sỉ phân tầng B2B</p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsLotModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                className="text-gray-400 hover:text-gray-600 text-lg font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleCreateLot} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* TÊN NÔNG SẢN & MÃ PUC ÁP CỨNG */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Tên Nông Sản *</label>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Tên Nông Sản Thu Hoạch *
+                  </label>
                   <input
                     type="text"
                     required
                     value={newLot.productName}
-                    onChange={(e) => setNewLot({ ...newLot, productName: e.target.value })}
+                    onChange={(e) => handleLotProductNameChange(e.target.value)}
                     placeholder="VD: Cà Chua Beef Đà Lạt VietGAP"
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border font-bold text-gray-900 focus:outline-none ${
+                      lotFormErrors.productName ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                    }`}
                   />
+                  {lotFormErrors.productName && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {lotFormErrors.productName}</p>
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    * Nhập tên để AI tự động phân loại và gợi ý dải nhiệt độ bảo quản lạnh tối ưu.
+                  </p>
                 </div>
+
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Mã Số Vùng Trồng (PUC) *</label>
+                  <label className="block font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5 text-gray-500" />
+                      Mã Số Vùng Trồng (PUC) *
+                    </span>
+                    <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
+                      ✓ Khóa cứng theo hồ sơ
+                    </span>
+                  </label>
                   <input
                     type="text"
-                    required
-                    value={newLot.pucCode}
-                    onChange={(e) => setNewLot({ ...newLot, pucCode: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono font-bold text-[#10542C]"
+                    readOnly
+                    value={profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849'}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono font-black text-[#10542C] bg-gray-100 cursor-not-allowed select-none"
                   />
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    🔒 Mã PUC áp cố định theo hồ sơ vùng trồng đã Chi cục thẩm định, không được sửa thủ công.
+                  </p>
                 </div>
               </div>
 
+              {/* SẢN LƯỢNG & THỜI HẠN THU HOẠCH - FEFO */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1">Tổng Sản Lượng (kg) *</label>
@@ -1882,8 +2830,13 @@ export default function FarmerPortalPage() {
                     min={100}
                     value={newLot.totalQuantity}
                     onChange={(e) => setNewLot({ ...newLot, totalQuantity: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 font-bold"
+                    className={`w-full px-3 py-2 rounded-xl border font-bold ${
+                      lotFormErrors.totalQuantity ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                    }`}
                   />
+                  {lotFormErrors.totalQuantity && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {lotFormErrors.totalQuantity}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1">Ngày Dự Kiến Thu Hoạch *</label>
@@ -1892,7 +2845,7 @@ export default function FarmerPortalPage() {
                     required
                     value={newLot.harvestDate}
                     onChange={(e) => setNewLot({ ...newLot, harvestDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:border-[#10542C]"
                   />
                 </div>
                 <div>
@@ -1902,37 +2855,174 @@ export default function FarmerPortalPage() {
                     required
                     value={newLot.expiryDate}
                     onChange={(e) => setNewLot({ ...newLot, expiryDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300"
+                    className={`w-full px-3 py-2 rounded-xl border ${
+                      lotFormErrors.expiryDate ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                    }`}
                   />
+                  {lotFormErrors.expiryDate && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {lotFormErrors.expiryDate}</p>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Nhiệt Độ Lạnh Tối Thiểu (°C)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={newLot.minTemp}
-                    onChange={(e) => setNewLot({ ...newLot, minTemp: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300"
-                  />
+              {/* DẢI NHIỆT ĐỘ LẠNH & KHỐI AI COLD-CHAIN GỢI Ý */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-gray-700">
+                    Tiêu Chuẩn Chuỗi Lạnh (Cold-Chain Logistics)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleApplyAiColdChain}
+                    className="text-[11px] font-bold text-[#10542C] hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>AI Gợi Ý Nhiệt Độ Lại</span>
+                  </button>
                 </div>
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Nhiệt Độ Lạnh Tối Đa (°C)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={newLot.maxTemp}
-                    onChange={(e) => setNewLot({ ...newLot, maxTemp: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-gray-500 mb-1">Nhiệt Độ Lạnh Tối Thiểu (°C)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={newLot.minTemp}
+                      onChange={(e) => setNewLot({ ...newLot, minTemp: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono font-bold focus:outline-none focus:border-[#10542C]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-gray-500 mb-1">Nhiệt Độ Lạnh Tối Đa (°C)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={newLot.maxTemp}
+                      onChange={(e) => setNewLot({ ...newLot, maxTemp: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono font-bold focus:outline-none focus:border-[#10542C]"
+                    />
+                  </div>
                 </div>
+
+                {/* Hộp gợi ý AI Cold-Chain */}
+                {aiTempAdvice ? (
+                  <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs space-y-1 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#10542C] flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        AI Cold-Chain: {aiTempAdvice.categoryName}
+                      </span>
+                      <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                        Độ ẩm: {aiTempAdvice.humidity}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-700 leading-relaxed">
+                      💡 {aiTempAdvice.advice}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-[11px] text-gray-500 flex items-center gap-2">
+                    <Info className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span>Nhập tên nông sản phía trên (VD: Cà chua, Xà lách, Cà rốt...) để kích hoạt AI gợi ý dải nhiệt tự động.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* HÌNH ẢNH MINH HỌA SẢN PHẨM: URL INTERNET HOẶC CHỌN TỆP TỪ MÁY */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-gray-700">
+                    Hình Ảnh Minh Họa Nông Sản Thực Tế *
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setLotImageTab('url')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                        lotImageTab === 'url' ? 'bg-[#10542C] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      🌐 URL Internet
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLotImageTab('upload')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                        lotImageTab === 'upload' ? 'bg-[#10542C] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      📁 Chọn Tệp (Choose File)
+                    </button>
+                  </div>
+                </div>
+
+                {lotImageTab === 'url' ? (
+                  <input
+                    type="text"
+                    value={newLot.imageUrl}
+                    onChange={(e) => {
+                      setNewLot({ ...newLot, imageUrl: e.target.value });
+                      if (lotFormErrors.imageUrl) {
+                        setLotFormErrors((prev) => {
+                          const copy = { ...prev };
+                          delete copy.imageUrl;
+                          return copy;
+                        });
+                      }
+                    }}
+                    placeholder="https://images.unsplash.com/..."
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
+                      lotFormErrors.imageUrl ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
+                    }`}
+                  />
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <label className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-300 cursor-pointer flex items-center gap-2">
+                      <Upload className="w-4 h-4" />
+                      <span>Chọn Ảnh Từ Máy Tính...</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLotFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <span className="text-gray-500 text-[11px]">Hỗ trợ JPG, PNG, WEBP (tối đa 5MB)</span>
+                  </div>
+                )}
+                {lotFormErrors.imageUrl && (
+                  <p className="text-[11px] text-red-600 font-semibold">✕ {lotFormErrors.imageUrl}</p>
+                )}
+
+                {/* Khung xem trước ảnh sản phẩm */}
+                {newLot.imageUrl && (
+                  <div className="relative group max-w-sm rounded-2xl overflow-hidden border border-gray-200 shadow-2xs">
+                    <img
+                      src={newLot.imageUrl}
+                      alt="Xem trước nông sản"
+                      className="w-full h-36 object-cover"
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-xs text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                      Ảnh minh họa trên Sàn B2B
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNewLot({ ...newLot, imageUrl: '' })}
+                      className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow-md cursor-pointer"
+                      title="Xóa ảnh"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* TIER PRICING INPUTS */}
               <div className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-100 space-y-2.5">
-                <p className="font-bold text-emerald-900">Thiết Lập Bảng Giá Sỉ Phân Tầng (Tier Pricing Matrix):</p>
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-emerald-900">Thiết Lập Bảng Giá Sỉ Phân Tầng (Tier Pricing Matrix):</p>
+                  <span className="text-[10px] text-emerald-700 font-semibold">Mua càng nhiều giá càng tốt</span>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">Bậc 1: Mua từ (kg)</label>
@@ -1985,20 +3075,33 @@ export default function FarmerPortalPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              {/* HÀNG NÚT THAO TÁC: LÀM MỚI, HỦY BỎ, CÔNG KHAI */}
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => setIsLotModalOpen(false)}
-                  className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 font-bold hover:bg-gray-50 cursor-pointer"
+                  onClick={handleResetLotForm}
+                  className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer text-xs"
                 >
-                  Hủy Bỏ
+                  <RotateCcw className="w-3.5 h-3.5 text-gray-500" />
+                  <span>Làm Mới Form</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Công Khai Lên Sàn B2B
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsLotModalOpen(false)}
+                    className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 font-bold hover:bg-gray-50 cursor-pointer"
+                  >
+                    Hủy Bỏ
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Công Khai Lên Sàn B2B</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
