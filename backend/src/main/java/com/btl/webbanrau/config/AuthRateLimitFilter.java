@@ -14,7 +14,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
     private record Window(long minute,int count) {}
     @Override protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain) throws ServletException,IOException {
         String path=req.getServletPath();
-        if("POST".equals(req.getMethod()) && (path.startsWith("/auth/")||path.equals("/ai/chat"))) {
+        if("POST".equals(req.getMethod()) && (path.startsWith("/auth/")||path.equals("/ai/chat")||path.startsWith("/uploads/"))) {
             long minute=System.currentTimeMillis()/60000;
             if(windows.size()>10000) windows.entrySet().removeIf(e->e.getValue().minute()<minute);
             Window window=windows.compute(req.getRemoteAddr(),(key,old)->old==null||old.minute()!=minute?new Window(minute,1):new Window(minute,old.count()+1));

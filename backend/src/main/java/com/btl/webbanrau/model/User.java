@@ -56,6 +56,8 @@ public class User extends BaseEntity {
     private String certification;
     @Column(length = 500)
     private String certificationUrl;
+    @Column(name = "certification_public_id", length = 255)
+    private String certificationPublicId;
     @Builder.Default
     private String kycStatus = "PENDING";
     private String kycNote;

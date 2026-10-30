@@ -79,6 +79,9 @@ public class HarvestLot extends BaseEntity {
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;
 
+    @Column(name = "image_public_id", length = 255)
+    private String imagePublicId;
+
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason; // Ghi chú khi từ chối duyệt hoặc tạm khóa dư lượng thuốc BVTV
 
