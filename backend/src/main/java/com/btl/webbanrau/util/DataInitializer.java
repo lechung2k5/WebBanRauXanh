@@ -44,22 +44,16 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-<<<<<<< HEAD
         // 1. Tạo Roles
-        Role roleAdmin = roleRepository.findByName("ROLE_ADMIN")
-                .orElseGet(() -> roleRepository.save(new Role("ROLE_ADMIN", "Quản trị viên toàn quyền")));
-        Role roleUser = roleRepository.findByName("ROLE_USER")
-                .orElseGet(() -> roleRepository.save(new Role("ROLE_USER", "Khách hàng mua rau")));
-        Role roleBuyer = roleRepository.findByName("ROLE_BUYER")
-                .orElseGet(() -> roleRepository.save(new Role("ROLE_BUYER", "Thương lái/doanh nghiệp thu mua B2B")));
-=======
         try {
             jdbcTemplate.execute("ALTER TABLE harvest_lots ALTER COLUMN tier_pricing_json TYPE jsonb USING tier_pricing_json::jsonb");
         } catch (Exception ignored) {}
         for (String name : List.of("ADMIN","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER","USER")) {
             roleRepository.findByName("ROLE_"+name).orElseGet(()->roleRepository.save(new Role("ROLE_"+name,name)));
         }
->>>>>>> origin/main
+        Role roleAdmin = roleRepository.findByName("ROLE_ADMIN").orElseThrow();
+        Role roleUser = roleRepository.findByName("ROLE_USER").orElseThrow();
+        Role roleBuyer = roleRepository.findByName("ROLE_BUYER").orElseThrow();
 
         // 1. Seed Quản trị viên tối cao (ROLE_ADMIN)
         String adminEmail = System.getenv("ADMIN_EMAIL") != null ? System.getenv("ADMIN_EMAIL") : "admin@honafresh.vn";

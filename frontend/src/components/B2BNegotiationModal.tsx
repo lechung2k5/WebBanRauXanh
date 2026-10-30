@@ -16,11 +16,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Product } from '@/types';
-<<<<<<< HEAD
 import { createBuyerRfqApi } from '@/services/api';
-=======
 import { submitPublicRfqOrDepositApi } from '@/services/farmerApi';
->>>>>>> origin/main
 
 interface B2BNegotiationModalProps {
   product: Product | null;

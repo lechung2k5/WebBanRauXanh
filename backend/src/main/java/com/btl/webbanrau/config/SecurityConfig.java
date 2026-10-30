@@ -50,18 +50,14 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-<<<<<<< HEAD
                         // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
                         .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
                         .requestMatchers("/buyer/**").hasRole("BUYER")
-=======
                         .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
-                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/harvest-lots/**", "/cold-assets/public-status").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**").permitAll()
->>>>>>> origin/main
+                        .requestMatchers(HttpMethod.GET, "/cold-assets/public-status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()

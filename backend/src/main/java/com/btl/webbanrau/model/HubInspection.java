@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class HubInspection extends BaseEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "contract_id", nullable = false) private B2BContract contract;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "contract_id", nullable = false) private B2bContract contract;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal receivedWeightKg;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal qualifiedWeightKg;
     @Builder.Default @Column(nullable = false, precision = 12, scale = 2) private BigDecimal rejectedWeightKg = BigDecimal.ZERO;

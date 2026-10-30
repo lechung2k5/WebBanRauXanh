@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class IotSensorLog {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "contract_id", nullable = false) private B2BContract contract;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "contract_id", nullable = false) private B2bContract contract;
     @Column(nullable = false, precision = 4, scale = 2) private BigDecimal temperature;
     @Column(nullable = false, precision = 5, scale = 2) private BigDecimal humidity;
     @Column(nullable = false) @Builder.Default private boolean alert = false;

@@ -5,14 +5,14 @@ import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
 import com.btl.webbanrau.model.BuyerProfile;
 import com.btl.webbanrau.model.BuyerRfq;
-import com.btl.webbanrau.model.B2BContract;
+import com.btl.webbanrau.model.B2bContract;
 import com.btl.webbanrau.model.HubInspection;
 import com.btl.webbanrau.model.IotSensorLog;
 import com.btl.webbanrau.model.HarvestLot;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.BuyerProfileRepository;
 import com.btl.webbanrau.repository.BuyerRfqRepository;
-import com.btl.webbanrau.repository.B2BContractRepository;
+import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.repository.HubInspectionRepository;
 import com.btl.webbanrau.repository.IotSensorLogRepository;
 import com.btl.webbanrau.repository.HarvestLotRepository;
@@ -36,7 +36,7 @@ public class BuyerController {
     private final UserRepository userRepository;
     private final BuyerProfileRepository profileRepository;
     private final BuyerRfqRepository rfqRepository;
-    private final B2BContractRepository contractRepository;
+    private final B2bContractRepository contractRepository;
     private final HubInspectionRepository inspectionRepository;
     private final IotSensorLogRepository sensorLogRepository;
     private final HarvestLotRepository harvestLotRepository;
@@ -81,29 +81,32 @@ public class BuyerController {
         rfq.setProposedPricePerKg(rfq.getCounterPricePerKg());
         rfq.setStatus("ACCEPTED");
         BuyerRfq savedRfq = rfqRepository.save(rfq);
-        if (contractRepository.findByRfqId(savedRfq.getId()).isEmpty()) {
-            BigDecimal total = savedRfq.getQuantityKg().multiply(savedRfq.getProposedPricePerKg());
-            contractRepository.save(B2BContract.builder().contractCode("HD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase()).buyer(savedRfq.getBuyer()).harvestLot(savedRfq.getHarvestLot()).rfq(savedRfq).quantityKg(savedRfq.getQuantityKg()).agreedPricePerKg(savedRfq.getProposedPricePerKg()).totalAmount(total).depositAmount(total.multiply(new BigDecimal("0.30"))).deliveryAddress(savedRfq.getDeliveryLocation()).build());
-        }
+        BigDecimal total = savedRfq.getQuantityKg().multiply(savedRfq.getProposedPricePerKg());
+        contractRepository.save(B2bContract.builder().contractCode("HD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                .harvestLot(savedRfq.getHarvestLot()).farmer(savedRfq.getHarvestLot().getFarmer())
+                .buyerName(savedRfq.getBuyer().getFullName()).buyerPhone(savedRfq.getBuyer().getPhone())
+                .quantity(savedRfq.getQuantityKg().doubleValue()).unitPrice(savedRfq.getProposedPricePerKg())
+                .totalAmount(total).depositAmount(total.multiply(new BigDecimal("0.30")))
+                .deliveryNotes(savedRfq.getDeliveryLocation()).build());
         return ApiResponse.success("Đã chấp nhận giá counter-offer và tạo hợp đồng", savedRfq);
     }
 
     @GetMapping("/contracts")
-    public ApiResponse<List<B2BContract>> getContracts(java.security.Principal principal) {
-        return ApiResponse.success(contractRepository.findByBuyerIdOrderByCreatedAtDesc(currentUser(principal).getId()));
+    public ApiResponse<List<B2bContract>> getContracts(java.security.Principal principal) {
+        return ApiResponse.success(contractRepository.findByBuyerPhoneOrderByCreatedAtDesc(currentUser(principal).getPhone()));
     }
 
     @GetMapping("/contracts/{id}/qr-deposit")
     public ApiResponse<Map<String, Object>> getDepositQr(java.security.Principal principal, @PathVariable Long id) {
-        B2BContract contract = ownedContract(principal, id);
+        B2bContract contract = ownedContract(principal, id);
         return ApiResponse.success(Map.of("contractCode", contract.getContractCode(), "amount", contract.getDepositAmount(), "status", contract.getDepositStatus(), "bank", "MB Bank", "accountNumber", "0987654321"));
     }
 
     @PostMapping("/contracts/{id}/deposit/confirm")
-    public ApiResponse<B2BContract> confirmDeposit(java.security.Principal principal, @PathVariable Long id) {
-        B2BContract contract = ownedContract(principal, id);
-        contract.setDepositStatus("PAID");
-        contract.setStatus("DEPOSIT_PAID");
+    public ApiResponse<B2bContract> confirmDeposit(java.security.Principal principal, @PathVariable Long id) {
+        B2bContract contract = ownedContract(principal, id);
+        contract.setDepositStatus("DEPOSIT_PAID");
+        contract.setDepositPaidAt(java.time.LocalDateTime.now());
         return ApiResponse.success("Đã xác nhận cọc giả lập", contractRepository.save(contract));
     }
 
@@ -141,9 +144,9 @@ public class BuyerController {
         return userRepository.findByUsername(principal.getName()).orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản Buyer"));
     }
 
-    private B2BContract ownedContract(java.security.Principal principal, Long id) {
-        B2BContract contract = contractRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng"));
-        if (!contract.getBuyer().getId().equals(currentUser(principal).getId())) throw new IllegalArgumentException("Bạn không có quyền với hợp đồng này");
+    private B2bContract ownedContract(java.security.Principal principal, Long id) {
+        B2bContract contract = contractRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng"));
+        if (!java.util.Objects.equals(contract.getBuyerPhone(), currentUser(principal).getPhone())) throw new IllegalArgumentException("Bạn không có quyền với hợp đồng này");
         return contract;
     }
 }

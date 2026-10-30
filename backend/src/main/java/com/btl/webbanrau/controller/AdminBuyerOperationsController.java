@@ -3,10 +3,10 @@ package com.btl.webbanrau.controller;
 import com.btl.webbanrau.dto.request.QcInspectionRequest;
 import com.btl.webbanrau.dto.request.TelemetryRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
-import com.btl.webbanrau.model.B2BContract;
+import com.btl.webbanrau.model.B2bContract;
 import com.btl.webbanrau.model.HubInspection;
 import com.btl.webbanrau.model.IotSensorLog;
-import com.btl.webbanrau.repository.B2BContractRepository;
+import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.repository.HubInspectionRepository;
 import com.btl.webbanrau.repository.IotSensorLogRepository;
 import jakarta.validation.Valid;
@@ -24,13 +24,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminBuyerOperationsController {
-    private final B2BContractRepository contractRepository;
+    private final B2bContractRepository contractRepository;
     private final HubInspectionRepository inspectionRepository;
     private final IotSensorLogRepository sensorLogRepository;
 
     @PostMapping("/contracts/{contractId}/qc-report")
     public ApiResponse<Map<String, Object>> createQcReport(@PathVariable Long contractId, @Valid @RequestBody QcInspectionRequest request) {
-        B2BContract contract = getContract(contractId);
+        B2bContract contract = getContract(contractId);
         BigDecimal rejected = request.getRejectedWeightKg() == null ? BigDecimal.ZERO : request.getRejectedWeightKg();
         if (request.getQualifiedWeightKg().add(rejected).compareTo(request.getReceivedWeightKg()) > 0) {
             throw new IllegalArgumentException("Khối lượng đạt và loại không được lớn hơn khối lượng nhận");
@@ -41,13 +41,13 @@ public class AdminBuyerOperationsController {
 
     @PostMapping("/contracts/{contractId}/telemetry")
     public ApiResponse<Map<String, Object>> createTelemetry(@PathVariable Long contractId, @Valid @RequestBody TelemetryRequest request) {
-        B2BContract contract = getContract(contractId);
+        B2bContract contract = getContract(contractId);
         boolean alert = request.getTemperature().compareTo(new BigDecimal("2.0")) < 0 || request.getTemperature().compareTo(new BigDecimal("6.0")) > 0;
         IotSensorLog log = sensorLogRepository.save(IotSensorLog.builder().contract(contract).temperature(request.getTemperature()).humidity(request.getHumidity()).alert(alert).recordedAt(LocalDateTime.now()).build());
         return ApiResponse.success("Đã ghi nhận dữ liệu IoT", sensorView(log));
     }
 
-    private B2BContract getContract(Long id) {
+    private B2bContract getContract(Long id) {
         return contractRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng"));
     }
 
