@@ -27,6 +27,7 @@ import java.util.UUID;
 public class HarvestLotService {
 
     private final HarvestLotRepository harvestLotRepository;
+    private final com.btl.webbanrau.repository.UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<HarvestLotResponse> getLots(
@@ -90,10 +91,20 @@ public class HarvestLotService {
         BigDecimal minTemp = request.getReqTempMin() != null ? request.getReqTempMin() : new BigDecimal("2.0");
         BigDecimal maxTemp = request.getReqTempMax() != null ? request.getReqTempMax() : new BigDecimal("6.0");
 
+        String resolvedFarmerName = request.getFarmerName();
+        if ((resolvedFarmerName == null || resolvedFarmerName.isBlank()) && request.getFarmerId() != null) {
+            resolvedFarmerName = userRepository.findById(request.getFarmerId())
+                    .map(u -> (u.getCompanyName() != null && !u.getCompanyName().isBlank()) ? u.getCompanyName() : u.getFullName())
+                    .orElse("Nông trại");
+        }
+        if (resolvedFarmerName == null || resolvedFarmerName.isBlank()) {
+            resolvedFarmerName = "Nông trại";
+        }
+
         HarvestLot lot = HarvestLot.builder()
                 .lotCode(lotCode.trim().toUpperCase())
                 .farmerId(request.getFarmerId())
-                .farmerName(request.getFarmerName().trim())
+                .farmerName(resolvedFarmerName.trim())
                 .productName(request.getProductName().trim())
                 .category(request.getCategory().trim().toUpperCase())
                 .categoryId(request.getCategoryId())
@@ -104,7 +115,7 @@ public class HarvestLotService {
                 .totalWeightKg(request.getTotalWeightKg())
                 .availableWeightKg(availableWeight)
                 .basePricePerKg(request.getBasePricePerKg())
-                .tierPricingJson(request.getTierPricingJson())
+                .tierPricingJson((request.getTierPricingJson() != null && !request.getTierPricingJson().isBlank()) ? request.getTierPricingJson() : "[]")
                 .reqTempMin(minTemp)
                 .reqTempMax(maxTemp)
                 .status(status)
@@ -167,6 +178,7 @@ public class HarvestLotService {
         }
         if (request.getAuditNote() != null) {
             lot.setAuditNote(request.getAuditNote());
+            lot.setReviewNote(request.getAuditNote());
         }
 
         log.info("Cập nhật trạng thái Lô {} -> {} (Lý do: {})", lot.getLotCode(), newStatus, request.getRejectionReason());

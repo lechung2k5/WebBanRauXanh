@@ -1,5 +1,8 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useApp } from '@/context/AppContext';
+import { portalFor } from '@/services/auth';
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -7,6 +10,7 @@ import { Category, Product, OrderResponse, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import B2BDepositModal from '@/components/B2BDepositModal';
 import CreateProcurementModal from '@/components/CreateProcurementModal';
 import ProcurementBoardSection from '@/components/ProcurementBoardSection';
 import FarmCooperativesSection from '@/components/FarmCooperativesSection';
@@ -50,6 +54,7 @@ import {
 } from 'lucide-react';
 
 export default function HomePage() {
+  const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
@@ -64,6 +69,7 @@ export default function HomePage() {
 
   // B2B Modals State
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [depositingProduct, setDepositingProduct] = useState<Product | null>(null);
   const [isProcurementModalOpen, setIsProcurementModalOpen] = useState(false);
 
   // Pagination for Home Catalog
@@ -78,13 +84,13 @@ export default function HomePage() {
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // User Auth State
-  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
+  const { currentUser, setCurrentUser, logout, cartCount } = useApp();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
 
   // Load User & Catalog on mount
   useEffect(() => {
-    setCurrentUser(getStoredUser());
+    // Authentication is restored by the shared AppProvider.
   }, []);
 
   useEffect(() => {
@@ -151,13 +157,15 @@ export default function HomePage() {
     }
   };
 
+  const handleAddToCart = (product: Product, quantity?: number) => {
+    router.push('/lo-hang');
+  };
+  const handleBuyNow = (product: Product, quantity?: number) => {
+    router.push('/lo-hang');
+  };
+
   const handleLogout = async () => {
-    const isAdmin = currentUser?.roles?.includes('ROLE_ADMIN');
-    await logoutApi();
-    setCurrentUser(null);
-    if (isAdmin || (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'))) {
-      window.location.href = '/dang-nhap';
-    }
+    await logout();
   };
 
   // Lô nông sản xuất sắc thu hái rộ nổi bật
@@ -213,6 +221,8 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#F9F9F5] text-[#2C3E2E] flex flex-col selection:bg-[#4CAF50] selection:text-white pb-20 md:pb-0">
       {/* 2-Tier Header (Top Bar 36px + Main Header 76px) */}
       <Navbar
+        cartCount={cartCount}
+        onOpenCart={() => router.push('/lo-hang')}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}
@@ -379,7 +389,7 @@ export default function HomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNegotiatingProduct(featuredHarvestLot)}
+                  onClick={() => setDepositingProduct(featuredHarvestLot)}
                   className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
                 >
                   <HeartHandshake className="w-3.5 h-3.5 text-[#8BC34A]" />
@@ -839,16 +849,22 @@ export default function HomePage() {
           <span className="text-[10px] font-bold">Lô hàng</span>
         </a>
 
-        <a
-          href="#san-chao-mua"
-          className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
+        <button
+          onClick={() => router.push('/lo-hang')}
+          className="relative flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <Scale className="w-5 h-5" />
           <span className="text-[10px] font-bold">Chào mua</span>
-        </a>
+        </button>
 
         <Link
-          href={currentUser ? "/admin/dashboard" : "/dang-nhap"}
+          href={
+            currentUser
+              ? currentUser.roles?.includes('ROLE_ADMIN')
+                ? '/admin/dashboard'
+                : portalFor(currentUser.roles)
+              : '/dang-nhap'
+          }
           className="flex flex-col items-center gap-1 text-[#6B7280] hover:text-[#10542C] p-1 cursor-pointer"
         >
           <UserIcon className="w-5 h-5" />
@@ -877,9 +893,11 @@ export default function HomePage() {
         isOpen={selectedProductForDetail !== null}
         onClose={() => setSelectedProductForDetail(null)}
         onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
+        onSelectProduct={(p: Product) => setSelectedProductForDetail(p)}
       />
 
       {/* B2B RFQ Negotiation Modal */}
+      <B2BDepositModal product={depositingProduct} isOpen={!!depositingProduct} onClose={() => setDepositingProduct(null)} />
       <B2BNegotiationModal
         product={negotiatingProduct}
         isOpen={!!negotiatingProduct}

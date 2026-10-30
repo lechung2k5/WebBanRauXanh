@@ -2,7 +2,8 @@
 ### Nền Tảng Thương Mại Điện Tử B2B Nông Sản Trung Gian Ký Quỹ & Quản Trị Chuỗi Cung Ứng Lạnh
 
 > **Mô hình vận hành:** Sàn giao dịch B2B Nông sản Trung gian Ký quỹ (**Escrow**) kết hợp Trạm Kiểm định Trung chuyển (**Cross-docking Hub**) & Điều phối Vận tải Lạnh (**Cold-Chain TMS**).  
-> **Quy mô thực hiện:** Nhóm 5 thành viên | **Thời gian:** 4 Tuần.
+> **Quy mô thực hiện:** Nhóm 5 thành viên | **Thời gian:** 4 Tuần.  
+> 🛡️ **Tài liệu & Hướng dẫn Test Auth:** Xem chi tiết tại [Tài Liệu Auth & Hướng Dẫn Test](file:///d:/BTL_WWWJava/WebBanRauXanh/doc/HUONG_DAN_AUTH_VA_TEST.md).
 
 ---
 

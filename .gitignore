@@ -1,6 +1,8 @@
 # Backend build & cache
 backend/.gradle/
 backend/build/
+backend/bin/
+bin/
 backend/target/
 .gradle/
 *.class

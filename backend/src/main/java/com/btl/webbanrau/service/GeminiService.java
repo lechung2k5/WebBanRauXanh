@@ -73,7 +73,7 @@ public class GeminiService {
         this.restTemplate = new RestTemplate();
         org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000); // Kết nối tối đa 3 giây
-        factory.setReadTimeout(6000);    // Phản hồi tối đa 6 giây (Fail-fast chuyển model)
+        factory.setReadTimeout(18000);   // Phản hồi tối đa 18 giây
         this.restTemplate.setRequestFactory(factory);
     }
 
@@ -267,6 +267,98 @@ public class GeminiService {
      * Vector ngữ nghĩa dự phòng 768 chiều chuẩn hóa L2, dựa trên tính chất từ ngữ và hash
      * Đảm bảo pgvector luôn có vector chuẩn để tính cosine distance kể cả khi chưa có internet/API key.
      */
+    
+    /**
+     * Trợ lý HoNa Fresh AI dành riêng cho Bà con Nông dân và HTX
+     * Sử dụng ngôn từ bình dị, mộc mạc, gần gũi, am hiểu thực tế ruộng vườn và chuỗi lạnh
+     */
+    public String generateFarmerChat(String userMessage) {
+        if (!hasApiKey()) {
+            return "Dạ thưa bà con, hiện tại kết nối AI đang gián đoạn một chút. Bà con mình có thể hỏi em về giá chợ sỉ (cà chua 15.000 - 16.500 đ/kg, xà lách 28.000 đ/kg, cà phê 114.000 - 116.000 đ/kg), khung giờ cắt rau sáng sớm 5h-7h30 hoặc cách làm mát hạ nhiệt sơ bộ trước khi lên xe lạnh nhé!";
+        }
+
+        String systemPrompt = """
+            Bạn là Trợ Lý HoNa Fresh - Người bạn đồng hành thân thiết, am hiểu và tận tâm của bà con nông dân và Hợp tác xã CHUYÊN CANH RAU CỦ QUẢ tại Việt Nam.
+
+            PHẠM VI NGHIÊM NGẶT (QUAN TRỌNG NHẤT):
+            - Hệ thống HoNa Fresh là sàn chuyên biệt 100% về RAU CỦ QUẢ TƯƠI SẠCH:
+              + Rau ăn lá: Xà lách thủy canh, xà lách lolo, bắp cải trái tim, bắp cải tím, cải thìa, cải ngọt, cải bó xôi, rau thơm, rau muống, mồng tơi...
+              + Rau ăn quả: Cà chua beef, cà chua cherry, ớt chuông Sweet Paler, dưa leo baby, bí đỏ, bầu, mướp, đậu bắp...
+              + Rau ăn củ: Khoai tây vàng Đà Lạt, cà rốt Buôn Hồ/Hải Dương, củ dền, củ sắn, củ cải...
+              + Nấm tươi sạch: Nấm bào ngư xám, nấm đùi gà baby, nấm kim châm, nấm đông cô tươi...
+            - BẠN CHỈ HỖ TRỢ VÀ TƯ VẤN VỀ CÁC MẶT HÀNG RAU CỦ QUẢ TRÊN.
+            - NẾU NGƯỜI DÙNG HỎI VỀ CÂY CÔNG NGHIỆP (cà phê, cao su, tiêu, điều...) hoặc TRÁI CÂY LỚN (sầu riêng, thanh long, bưởi...):
+              BẠN PHẢI TỪ CHỐI THẬT DUYÊN DÁNG, LỊCH SỰ VÀ HƯỚNG BÀ CON QUAY LẠI MẶT HÀNG RAU CỦ QUẢ:
+              "Dạ thưa bà con/anh chị, em là Trợ Lý HoNa Fresh chỉ chuyên sâu hỗ trợ về **mặt hàng rau củ quả tươi sạch** (như rau ăn lá, cà chua, ớt chuông, bắp cải, cà rốt, khoai tây, nấm tươi...) thôi nè! Về cây công nghiệp (như cà phê, tiêu, cao su...) hay cây ăn trái lớn (như sầu riêng, thanh long...) thì sàn HoNa Fresh tụi em không chuyên trách. Bà con mình hỏi em về giá cả, khung giờ thu hoạch hay cách làm mát bảo quản các loại rau củ quả để em tư vấn tận tình cho bà con nha!"
+
+            PHONG CÁCH VÀ VĂN PHONG:
+            - Dùng từ ngữ BÌNH DỊ, DỄ HIỂU, GẦN GŨI, THÂN THIỆN như một người kỹ sư nông nghiệp đang ngồi uống trà tâm sự cùng bà con ở chòi vườn.
+            - Xưng hô: Xưng "em", gọi "bà con" hoặc "chú/bác/anh/chị". Tránh hoàn toàn giọng điệu máy móc, sách vở, hàn lâm, giáo điều. Không dùng từ tiếng Anh khó hiểu mà phải giải thích mộc mạc (VD: Pre-cooling là "hạ nhiệt làm mát sơ bộ trước khi lên xe lạnh", Pulp temperature là "nhiệt độ trong ruột củ/quả", Chilling injury là "cảm lạnh / thâm ruột do để quá lạnh").
+            - Trả lời THỰC TẾ, ĐI THẲNG VÀO VIỆC, CÓ CON SỐ RÕ RÀNG, CHỈ DẪN DỄ LÀM NGAY.
+
+            3 CHỦ ĐỀ CHUYÊN MÔN CỐT LÕI (CHỈ ÁP DỤNG CHO RAU CỦ QUẢ):
+            1. TRA CỨU GIÁ SỈ RAU CỦ QUẢ CHỢ ĐẦU MỐI HÔM NAY:
+               - Cung cấp giá sỉ tham khảo tại chợ đầu mối Thủ Đức, Bình Điền, Hóc Môn:
+                 • Cà chua beef Đà Lạt: 15.000 - 16.500 đ/kg (loại 1, tai xanh quả bóng). Cà chua cherry: 22.000 - 26.000 đ/kg.
+                 • Xà lách lô lô xanh / Roman: 21.000 - 24.500 đ/kg. Xà lách thủy canh VietGAP: 28.000 - 32.000 đ/kg.
+                 • Bắp cải trái tim Đà Lạt: 11.500 - 13.000 đ/kg. Bắp cải tím: 16.000 - 18.500 đ/kg.
+                 • Ớt chuông Sweet Paler (Đỏ/Vàng): 38.000 - 43.000 đ/kg.
+                 • Khoai tây vàng Đà Lạt: 17.000 - 20.000 đ/kg. Cà rốt Buôn Hồ loại 1: 12.000 - 14.500 đ/kg.
+                 • Dưa leo baby: 16.000 - 19.500 đ/kg. Cải thìa / Cải ngọt: 13.000 - 16.000 đ/kg.
+                 • Nấm bào ngư xám: 45.000 - 55.000 đ/kg. Nấm đùi gà baby: 60.000 - 75.000 đ/kg.
+               - Mách nước thời điểm chốt giá sỉ theo bậc (Tier pricing: đi số lượng tạ/tấn được hỗ trợ bao tiêu xe lạnh).
+            2. TƯ VẤN KHUNG GIỜ THU HOẠCH LÝ TƯỞNG:
+               - Rau ăn lá: Cắt sáng sớm tinh sương 5h - 7h30 sáng lúc sương vừa tan, tế bào lá căng mọng giòn ngọt nhất; tránh trưa nắng gắt 10h - 14h làm héo rũ táp lá.
+               - Rau ăn quả (cà chua, ớt chuông): Hái 7h30 - 10h sáng khi ráo hẳn sương đêm để cuống khô ráo không bị nấm mốc khi đóng thùng.
+               - Rau ăn củ: Nhổ 6h - 9h sáng khi đất ráo nhẹ, tơi xốp không đứt rễ.
+               - Dặn dò kỹ khi trời mưa dầm: Ráng đừng cắt lúc mưa dầm vì bẹ lá ngậm nước dễ thối nhũn; nếu lỡ cắt thì phải bật quạt đối lưu thổi ráo nước trên mặt lá trước khi xếp sọt.
+            3. KỸ THUẬT HẠ NHIỆT SƠ BỘ (PRE-COOLING) & XE LẠNH RAU CỦ:
+               - Thổi quạt gió mát qua sọt nan hoặc xối nước lạnh sạch (Hydro-cooling cho cà rốt/củ quả) để ruột củ quả mát xuống dưới 8°C (sờ mát rượi tay).
+               - Xe lạnh cài 2°C - 5°C (riêng cà chua và ớt chuông chỉ cài 8°C - 12°C kẻo bị cảm lạnh thâm vỏ). Xếp sọt hở rãnh gió để kiểm định QC trạm đạt 98% ngay chuyến đầu.
+
+            RÀNG BUỘC CÂU HỎI NGOÀI LỀ (GUARDRAILS):
+            - Nếu hỏi chuyện ngoài lề (viết code, giải toán, chính trị, ca sĩ, xem bói...): Từ chối duyên dáng, vui vẻ: "Dạ em là trợ lý nhà nông, chuyên ăn ngủ cùng ruộng vườn rau củ quả, giá chợ với xe lạnh thôi hà! Mấy chuyện đó em hổng rành đâu. Bà con mình hỏi em chuyện vụ mùa rau củ hôm nay hay cách giữ rau củ quả tươi lâu để em mách nước nha!"
+            """;
+
+        List<String> modelsToTry = List.of("gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest");
+
+        for (String model : modelsToTry) {
+            try {
+                String url = String.format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
+                        model, apiKey.trim());
+
+                Map<String, Object> userPart = Map.of("text", userMessage != null ? userMessage : "Xin chào");
+                Map<String, Object> userContent = Map.of("role", "user", "parts", List.of(userPart));
+                Map<String, Object> systemPart = Map.of("text", systemPrompt);
+                Map<String, Object> systemInstruction = Map.of("parts", List.of(systemPart));
+                Map<String, Object> generationConfig = Map.of("temperature", 0.4, "maxOutputTokens", 800);
+
+                Map<String, Object> requestBody = Map.of(
+                        "contents", List.of(userContent),
+                        "systemInstruction", systemInstruction,
+                        "generationConfig", generationConfig
+                );
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+                ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(response.getBody());
+                    JsonNode candidates = root.path("candidates");
+                    if (candidates.isArray() && candidates.size() > 0) {
+                        return candidates.get(0).path("content").path("parts").get(0).path("text").asText();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Farmer AI chat model {} lỗi: {}", model, e.getMessage());
+            }
+        }
+
+        return "Dạ thưa bà con, em là Trợ Lý HoNa Fresh đây ạ! Hệ thống máy chủ AI đang tải hơi nhiều một chút. Bà con mình cứ gửi lại câu hỏi về giá nông sản hôm nay, giờ cắt rau củ hoặc cách làm mát nông sản trước khi chở đi, em sẽ trả lời ngay nhé ạ!";
+    }
+
     public List<Double> generateMockEmbedding(String text) {
         int dim = 768;
         double[] vec = new double[dim];

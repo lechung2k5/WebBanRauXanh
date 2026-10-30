@@ -1,50 +1,24 @@
 import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+import { api } from './auth';
+export { api } from './auth';
 
-// Authentication APIs
-export const loginApi = async (username: string, password: string, rememberMe: boolean): Promise<AuthResponse> => {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, rememberMe }),
-  });
+const API_BASE_URL = '/api/backend';
 
-  const data: ApiResponse<AuthResponse> = await res.json();
-  if (!res.ok || data.code !== 200) {
-    throw new Error(data.message || 'Đăng nhập thất bại!');
+export const loginApi = async (username: string, password: string, rememberMe = false) => {
+  const res = await api<import('./auth').AuthResult>('auth/login', 'POST', { username, password, rememberMe });
+  if (typeof window !== 'undefined' && res && 'roles' in res) {
+    if (rememberMe) {
+      localStorage.setItem('xanhfarm_user', JSON.stringify(res));
+    } else {
+      sessionStorage.setItem('xanhfarm_user', JSON.stringify(res));
+    }
   }
-
-  // Save in localStorage if Remember-me is checked
-  if (rememberMe) {
-    localStorage.setItem('xanhfarm_user', JSON.stringify(data.result));
-  } else {
-    sessionStorage.setItem('xanhfarm_user', JSON.stringify(data.result));
-  }
-
-  return data.result;
+  return res;
 };
 
-export const registerApi = async (form: {
-  username: string;
-  password: string;
-  fullName: string;
-  email: string;
-  phone?: string;
-  address?: string;
-}): Promise<AuthResponse> => {
-  const res = await fetch(`${API_BASE_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(form),
-  });
-
-  const data: ApiResponse<AuthResponse> = await res.json();
-  if (!res.ok || (data.code !== 200 && data.code !== 201)) {
-    throw new Error(data.message || 'Đăng ký thất bại!');
-  }
-  return data.result;
+export const registerApi = async (form: Record<string, unknown>) => {
+  return api<import('./auth').OtpChallenge>('auth/register', 'POST', form);
 };
 
 export const logoutApi = async (): Promise<void> => {
@@ -53,13 +27,9 @@ export const logoutApi = async (): Promise<void> => {
     sessionStorage.removeItem('xanhfarm_user');
   }
   try {
-    await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+    await api('auth/logout', 'POST', {});
   } catch {
     // ignore
-  }
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('xanhfarm_user');
-    sessionStorage.removeItem('xanhfarm_user');
   }
 };
 
@@ -71,12 +41,6 @@ export const getStoredUser = (): AuthResponse | null => {
       const user: AuthResponse = JSON.parse(raw);
       if (user && user.username === 'admin' && user.roles?.includes('ROLE_USER')) {
         user.roles = user.roles.filter((r) => r !== 'ROLE_USER');
-        if (localStorage.getItem('xanhfarm_user')) {
-          localStorage.setItem('xanhfarm_user', JSON.stringify(user));
-        }
-        if (sessionStorage.getItem('xanhfarm_user')) {
-          sessionStorage.setItem('xanhfarm_user', JSON.stringify(user));
-        }
       }
       return user;
     } catch {
@@ -86,13 +50,27 @@ export const getStoredUser = (): AuthResponse | null => {
   return null;
 };
 
+export const getCurrentUserApi = async (): Promise<AuthResponse> => {
+  const user = await api<AuthResponse>('auth/me');
+  if (user && typeof window !== 'undefined') {
+    if (localStorage.getItem('xanhfarm_user')) {
+      localStorage.setItem('xanhfarm_user', JSON.stringify(user));
+    }
+  }
+  return user;
+};
+
 // User Management (ADMIN)
 export const getUsersApi = async (): Promise<User[]> => {
   try {
     const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
+    if (!res.ok && (res.status === 401 || res.status === 403)) {
+      throw new Error('Access Denied');
+    }
     const data: ApiResponse<User[]> = await res.json();
     return data.result || [];
-  } catch {
+  } catch (err: any) {
+    if (err?.message === 'Access Denied') throw err;
     return [];
   }
 };
@@ -100,6 +78,7 @@ export const getUsersApi = async (): Promise<User[]> => {
 export const toggleUserStatusApi = async (userId: number): Promise<boolean> => {
   const res = await fetch(`${API_BASE_URL}/users/${userId}/toggle-status`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}',
     credentials: 'include',
   });
   const data: ApiResponse<boolean> = await res.json();
@@ -713,7 +692,7 @@ export const getProductBySlug = async (slugOrId: string | number): Promise<Produ
 export const createProductApi = async (productData: any): Promise<Product> => {
   const res = await fetch(`${API_BASE_URL}/products`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify(productData),
   });
   const data: ApiResponse<Product> = await res.json();
@@ -724,7 +703,7 @@ export const createProductApi = async (productData: any): Promise<Product> => {
 export const updateProductApi = async (id: number, productData: any): Promise<Product> => {
   const res = await fetch(`${API_BASE_URL}/products/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify(productData),
   });
   const data: ApiResponse<Product> = await res.json();
@@ -734,7 +713,7 @@ export const updateProductApi = async (id: number, productData: any): Promise<Pr
 
 export const deleteProductApi = async (id: number): Promise<void> => {
   const res = await fetch(`${API_BASE_URL}/products/${id}`, {
-    method: 'DELETE',
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}',
   });
   if (!res.ok) throw new Error('Lỗi khi xoá sản phẩm');
 };
@@ -743,27 +722,14 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
   try {
     const res = await fetch(`${API_BASE_URL}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
       body: JSON.stringify(orderReq),
     });
     const data: ApiResponse<OrderResponse> = await res.json();
     if (!res.ok) throw new Error(data.message || 'Lỗi khi đặt hàng');
     return data.result;
-  } catch (err: any) {
-    return {
-      id: Date.now(),
-      orderCode: `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
-      recipientName: orderReq.recipientName,
-      recipientPhone: orderReq.recipientPhone,
-      shippingAddress: orderReq.shippingAddress,
-      note: orderReq.note,
-      totalAmount: 95000,
-      paymentMethod: orderReq.paymentMethod,
-      isPaid: false,
-      status: 'PENDING',
-      items: [],
-      createdAt: new Date().toISOString(),
-    };
+  } catch (err: unknown) {
+    throw err;
   }
 };
 
@@ -780,8 +746,14 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
 
 export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
   const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Access Denied');
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json().catch(() => ({}) as any);
+    throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  }
   const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
   return data.result;
 };
 
@@ -827,13 +799,13 @@ export const getBuyerQcReportApi = async (contractId: number): Promise<Array<Rec
 };
 
 export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
-  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}', credentials: 'include' });
   const data: ApiResponse<OrderResponse> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
   return data.result;
 };
 
-// ======================= AI & PGVECTOR APIS =======================
+// // -------------------------------- AI & PGVECTOR APIS // --------------------------------
 
 export const semanticSearchApi = async (query: string, limit: number = 6): Promise<SemanticSearchResponse> => {
   const res = await fetch(`${API_BASE_URL}/ai/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
@@ -849,7 +821,7 @@ export const semanticSearchApi = async (query: string, limit: number = 6): Promi
 export const aiChatRagApi = async (message: string): Promise<AiChatResponse> => {
   const res = await fetch(`${API_BASE_URL}/ai/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify({ message }),
   });
   const data: ApiResponse<AiChatResponse> = await res.json();
@@ -871,7 +843,7 @@ export const getAiStatusApi = async (): Promise<AiStatusResponse> => {
 export const configGeminiKeyApi = async (apiKey: string): Promise<boolean> => {
   const res = await fetch(`${API_BASE_URL}/ai/config-key`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
     body: JSON.stringify({ apiKey }),
   });
   const data: ApiResponse<{ hasGeminiKey: boolean }> = await res.json();
@@ -882,7 +854,11 @@ export const configGeminiKeyApi = async (apiKey: string): Promise<boolean> => {
 };
 
 export const syncAiEmbeddingsApi = async (): Promise<number> => {
-  const res = await fetch(`${API_BASE_URL}/ai/sync-embeddings`, { method: 'POST' });
+  const res = await fetch(`${API_BASE_URL}/ai/sync-embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
+    body: '{}',
+  });
   const data: ApiResponse<{ syncedCount: number }> = await res.json();
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi đồng bộ vector');
@@ -925,7 +901,10 @@ export const getSimilarProductsApi = async (idOrSlug: string | number, limit: nu
   }));
 };
 
-// ======================= MODULE 2: CATEGORIES CRUD APIS =======================
+
+//
+
+// -------------------------------- MODULE 2: CATEGORIES CRUD APIS // --------------------------------
 
 export const createCategoryApi = async (categoryData: Partial<Category>): Promise<Category> => {
   const res = await fetch(`${API_BASE_URL}/categories`, {
@@ -966,7 +945,7 @@ export const deleteCategoryApi = async (id: number): Promise<void> => {
   }
 };
 
-// ======================= MODULE 2: HARVEST LOTS APIS =======================
+// // -------------------------------- MODULE 2: HARVEST LOTS APIS // --------------------------------
 
 
 export const getAdminHarvestLotsApi = async (params?: {
@@ -1127,4 +1106,17 @@ export const deleteHarvestLotApi = async (id: number): Promise<void> => {
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi xóa lô nông sản');
   }
+};
+
+export const farmerAiChatApi = async (message: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/ai-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data: ApiResponse<{ answer: string }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi kết nối với Trợ Lý Nông Dân AI');
+  }
+  return data.result?.answer || '';
 };

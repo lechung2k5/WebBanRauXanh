@@ -16,4 +16,10 @@ public class HarvestLotStatusUpdateRequest {
     private String rejectionReason; // Lý do từ chối hoặc biên bản tạm khóa dư lượng BVTV
 
     private String auditNote; // Ghi chú của quản trị viên khi thẩm định
+    private String note;
+
+    public String getAuditNote() {
+        if (auditNote != null && !auditNote.isBlank()) return auditNote;
+        return note;
+    }
 }

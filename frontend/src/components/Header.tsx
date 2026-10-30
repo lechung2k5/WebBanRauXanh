@@ -18,6 +18,7 @@ function HeaderInner() {
   const catParam = searchParams.get('category');
 
   const {
+    cartCount,
     isAuthOpen,
     setIsAuthOpen,
     isLocationOpen,
@@ -75,6 +76,8 @@ function HeaderInner() {
   return (
     <>
       <Navbar
+        cartCount={cartCount}
+        onOpenCart={() => router.push('/lo-hang')}
         onOpenTracking={() => setIsTrackingOpen(true)}
         onOpenPromo={() => setIsPromoOpen(true)}
         onOpenLocation={() => setIsLocationOpen(true)}

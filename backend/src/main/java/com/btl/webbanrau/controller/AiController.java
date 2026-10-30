@@ -10,7 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import org.springframework.security.access.prepost.PreAuthorize;
 import java.util.List;
 import java.util.Map;
 
@@ -86,6 +86,19 @@ public class AiController {
                 .build());
     }
 
+
+    @Operation(summary = "Trợ lý HoNa Fresh AI chuyên biệt dành riêng cho Nông Dân & HTX")
+    @PostMapping("/farmer-chat")
+    public ResponseEntity<ApiResponse<Map<String, String>>> farmerChat(@RequestBody Map<String, String> request) {
+        String query = request.get("message");
+        String answer = geminiService.generateFarmerChat(query);
+        return ResponseEntity.ok(ApiResponse.<Map<String, String>>builder()
+                .code(200)
+                .message("Phản hồi AI Nông Dân thành công")
+                .result(Map.of("answer", answer))
+                .build());
+    }
+
     @Operation(summary = "Đồng bộ vector embedding cho toàn bộ nông sản trong DB")
     @PostMapping("/sync-embeddings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> syncEmbeddings() {
@@ -117,6 +130,7 @@ public class AiController {
 
     @Operation(summary = "Cấu hình Google Gemini API Key trực tiếp tại runtime")
     @PostMapping("/config-key")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> configApiKey(@RequestBody Map<String, String> body) {
         String key = body.get("apiKey");
         if (key == null || key.trim().isEmpty()) {

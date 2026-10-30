@@ -16,6 +16,14 @@ services:
     networks:
       - app_network
 
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - app_network
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: security_demo_pgadmin

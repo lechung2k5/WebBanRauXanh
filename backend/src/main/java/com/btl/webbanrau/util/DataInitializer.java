@@ -1,8 +1,8 @@
 package com.btl.webbanrau.util;
 
-import com.btl.webbanrau.model.Category;
-import com.btl.webbanrau.model.HarvestLot;
-import com.btl.webbanrau.model.Product;
+import com.btl.webbanrau.model.*;
+import com.btl.webbanrau.repository.*;
+import java.time.LocalDateTime;import com.btl.webbanrau.model.Product;
 import com.btl.webbanrau.model.Role;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.CategoryRepository;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 
 @Component
+@org.springframework.context.annotation.Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 public class DataInitializer implements CommandLineRunner {
@@ -32,12 +33,18 @@ public class DataInitializer implements CommandLineRunner {
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final HarvestLotRepository harvestLotRepository;
+    private final FarmerProfileRepository farmerProfileRepository;
+    private final RfqNegotiationRepository rfqNegotiationRepository;
+    private final B2bContractRepository b2bContractRepository;
+    private final QcInspectionRepository qcInspectionRepository;
+    private final SettlementRepository settlementRepository;
     private final PasswordEncoder passwordEncoder;
     private final com.btl.webbanrau.service.AiSearchService aiSearchService;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @Override
     public void run(String... args) {
+<<<<<<< HEAD
         // 1. Tạo Roles
         Role roleAdmin = roleRepository.findByName("ROLE_ADMIN")
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_ADMIN", "Quản trị viên toàn quyền")));
@@ -45,46 +52,150 @@ public class DataInitializer implements CommandLineRunner {
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_USER", "Khách hàng mua rau")));
         Role roleBuyer = roleRepository.findByName("ROLE_BUYER")
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_BUYER", "Thương lái/doanh nghiệp thu mua B2B")));
+=======
+        try {
+            jdbcTemplate.execute("ALTER TABLE harvest_lots ALTER COLUMN tier_pricing_json TYPE jsonb USING tier_pricing_json::jsonb");
+        } catch (Exception ignored) {}
+        for (String name : List.of("ADMIN","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER","USER")) {
+            roleRepository.findByName("ROLE_"+name).orElseGet(()->roleRepository.save(new Role("ROLE_"+name,name)));
+        }
+>>>>>>> origin/main
 
-        // 2. Tạo Users mẫu nếu DB chưa có
-        if (userRepository.count() == 0) {
-            log.info("Seeding users for BTL Web Ban Rau...");
+        // 1. Seed Quản trị viên tối cao (ROLE_ADMIN)
+        String adminEmail = System.getenv("ADMIN_EMAIL") != null ? System.getenv("ADMIN_EMAIL") : "admin@honafresh.vn";
+        String adminPassword = System.getenv("ADMIN_PASSWORD") != null ? System.getenv("ADMIN_PASSWORD") : "Admin@123456";
+        User adminUser = userRepository.findByUsername("admin").orElse(null);
+        if (adminUser == null) {
+            userRepository.save(User.builder()
+                .username("admin")
+                .email(adminEmail.trim().toLowerCase())
+                .password(passwordEncoder.encode(adminPassword))
+                .fullName("HoNa Administrator")
+                .phone("0901234567")
+                .address("Hội sở HoNa Fresh, TP.HCM")
+                .companyName("HoNa Fresh Platform Co.")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ADMIN").orElseThrow())))
+                .build());
+            log.info("Seeded default admin account: admin / {}", adminPassword);
+        } else {
+            adminUser.setEmail(adminEmail.trim().toLowerCase());
+            adminUser.setPassword(passwordEncoder.encode(adminPassword));
+            adminUser.setEmailVerified(true);
+            adminUser.setKycStatus("VERIFIED");
+            if (adminUser.getRoles() == null || adminUser.getRoles().isEmpty()) {
+                adminUser.setRoles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ADMIN").orElseThrow())));
+            }
+            userRepository.save(adminUser);
+            log.info("Synchronized existing admin account: admin / {}", adminPassword);
+        }
 
-            User admin = User.builder()
-                    .username("admin")
-                    .password(passwordEncoder.encode("admin123"))
-                    .fullName("Quản Trị Viên")
-                    .email("admin@webbanrau.com")
-                    .phone("0988888888")
-                    .address("Hà Nội")
-                    .enabled(true)
-                    .roles(new HashSet<>(Set.of(roleAdmin)))
-                    .build();
+        // 2. Seed Nông dân B2B (ROLE_FARMER)
+        if (!userRepository.existsByUsername("farmer_dalat")) {
+            userRepository.save(User.builder()
+                .username("farmer_dalat")
+                .email("farmer@honafresh.vn")
+                .password(passwordEncoder.encode("Farmer@123456"))
+                .fullName("Nguyễn Văn Nông")
+                .phone("0912345678")
+                .address("Xã Lạc Dương, TP. Đà Lạt, Lâm Đồng")
+                .companyName("Nông Trại Hữu Cơ Đà Lạt Fresh")
+                .taxCode("5801234567")
+                .householdFarmer(true)
+                .bankName("VietinBank")
+                .bankAccountNo("102839281928")
+                .pucCode("PUC-LD-001")
+                .certification("VietGAP")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_FARMER").orElseThrow())))
+                .build());
+            log.info("Seeded default farmer account: farmer_dalat / Farmer@123456");
+        }
 
-            User user = User.builder()
-                    .username("user")
-                    .password(passwordEncoder.encode("user123"))
-                    .fullName("Nguyễn Văn Khách")
-                    .email("user@gmail.com")
-                    .phone("0912345678")
-                    .address("Cầu Giấy, Hà Nội")
-                    .enabled(true)
-                    .roles(new HashSet<>(Set.of(roleUser)))
-                    .build();
+        // Seed Khách hàng bán lẻ (ROLE_USER)
+        if (!userRepository.existsByUsername("user")) {
+            userRepository.save(User.builder()
+                .username("user")
+                .password(passwordEncoder.encode("user123"))
+                .fullName("Nguyễn Văn Khách")
+                .email("user@gmail.com")
+                .phone("0912345678")
+                .address("Cầu Giấy, Hà Nội")
+                .enabled(true)
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_USER").orElseThrow())))
+                .build());
+            log.info("Seeded default customer account: user / user123");
+        }
 
-            User lockedUser = User.builder()
-                    .username("locked")
-                    .password(passwordEncoder.encode("user123"))
-                    .fullName("Tài Khoản Bị Khoá")
-                    .email("locked@gmail.com")
-                    .phone("0900000000")
-                    .address("Đống Đa, Hà Nội")
-                    .enabled(false) // Tài khoản bị khoá
-                    .roles(new HashSet<>(Set.of(roleUser)))
-                    .build();
+        // 3. Seed Thương lái B2B (ROLE_BUYER)
+        if (!userRepository.existsByUsername("buyer_sg")) {
+            userRepository.save(User.builder()
+                .username("buyer_sg")
+                .email("buyer@honafresh.vn")
+                .password(passwordEncoder.encode("Buyer@123456"))
+                .fullName("Trần Thị Thương")
+                .phone("0987654321")
+                .address("Quận Bình Tân, TP.HCM")
+                .companyName("Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn")
+                .taxCode("0312345678")
+                .warehouseAddress("Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_BUYER").orElseThrow())))
+                .build());
+            log.info("Seeded default buyer account: buyer_sg / Buyer@123456");
+        }
 
-            userRepository.saveAll(List.of(admin, user, lockedUser));
-            log.info("Seeded 3 sample accounts: admin/admin123, user/user123, locked/user123");
+        // 4. Seed Kiểm định viên Trạm QC (ROLE_WAREHOUSE_QC)
+        if (!userRepository.existsByUsername("qc_tram1")) {
+            userRepository.save(User.builder()
+                .username("qc_tram1")
+                .email("qc@honafresh.vn")
+                .password(passwordEncoder.encode("Qcstaff@123456"))
+                .fullName("Kỹ Thuật Viên Kiểm Định 01")
+                .phone("0933112233")
+                .address("Trạm Trung Chuyển Dầu Giây, Đồng Nai")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_WAREHOUSE_QC").orElseThrow())))
+                .build());
+            log.info("Seeded default QC account: qc_tram1 / Qcstaff@123456");
+        }
+
+        // 5. Seed Tài xế vận tải lạnh TMS (ROLE_DRIVER)
+        if (!userRepository.existsByUsername("driver_tms")) {
+            userRepository.save(User.builder()
+                .username("driver_tms")
+                .email("driver@honafresh.vn")
+                .password(passwordEncoder.encode("Driver@123456"))
+                .fullName("Tài Xế Nguyễn Văn Tài")
+                .phone("0944556677")
+                .address("Đội xe Lạnh HoNa Express, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_DRIVER").orElseThrow())))
+                .build());
+            log.info("Seeded default driver account: driver_tms / Driver@123456");
+        }
+
+        // 6. Seed Kế toán sàn VAS (ROLE_ACCOUNTANT)
+        if (!userRepository.existsByUsername("accountant_vas")) {
+            userRepository.save(User.builder()
+                .username("accountant_vas")
+                .email("accountant@honafresh.vn")
+                .password(passwordEncoder.encode("Account@123456"))
+                .fullName("Kế Toán Viên Lê Thị Thu")
+                .phone("0977889900")
+                .address("Phòng Tài Chính - Kế Toán HoNa Fresh, TP.HCM")
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_ACCOUNTANT").orElseThrow())))
+                .build());
+            log.info("Seeded default accountant account: accountant_vas / Account@123456");
         }
 
         if (userRepository.findByUsername("buyer").isEmpty()) {
@@ -103,15 +214,15 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         // Đảm bảo tài khoản admin chỉ có ROLE_ADMIN, loại bỏ ROLE_USER nếu có
-        userRepository.findByUsername("admin").ifPresent(adminUser -> {
-            boolean hasRoleUser = adminUser.getRoles().stream().anyMatch(r -> "ROLE_USER".equals(r.getName()));
+        userRepository.findByUsername("admin").ifPresent(targetAdmin -> {
+            boolean hasRoleUser = targetAdmin.getRoles().stream().anyMatch(r -> "ROLE_USER".equals(r.getName()));
             if (hasRoleUser) {
-                adminUser.getRoles().removeIf(r -> "ROLE_USER".equals(r.getName()));
-                if (adminUser.getRoles().stream().noneMatch(r -> "ROLE_ADMIN".equals(r.getName()))) {
-                    adminUser.getRoles().add(roleAdmin);
+                targetAdmin.getRoles().removeIf(r -> "ROLE_USER".equals(r.getName()));
+                if (targetAdmin.getRoles().stream().noneMatch(r -> "ROLE_ADMIN".equals(r.getName()))) {
+                    targetAdmin.getRoles().add(roleRepository.findByName("ROLE_ADMIN").orElseThrow());
                 }
-                userRepository.save(adminUser);
-                log.info("Đã loại bỏ ROLE_USER khỏi tài khoản admin. Vai trò hiện tại của admin: {}", adminUser.getRoles());
+                userRepository.save(targetAdmin);
+                log.info("Đã loại bỏ ROLE_USER khỏi tài khoản admin. Vai trò hiện tại của admin: {}", targetAdmin.getRoles());
             }
         });
 
@@ -323,6 +434,70 @@ public class DataInitializer implements CommandLineRunner {
                             .origin("Lâm Đồng")
                             .isOrganic(true)
                             .isFeatured(false)
+                            .isActive(true)
+                            .category(cat2)
+                            .build(),
+
+                    Product.builder()
+                            .name("Đậu Bắp Xanh Hữu Cơ VietGAP")
+                            .slug(SlugUtil.toSlug("Đậu Bắp Xanh Hữu Cơ VietGAP"))
+                            .description("Đậu bắp xanh non giòn ngọt, giàu chất nhầy tự nhiên và vitamin, nguyên liệu kinh điển chuyên dùng nấu canh chua cá, nướng chao hoặc luộc chấm kho quẹt.")
+                            .price(BigDecimal.valueOf(22000))
+                            .originalPrice(BigDecimal.valueOf(28000))
+                            .stockQuantity(120)
+                            .unit("gói 500g")
+                            .imageUrl("https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=600&auto=format&fit=crop&q=80")
+                            .origin("Đơn Dương, Lâm Đồng")
+                            .isOrganic(true)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat2)
+                            .build(),
+
+                    Product.builder()
+                            .name("Bạc Hà (Dọc Mùng) Sạch Tươi")
+                            .slug(SlugUtil.toSlug("Bạc Hà Dọc Mùng Sạch Tươi"))
+                            .description("Bạc hà (dọc mùng) tước vỏ sạch sẽ, thân xốp giòn mọng nước, nguyên liệu truyền thống linh hồn của nồi canh chua cá lóc, bún mọc, bún sườn chua.")
+                            .price(BigDecimal.valueOf(18000))
+                            .originalPrice(BigDecimal.valueOf(24000))
+                            .stockQuantity(90)
+                            .unit("gói 300g")
+                            .imageUrl("https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80")
+                            .origin("Củ Chi, TP.HCM")
+                            .isOrganic(true)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat1)
+                            .build(),
+
+                    Product.builder()
+                            .name("Khóm Tân Lập (Dứa / Thơm) Tiền Giang")
+                            .slug(SlugUtil.toSlug("Khóm Tân Lập Dứa Thơm Tiền Giang"))
+                            .description("Khóm Tân Lập ngọt thanh chua dịu, mắt nông nhiều nước, chuyên dùng nấu canh chua cá, làm xào chua ngọt hoặc ép nước uống thanh nhiệt.")
+                            .price(BigDecimal.valueOf(25000))
+                            .originalPrice(BigDecimal.valueOf(30000))
+                            .stockQuantity(100)
+                            .unit("trái 1kg")
+                            .imageUrl("https://images.unsplash.com/photo-1550258987-190a2d41a8ba?w=600&auto=format&fit=crop&q=80")
+                            .origin("Tiền Giang (Miền Tây)")
+                            .isOrganic(false)
+                            .isFeatured(true)
+                            .isActive(true)
+                            .category(cat2)
+                            .build(),
+
+                    Product.builder()
+                            .name("Cà Chua Beef Trái To Đà Lạt")
+                            .slug(SlugUtil.toSlug("Cà Chua Beef Trái To Đà Lạt"))
+                            .description("Cà chua beef trái to dày thịt mọng nước, vị chua ngọt đậm đà tự nhiên, tạo màu đỏ đẹp và vị chua thanh chuyên dùng nấu canh chua cá, sốt cà chua và salad.")
+                            .price(BigDecimal.valueOf(32000))
+                            .originalPrice(BigDecimal.valueOf(40000))
+                            .stockQuantity(150)
+                            .unit("kg")
+                            .imageUrl("https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600&auto=format&fit=crop&q=80")
+                            .origin("Đà Lạt, Lâm Đồng")
+                            .isOrganic(true)
+                            .isFeatured(true)
                             .isActive(true)
                             .category(cat2)
                             .build()
@@ -546,6 +721,210 @@ public class DataInitializer implements CommandLineRunner {
             }
         } catch (Exception e) {
             log.warn("Không thể tự động đồng bộ vector lúc khởi động: {}", e.getMessage());
+        }
+
+        // Seed Farmer Portal Demo Data
+        Role roleFarmer = roleRepository.findByName("ROLE_FARMER").orElseThrow();
+        seedFarmerPortalData(roleFarmer);
+    }
+
+    private void seedFarmerPortalData(Role roleFarmer) {
+        try {
+            User farmer = userRepository.findByUsername("farmer_dalat").orElseGet(() -> {
+                User f = User.builder()
+                        .username("farmer_dalat")
+                        .password(passwordEncoder.encode("farmer123"))
+                        .fullName("HTX Nông Nghiệp Đà Lạt GAP")
+                        .email("farmer@webbanrau.com")
+                        .phone("0988100222")
+                        .address("Xã Xuân Thọ, TP. Đà Lạt, Tỉnh Lâm Đồng")
+                        .enabled(true)
+                        .roles(new HashSet<>(Set.of(roleFarmer)))
+                        .build();
+                return userRepository.save(f);
+            });
+
+            farmerProfileRepository.findByUser(farmer).orElseGet(() -> {
+                FarmerProfile p = FarmerProfile.builder()
+                        .user(farmer)
+                        .farmName("Hợp Tác Xã Nông Sản Sạch Đà Lạt GAP")
+                        .farmerType("COOPERATIVE")
+                        .pucCode("VN-LDO-PUC-0849")
+                        .certifications("VietGAP, GlobalGAP, Organic")
+                        .certExpiryDate(LocalDate.now().plusMonths(18))
+                        .taxCode("5801456789")
+                        .idCardNumber("068095001234")
+                        .bankAccount("5400205219999")
+                        .bankAccountName("HTX RAU SACH DA LAT GAP")
+                        .bankName("Agribank - Chi Nhánh Lâm Đồng")
+                        .location("Xã Xuân Thọ, TP. Đà Lạt, Tỉnh Lâm Đồng")
+                        .cultivatedArea("45 Hecta")
+                        .certImageUrl("https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=500&auto=format&fit=crop&q=80")
+                        .build();
+                return farmerProfileRepository.save(p);
+            });
+
+            if (harvestLotRepository.count() == 0) {
+                log.info("Seeding Farmer Portal Harvest Lots & Contracts...");
+
+                HarvestLot lot1 = HarvestLot.builder()
+                        .lotCode("LOT-2026-DL01")
+                        .productName("Cà Chua Beef Đà Lạt Chuẩn VietGAP")
+                        .categorySlug("cu-qua-tuoi")
+                        .imageUrl("https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600&auto=format&fit=crop&q=80")
+                        .pucCode("VN-LDO-PUC-0849")
+                        .harvestDate(LocalDate.now().plusDays(2))
+                        .expiryDate(LocalDate.now().plusDays(16))
+                        .totalQuantity(5000.0)
+                        .remainingQuantity(2000.0)
+                        .unit("kg")
+                        .minTemp(2.0)
+                        .maxTemp(6.0)
+                        .tierPricingJson("[{\"minKg\":500,\"pricePerKg\":15000},{\"minKg\":2000,\"pricePerKg\":13500},{\"minKg\":5000,\"pricePerKg\":12000}]")
+                        .status("NEGOTIATING")
+                        .farmer(farmer)
+                        .hubLocation("Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .build();
+
+                HarvestLot lot2 = HarvestLot.builder()
+                        .lotCode("LOT-2026-DL02")
+                        .productName("Xà Lách Lô Lô Xanh Thủy Canh")
+                        .categorySlug("rau-sach")
+                        .imageUrl("https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=600&auto=format&fit=crop&q=80")
+                        .pucCode("VN-LDO-PUC-0850")
+                        .harvestDate(LocalDate.now().plusDays(3))
+                        .expiryDate(LocalDate.now().plusDays(10))
+                        .totalQuantity(3500.0)
+                        .remainingQuantity(3500.0)
+                        .unit("kg")
+                        .minTemp(2.0)
+                        .maxTemp(4.0)
+                        .tierPricingJson("[{\"minKg\":300,\"pricePerKg\":22000},{\"minKg\":1000,\"pricePerKg\":19500},{\"minKg\":3000,\"pricePerKg\":17500}]")
+                        .status("OPEN")
+                        .farmer(farmer)
+                        .hubLocation("Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .build();
+
+                HarvestLot lot3 = HarvestLot.builder()
+                        .lotCode("LOT-2026-DL03")
+                        .productName("Bắp Cải Trái Tim Đà Lạt Hữu Cơ")
+                        .categorySlug("rau-sach")
+                        .imageUrl("https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=600&auto=format&fit=crop&q=80")
+                        .pucCode("VN-LDO-PUC-0849")
+                        .harvestDate(LocalDate.now().plusDays(5))
+                        .expiryDate(LocalDate.now().plusDays(25))
+                        .totalQuantity(10000.0)
+                        .remainingQuantity(10000.0)
+                        .unit("kg")
+                        .minTemp(2.0)
+                        .maxTemp(6.0)
+                        .tierPricingJson("[{\"minKg\":1000,\"pricePerKg\":12000},{\"minKg\":5000,\"pricePerKg\":10500}]")
+                        .status("OPEN")
+                        .farmer(farmer)
+                        .hubLocation("Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .build();
+
+                harvestLotRepository.saveAll(List.of(lot1, lot2, lot3));
+
+                // RFQ 1 & 2
+                RfqNegotiation rfq1 = RfqNegotiation.builder()
+                        .rfqCode("RFQ-2026-0042")
+                        .harvestLot(lot1)
+                        .buyerName("Bách Hóa XANH Logistics")
+                        .buyerPhone("0912888999")
+                        .buyerCompany("Công Ty Cổ Phần Thương Mại Bách Hóa XANH")
+                        .requestedQuantity(3000.0)
+                        .targetPrice(BigDecimal.valueOf(13500))
+                        .deliveryDate(LocalDate.now().plusDays(2))
+                        .hubLocation("Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .status("ACCEPTED")
+                        .build();
+
+                RfqNegotiation rfq2 = RfqNegotiation.builder()
+                        .rfqCode("RFQ-2026-0058")
+                        .harvestLot(lot2)
+                        .buyerName("Hải Âu Catering Sài Gòn")
+                        .buyerPhone("0903111222")
+                        .buyerCompany("Công Ty Suất Ăn Công Nghiệp Hải Âu")
+                        .requestedQuantity(1500.0)
+                        .targetPrice(BigDecimal.valueOf(18000))
+                        .deliveryDate(LocalDate.now().plusDays(4))
+                        .hubLocation("Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .status("PENDING")
+                        .build();
+
+                rfqNegotiationRepository.saveAll(List.of(rfq1, rfq2));
+
+                // B2B Contract for RFQ 1
+                BigDecimal totalAmount = BigDecimal.valueOf(3000.0 * 13500.0);
+                BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3));
+
+                B2bContract contract = B2bContract.builder()
+                        .contractCode("HD-2026-0089")
+                        .rfq(rfq1)
+                        .harvestLot(lot1)
+                        .farmer(farmer)
+                        .buyerName(rfq1.getBuyerName())
+                        .buyerPhone(rfq1.getBuyerPhone())
+                        .quantity(3000.0)
+                        .unitPrice(BigDecimal.valueOf(13500))
+                        .totalAmount(totalAmount)
+                        .depositAmount(depositAmount)
+                        .depositStatus("DEPOSIT_PAID")
+                        .fulfillmentStatus("HUB_DELIVERED")
+                        .depositPaidAt(LocalDateTime.now().minusDays(2))
+                        .hubDeliveryDate(LocalDate.now())
+                        .hubName(rfq1.getHubLocation())
+                        .build();
+
+                b2bContractRepository.save(contract);
+
+                // QC Inspection
+                QcInspection qc = QcInspection.builder()
+                        .contract(contract)
+                        .grossWeight(3050.0)
+                        .netQualifiedWeight(2980.0)
+                        .rejectedWeight(70.0)
+                        .qualifiedPercent(97.7)
+                        .brixScore(12.5)
+                        .moisturePercent(84.0)
+                        .inspectorName("KS. Trần Hữu Phúc")
+                        .qcNotes("Cà chua chín đỏ đều, vỏ bóng không nứt, độ ngọt Brix 12.5 đạt chuẩn xuất khẩu sang chuỗi siêu thị.")
+                        .samplePhotoUrl("https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600&auto=format&fit=crop&q=80")
+                        .inspectedAt(LocalDateTime.now().minusHours(4))
+                        .build();
+
+                qcInspectionRepository.save(qc);
+
+                // Settlement
+                BigDecimal grossPayout = BigDecimal.valueOf(2980.0 * 13500.0);
+                BigDecimal fee = grossPayout.multiply(BigDecimal.valueOf(0.03));
+                BigDecimal netPayout = grossPayout.subtract(fee);
+
+                Settlement settlement = Settlement.builder()
+                        .settlementCode("STL-2026-0089")
+                        .contract(contract)
+                        .farmer(farmer)
+                        .qualifiedWeight(2980.0)
+                        .unitPrice(BigDecimal.valueOf(13500))
+                        .grossAmount(grossPayout)
+                        .platformFeePercent(3.0)
+                        .platformFee(fee)
+                        .payoutAmount(netPayout)
+                        .bankAccount("5400205219999")
+                        .bankName("Agribank - Chi Nhánh Lâm Đồng")
+                        .bankAccountName("HTX RAU SACH DA LAT GAP")
+                        .bankReference("FT2610269871")
+                        .isPaid(true)
+                        .paidAt(LocalDateTime.now().minusHours(2))
+                        .taxFormType("FORM_01_TNDN")
+                        .build();
+
+                settlementRepository.save(settlement);
+                log.info("Seeded Farmer Portal complete flow successfully!");
+            }
+        } catch (Exception ex) {
+            log.error("Error seeding Farmer Portal data: {}", ex.getMessage());
         }
     }
 }

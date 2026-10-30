@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product, CartItem, AuthResponse, Category } from '@/types';
-import { getStoredUser, logoutApi, getCategories } from '@/services/api';
+import { getCurrentUserApi, logoutApi, getCategories, getStoredUser } from '@/services/api';
 
 interface AppContextType {
   cartItems: CartItem[];
@@ -13,8 +13,10 @@ interface AppContextType {
   cartCount: number;
   cartTotal: number;
   currentUser: AuthResponse | null;
+  authLoading: boolean;
+  refreshUser: () => Promise<void>;
   setCurrentUser: (user: AuthResponse | null) => void;
-  logout: () => void | Promise<void>;
+  logout: () => Promise<void>;
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
   isAuthOpen: boolean;
@@ -32,7 +34,25 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(() => getStoredUser());
+  const [authLoading, setAuthLoading] = useState(true);
+  const refreshUser = async () => {
+    try {
+      const u = await getCurrentUserApi();
+      setCurrentUser(u);
+      if (typeof window !== 'undefined' && u) {
+        sessionStorage.setItem('xanhfarm_user', JSON.stringify(u));
+      }
+    } catch {
+      setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('xanhfarm_user');
+        sessionStorage.removeItem('xanhfarm_user');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -50,10 +70,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
-    setCurrentUser(getStoredUser());
+    void refreshUser();
+    const sync = () => void refreshUser();
+    const channel = new BroadcastChannel('hona-auth');
+    channel.onmessage = sync;
 
     // Load categories
     getCategories().then(setCategories).catch(() => {});
+    return () => { channel.close(); };
   }, []);
 
   // Save cart to localStorage
@@ -66,17 +90,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [cartItems]);
 
   const addToCart = (product: Product, quantity = 1) => {
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      return [...prev, { product, quantity }];
-    });
+    window.location.assign('/lo-hang');
   };
 
   const updateQuantity = (productId: number | string, quantity: number) => {
@@ -116,6 +130,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // ignore
     }
 
+    try {
+      const channel = new BroadcastChannel('hona-auth');
+      channel.postMessage('logout');
+      channel.close();
+    } catch {
+      // ignore
+    }
+
     if (typeof window !== 'undefined') {
       if (isAdmin || window.location.pathname.startsWith('/admin')) {
         window.location.href = '/dang-nhap';
@@ -140,6 +162,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cartCount,
         cartTotal,
         currentUser,
+        authLoading,
+        refreshUser,
         setCurrentUser,
         logout,
         isCartOpen,

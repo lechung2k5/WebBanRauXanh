@@ -35,7 +35,7 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, setCurrentUser } = useApp();
+  const { currentUser, authLoading } = useApp();
 
   const [authChecked, setAuthChecked] = useState(false);
   const [stats, setStats] = useState({
@@ -47,20 +47,25 @@ export default function AdminLayout({
   });
 
   useEffect(() => {
+    if (authLoading) return;
+
     const user = currentUser || getStoredUser();
     if (!user) {
-      // Chưa đăng nhập -> Chuyển về cổng đăng nhập duy nhất /dang-nhap
-      window.location.href = `/dang-nhap?redirect=${encodeURIComponent(pathname)}`;
+      router.replace(`/dang-nhap?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
     if (!user.roles?.includes('ROLE_ADMIN')) {
-      // Đã đăng nhập tài khoản thường (ROLE_USER) nhưng không có quyền admin -> chuyển về trang chủ
-      window.location.href = '/';
+      router.replace('/');
       return;
     }
     setAuthChecked(true);
-    fetchTopStats();
-  }, [currentUser, pathname]);
+  }, [currentUser, authLoading, pathname, router]);
+
+  useEffect(() => {
+    if (authChecked) {
+      void fetchTopStats();
+    }
+  }, [authChecked]);
 
   const fetchTopStats = async () => {
     try {
@@ -83,20 +88,7 @@ export default function AdminLayout({
     }
   };
 
-  if (!authChecked) {
-    return (
-      <div className="min-h-screen bg-[#F9F9F5] flex flex-col justify-between">
-        <Header />
-        <main className="flex-1 flex items-center justify-center p-8">
-          <div className="flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 text-[#10542C] animate-spin" />
-            <p className="text-xs text-[#6B7280] font-medium">Đang kiểm tra quyền truy cập hệ thống...</p>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
+
 
   // Danh sách các Tabs Quản Trị Cụ Thể (Mỗi Tab 1 Endpoint Riêng Biệt)
   const navTabs = [
@@ -145,9 +137,19 @@ export default function AdminLayout({
       iconColor: 'text-sky-600',
       description: 'Khách hàng & phân quyền',
     },
+    {
+      name: 'B2B Console',
+      href: '/admin/console',
+      icon: ShieldCheck,
+      badge: 'Vận hành B2B',
+      badgeColor: 'bg-purple-50 text-purple-800 border-purple-200/80',
+      iconColor: 'text-purple-600',
+      description: 'Hợp đồng, IoT Chuỗi lạnh & QC',
+    },
   ];
 
   const getPageTitle = () => {
+    if (pathname.includes('/admin/console')) return 'B2B Operational Console';
     if (pathname.includes('/admin/dashboard') || pathname === '/admin') return 'Bảng Điều Khiển';
     if (pathname.includes('/admin/harvest-lots')) return 'Quản Lý Lô Nông Sản';
     if (pathname.includes('/admin/categories')) return 'Quản Lý Danh Mục';
@@ -216,7 +218,17 @@ export default function AdminLayout({
 
         {/* Nội Dung Của Từng Endpoint Cụ Thể */}
         <div className="transition-all">
-          {children}
+          {!authChecked ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-24 bg-white/70 rounded-3xl border border-[#EAECE8]">
+              <Loader2 className="w-8 h-8 text-[#10542C] animate-spin" />
+              <p className="text-xs text-[#6B7280] font-medium">Đang kiểm tra quyền truy cập hệ thống...</p>
+              <div className="hidden" aria-hidden="true">
+                {children}
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </div>
       </main>
 

@@ -37,6 +37,33 @@ public class User extends BaseEntity {
     @Column(length = 255)
     private String address;
 
+    @Builder.Default
+    private boolean emailVerified = false;
+    @Column(unique = true, length = 100)
+    private String googleId;
+    @Builder.Default
+    private String authProvider = "LOCAL";
+    private String companyName;
+    private String taxCode;
+    @Builder.Default
+    private boolean householdFarmer = true;
+    @Builder.Default
+    private boolean individualBuyer = false;
+    private String bankAccountNo;
+    private String bankName;
+    private String warehouseAddress;
+    private String pucCode;
+    private String certification;
+    @Column(length = 500)
+    private String certificationUrl;
+    @Column(name = "certification_public_id", length = 255)
+    private String certificationPublicId;
+    @Builder.Default
+    private String kycStatus = "PENDING";
+    private String kycNote;
+    @Builder.Default
+    private long tokenVersion = 0;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = true; // Hỗ trợ khoá tài khoản
