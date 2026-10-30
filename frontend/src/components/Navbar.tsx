@@ -57,16 +57,56 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAi,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Chỉ hiển thị Cổng Nông Trại khi đã đăng nhập với tài khoản FARMER
+  const isFarmerUser = Boolean(
+    currentUser && (
+      currentUser.roles?.some((r) =>
+        ['ROLE_FARMER', 'FARMER', 'ROLE_COOPERATIVE', 'COOPERATIVE'].includes(r)
+      ) ||
+      currentUser.username === 'farmer_dalat'
+    )
+  );
   const [isScrolled, setIsScrolled] = useState(false);
   const [navbarSuggestions, setNavbarSuggestions] = useState<Product[]>([]);
   const [navMatchedRegion, setNavMatchedRegion] = useState<string | null>(null);
   const [isNavDropdownOpen, setIsNavDropdownOpen] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const contractBtnRef = useRef<HTMLButtonElement>(null);
+  const [expandedWidth, setExpandedWidth] = useState<number | null>(null);
+
+  // Tính toán chiều rộng giãn nở của ô tìm kiếm: Chỉ giãn đến hết mép phải của ô "Hợp đồng & Lô cọc"
+  const updateExpandedWidth = () => {
+    if (searchContainerRef.current && contractBtnRef.current) {
+      const searchRect = searchContainerRef.current.getBoundingClientRect();
+      const contractRect = contractBtnRef.current.getBoundingClientRect();
+      const calculated = contractRect.right - searchRect.left;
+      if (calculated > 0) {
+        setExpandedWidth(Math.round(calculated));
+      }
+    }
+  };
+
+  useEffect(() => {
+    updateExpandedWidth();
+    window.addEventListener('resize', updateExpandedWidth);
+    return () => window.removeEventListener('resize', updateExpandedWidth);
+  }, []);
+
+  const handleSearchFocus = () => {
+    updateExpandedWidth();
+    setIsSearchFocused(true);
+    if (navbarSuggestions.length > 0 || searchQuery.trim().length >= 2) {
+      setIsNavDropdownOpen(true);
+    }
+  };
 
   // Xử lý submit tìm kiếm: Đóng popup gợi ý, gọi submit và reset ô tìm kiếm về trống
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsNavDropdownOpen(false);
+    setIsSearchFocused(false);
     onSearchSubmit(e);
     onSearchChange('');
   };
@@ -79,6 +119,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         !searchContainerRef.current.contains(event.target as Node)
       ) {
         setIsNavDropdownOpen(false);
+        setIsSearchFocused(false);
       }
     };
 
@@ -213,7 +254,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="border-b border-[#EAECE8] bg-white transition-all duration-300">
         <div className="max-w-[1240px] mx-auto px-4">
           <div
-            className={`flex items-center justify-between transition-all duration-300 gap-4 sm:gap-6 ${
+            className={`flex items-center justify-between transition-all duration-300 gap-2 sm:gap-3 lg:gap-4 ${
               isScrolled ? 'h-16' : 'h-[72px]'
             }`}
           >
@@ -239,130 +280,166 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Thanh Tìm kiếm Lô Nông Sản B2B (Đơn giản, Rộng rãi, Tích hợp nút Tìm sỉ) */}
-            <div ref={searchContainerRef} className="hidden md:flex flex-1 max-w-2xl mx-2 relative">
-              <form 
-                onSubmit={handleFormSubmit} 
-                className="relative w-full flex items-center"
+            {/* Khung Giữ Chỗ Cho Thanh Tìm Kiếm (Tự co giãn thông minh flex-1, không bao giờ ép tràn các nút bên phải) */}
+            <div ref={searchContainerRef} className="hidden md:block relative flex-1 max-w-[240px] min-w-[130px] h-10 mx-1">
+              {/* Lớp Thanh Tìm Kiếm Nổi (LUÔN LUÔN là absolute để co giãn CSS mượt mà, NỞ RỘNG ĐÈ LÊN ĐẾN HẾT Ô HỢP ĐỒNG & LÔ CỌC) */}
+              <div
+                className={`absolute left-0 top-0 transition-all duration-300 ease-out z-50 ${
+                  isSearchFocused || isNavDropdownOpen ? 'shadow-2xl' : 'w-full'
+                }`}
+                style={
+                  isSearchFocused || isNavDropdownOpen
+                    ? { width: expandedWidth ? `${expandedWidth}px` : 'calc(100% + 160px)' }
+                    : { width: '100%' }
+                }
               >
-                <Search className="w-4 h-4 text-[#4CAF50] absolute left-4 z-10" />
-                <input
-                  type="text"
-                  placeholder="Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng, Nấm tươi Đồng Nai..."
-                  value={searchQuery}
-                  onChange={(e) => onSearchChange(e.target.value)}
-                  onFocus={() => {
-                    if (navbarSuggestions.length > 0 || searchQuery.trim().length >= 2) {
-                      setIsNavDropdownOpen(true);
-                    }
-                  }}
-                  onClick={() => {
-                    if (navbarSuggestions.length > 0 || searchQuery.trim().length >= 2) {
-                      setIsNavDropdownOpen(true);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setIsNavDropdownOpen(false);
-                    }
-                  }}
-                  className="w-full bg-[#F9F9F5] hover:bg-white focus:bg-white border-[1.5px] border-[#E5E7EB] focus:border-[#10542C] rounded-full pl-11 pr-24 h-11 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none transition-all shadow-2xs"
-                />
-                <button
-                  type="submit"
-                  className="absolute right-1.5 h-8 px-4 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                <form 
+                  onSubmit={handleFormSubmit} 
+                  className={`relative w-full flex items-center transition-all duration-300 rounded-full h-10 ${
+                    isSearchFocused || isNavDropdownOpen
+                      ? 'bg-white border-2 border-[#10542C] shadow-2xl ring-4 ring-emerald-500/20'
+                      : 'bg-[#F9F9F5] hover:bg-white border-[1.5px] border-[#E5E7EB] hover:border-[#10542C]/50 shadow-2xs'
+                  }`}
                 >
-                  <span>Tìm sỉ</span>
-                </button>
-              </form>
+                  <Search className={`w-4 h-4 transition-colors absolute left-3.5 z-10 ${
+                    isSearchFocused || isNavDropdownOpen ? 'text-[#10542C]' : 'text-[#4CAF50]'
+                  }`} />
+                  <input
+                    type="text"
+                    placeholder={
+                      isSearchFocused || isNavDropdownOpen
+                        ? 'Tìm nguồn hàng sỉ: Bắp cải Đà Lạt, Cà rốt Lâm Đồng...'
+                        : 'Tìm nguồn hàng sỉ...'
+                    }
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    onFocus={handleSearchFocus}
+                    onClick={handleSearchFocus}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsNavDropdownOpen(false);
+                        setIsSearchFocused(false);
+                      }
+                    }}
+                    className="w-full h-full bg-transparent pl-10 pr-28 text-xs text-[#2C3E2E] placeholder-[#6B7280] focus:outline-none rounded-full"
+                  />
 
-              {/* DROPDOWN GỢI Ý TỨC THÌ THEO KHU VỰC VÀ SẢN PHẨM */}
-              {isNavDropdownOpen && navbarSuggestions.length > 0 && (
-                <div className="absolute left-0 right-0 top-13 bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 z-50 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 px-1 mb-2">
-                    <span className="text-xs font-bold text-[#10542C] flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      {navMatchedRegion 
-                        ? `Gợi ý nông sản tại ${navMatchedRegion}:`
-                        : `Gợi ý thông minh:`}
-                    </span>
-                    <button
-                      onClick={() => {
-                          setIsNavDropdownOpen(false);
-                          onSearchChange('');
-                        }}
-                      className="text-[11px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
-                    >
-                      ✕ Đóng
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                    {navbarSuggestions.map((item) => (
-                      <Link
-                        key={item.id}
-                        href={`/san-pham/${item.slug}`}
-                        onClick={() => setIsNavDropdownOpen(false)}
-                        className="flex items-center gap-3 p-2 rounded-xl hover:bg-emerald-50/70 transition-colors group cursor-pointer"
-                      >
-                        <img
-                          src={item.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=100'}
-                          alt={item.name}
-                          className="w-10 h-10 rounded-lg object-cover border border-slate-100 shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-[#2C3E2E] group-hover:text-[#10542C] truncate">
-                            {item.name}
-                          </p>
-                          <p className="text-[10px] text-emerald-700 font-semibold truncate">
-                            📍 {item.origin || item.farmLocation || 'Đà Lạt'}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-xs font-black text-[#10542C]">
-                            {Number(item.price).toLocaleString('vi-VN')} đ/kg
-                          </p>
-                          <p className="text-[9px] text-slate-400">MOQ: {item.moq || 200}kg</p>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-
-                  <div className="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between text-xs px-1">
-                    {onOpenAi && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsNavDropdownOpen(false);
-                          onSearchChange('');
-                          onOpenAi();
-                        }}
-                        className="text-[11px] font-bold text-[#10542C] hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        Hỏi Trợ lý AI về vùng này
-                      </button>
-                    )}
+                  {/* Nút Xóa nhanh khi có chữ */}
+                  {searchQuery && (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        handleFormSubmit(e);
+                      onClick={() => {
+                        onSearchChange('');
+                        setIsNavDropdownOpen(false);
                       }}
-                      className="ml-auto text-[11px] font-bold text-slate-500 hover:text-[#10542C] cursor-pointer"
+                      className="absolute right-20 text-gray-400 hover:text-gray-600 text-xs px-1.5 py-0.5 rounded-full hover:bg-gray-100 cursor-pointer"
+                      title="Xóa nội dung"
                     >
-                      Xem tất cả kết quả →
+                      ✕
                     </button>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="absolute right-1.5 h-7.5 px-4 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Tìm sỉ</span>
+                  </button>
+                </form>
+
+                {/* DROPDOWN GỢI Ý TỨC THÌ: VỪA VẶN CHIỀU RỘNG Ô TÌM KIẾM ĐANG NỞ RỘNG */}
+                {isNavDropdownOpen && navbarSuggestions.length > 0 && (
+                  <div className="mt-2 w-full bg-white rounded-2xl shadow-2xl border border-emerald-100 p-3.5 animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 px-1 mb-2">
+                      <span className="text-xs font-bold text-[#10542C] flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        {navMatchedRegion 
+                          ? `Gợi ý nông sản tại ${navMatchedRegion}:`
+                          : `Gợi ý nông sản thông minh:`}
+                      </span>
+                      <button
+                        onClick={() => {
+                            setIsNavDropdownOpen(false);
+                            setIsSearchFocused(false);
+                            onSearchChange('');
+                          }}
+                        className="text-xs text-slate-400 hover:text-slate-700 font-bold px-2 py-0.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                      >
+                        ✕ Đóng
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-80 overflow-y-auto overflow-x-hidden pr-1">
+                      {navbarSuggestions.map((item) => (
+                        <Link
+                          key={item.id}
+                          href={`/san-pham/${item.slug}`}
+                          onClick={() => {
+                            setIsNavDropdownOpen(false);
+                            setIsSearchFocused(false);
+                          }}
+                          className="flex items-center gap-3 p-2 rounded-xl hover:bg-emerald-50/80 transition-colors group cursor-pointer border border-transparent hover:border-emerald-100"
+                        >
+                          <img
+                            src={item.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=100'}
+                            alt={item.name}
+                            className="w-12 h-12 rounded-xl object-cover border border-slate-100 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-[#2C3E2E] group-hover:text-[#10542C] truncate">
+                              {item.name}
+                            </p>
+                            <p className="text-[11px] text-emerald-700 font-medium truncate mt-0.5">
+                              📍 {item.origin || item.farmLocation || 'Đà Lạt, Lâm Đồng'}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0 pl-3">
+                            <p className="text-sm font-black text-[#10542C]">
+                              {Number(item.price).toLocaleString('vi-VN')} đ/kg
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-semibold">MOQ: {item.moq || 200} kg</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+
+                    <div className="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between text-xs px-1">
+                      {onOpenAi && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsNavDropdownOpen(false);
+                            setIsSearchFocused(false);
+                            onSearchChange('');
+                            onOpenAi();
+                          }}
+                          className="text-[11px] font-bold text-[#10542C] hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="w-3 h-3 text-amber-500" />
+                          Hỏi Trợ lý AI về vùng này
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          handleFormSubmit(e);
+                        }}
+                        className="ml-auto text-[11px] font-bold text-slate-500 hover:text-[#10542C] cursor-pointer"
+                      >
+                        Xem tất cả kết quả →
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Khối Tiện Ích B2B & Tài Khoản */}
-            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <div className="flex items-center gap-1.5 lg:gap-2 shrink-0">
               {/* Nút Kho Lô Nông Sản */}
               <Link
                 href="/san-pham"
-                className="hidden xl:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] bg-[#F4F7F4] hover:bg-[#EAF1EA] rounded-xl transition-colors border border-[#D7EED6]"
+                className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-[#10542C] bg-[#F4F7F4] hover:bg-[#EAF1EA] rounded-xl transition-colors border border-[#D7EED6] shrink-0"
               >
                 <span>Kho Lô Nông Sản</span>
               </Link>
@@ -371,7 +448,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {currentUser?.roles?.includes('ROLE_ADMIN') && (
                 <Link
                   href="/admin/dashboard"
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
                 >
                   <ShieldCheck className="w-4 h-4 text-[#8BC34A]" />
                   <span className="hidden md:inline">👑 Quản Trị Sàn</span>
@@ -379,32 +456,62 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </Link>
               )}
 
-              {/* Nút Theo dõi Hợp Đồng / Lô Đặt Cọc */}
+              {/* Nút Theo dõi Hợp Đồng / Lô Đặt Cọc - Điểm dừng mép phải của ô tìm kiếm co giãn */}
               <button
+                ref={contractBtnRef}
                 type="button"
                 onClick={onOpenTracking}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl transition-colors cursor-pointer border border-[#EAECE8]"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#10542C] bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl transition-colors cursor-pointer border border-[#EAECE8] shrink-0"
               >
                 <Clock className="w-4 h-4 text-[#4CAF50]" />
                 <span className="hidden lg:inline">Hợp đồng & Lô cọc</span>
                 <span className="lg:hidden">Hợp đồng</span>
               </button>
 
+              {/* Cổng Nông Trại & HTX (Chỉ hiển thị khi đã đăng nhập với tài khoản Farmer) */}
+              {isFarmerUser && (
+                <Link
+                  href="/portal/farmer"
+                  className="hidden md:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-[#10542C] bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-200"
+                  title="Cổng quản lý lô vụ mùa dành cho Nông dân & Hợp tác xã"
+                >
+                  <Sprout className="w-4 h-4 text-emerald-600" />
+                  <span className="hidden lg:inline">Cổng Nông Trại</span>
+                </Link>
+              )}
+
+              {/* Giỏ Lô Hàng Đặt Cọc */}
+              <button
+                type="button"
+                onClick={onOpenCart}
+                className="relative px-2.5 py-1.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                aria-label="Lô hàng đặt cọc"
+                title="Danh sách lô hàng chuẩn bị đặt cọc"
+              >
+                <ShoppingBag className="w-4 h-4 text-[#8BC34A]" />
+                <span className="text-xs font-bold hidden sm:inline">Lô đã chọn</span>
+                {(cartCount || 0) > 0 && (
+                  <span className="bg-[#E53935] text-white text-[10px] font-black px-1.5 py-0.2 rounded-full border-2 border-white animate-pulse">
+                    {cartCount}
+                  </span>
+                )}
+              </button>
+
               {/* Khối Tài Khoản */}
               {currentUser ? (
-                <div className="relative">
+                <div className="relative shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                     className="flex items-center gap-2 p-1.5 pl-2 bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl border border-[#EAECE8] transition-colors cursor-pointer"
                   >
-                    <div className="w-7 h-7 rounded-full bg-[#10542C] text-white flex items-center justify-center text-xs font-bold">
+                    <div className="w-7 h-7 rounded-full bg-[#10542C] text-white flex items-center justify-center text-xs font-bold shrink-0">
                       {currentUser.fullName?.charAt(0) || currentUser.username.charAt(0).toUpperCase()}
                     </div>
                     <span className="text-xs font-bold text-[#2C3E2E] max-w-[80px] truncate hidden sm:inline">
                       {currentUser.fullName || currentUser.username}
                     </span>
-                    <ChevronDown className="w-3.5 h-3.5 text-[#6B7280]" />
+                    <ChevronDown className="w-3.5 h-3.5 text-[#6B7280] shrink-0" />
                   </button>
 
                   {/* Dropdown Menu khách hàng */}
@@ -426,7 +533,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <span>👑 Quản Trị Hệ Thống Admin</span>
                         </Link>
                       )}
-                      {currentUser?.roles && !currentUser.roles.includes('ROLE_ADMIN') && portalFor(currentUser.roles) !== '/' && (
+                      {isFarmerUser && (
+                        <Link
+                          href="/portal/farmer"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer border-b border-[#EAECE8]"
+                        >
+                          <Sprout className="w-4 h-4 text-emerald-600" />
+                          <span>Cổng Nông Trại & HTX</span>
+                        </Link>
+                      )}
+                      {currentUser?.roles && !currentUser.roles.includes('ROLE_ADMIN') && !isFarmerUser && portalFor(currentUser.roles) !== '/' && (
                         <Link
                           href={portalFor(currentUser.roles)}
                           onClick={() => setIsUserMenuOpen(false)}
@@ -465,7 +582,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 /* Dành cho Khách (Guest): Nút "Đăng ký / Đăng nhập" liên kết trực tiếp tới /dang-nhap */
                 <Link
                   href="/dang-nhap"
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] border border-[#10542C]/40 hover:bg-[#10542C]/5 rounded-[8px] transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#10542C] border border-[#10542C]/40 hover:bg-[#10542C]/5 rounded-[8px] transition-colors cursor-pointer shrink-0"
                 >
                   <UserIcon className="w-4 h-4 text-[#10542C]" />
                   <span className="hidden sm:inline">Đăng ký / Đăng nhập</span>
@@ -537,6 +654,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </div>
+          {/* Lớp Nền Mờ Nhẹ Khi Đang Tìm Kiếm (Click ra ngoài là đóng lại êm ái) */}
+      {(isSearchFocused || isNavDropdownOpen) && (
+        <div
+          onClick={() => {
+            setIsNavDropdownOpen(false);
+            setIsSearchFocused(false);
+          }}
+          className="fixed inset-0 z-30 bg-black/10 backdrop-blur-[0.5px] transition-opacity"
+        />
+      )}
     </header>
   );
 };

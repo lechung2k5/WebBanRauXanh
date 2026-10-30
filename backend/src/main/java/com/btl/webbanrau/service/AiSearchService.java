@@ -91,6 +91,11 @@ public class AiSearchService {
             Long productId = ((Number) row.get("id")).longValue();
             Double similarity = ((Number) row.get("similarity")).doubleValue();
 
+            // Loại bỏ các vector có độ tương đồng quá thấp (< 0.08 là từ khóa rác / không liên quan)
+            if (similarity < 0.08) {
+                continue;
+            }
+
             productRepository.findById(productId).ifPresent(p -> {
                 ProductResponse pResp = productService.mapToResponse(p);
                 items.add(SemanticSearchResponse.SemanticProductItem.builder()
@@ -192,11 +197,25 @@ public class AiSearchService {
             for (Map<String, Object> row : vecRows) {
                 Long id = ((Number) row.get("id")).longValue();
                 Double sim = ((Number) row.get("similarity")).doubleValue();
-                vectorRankedIds.add(id);
-                similarityMap.put(id, sim);
+                // Ngưỡng lọc độ tương đồng: Chỉ nhận kết quả có độ tương đồng ngữ nghĩa >= 0.08
+                // Các từ khóa vô nghĩa, gõ bậy như 'helllo', 'asdfgh' có similarity <= 0.04 sẽ bị loại bỏ hoàn toàn
+                if (sim >= 0.08) {
+                    vectorRankedIds.add(id);
+                    similarityMap.put(id, sim);
+                }
             }
         } catch (Exception e) {
             log.warn("Vector search failed in Hybrid Search: {}", e.getMessage());
+        }
+
+        // Nếu cả SQL tìm kiếm chính xác và Vector ngữ nghĩa đều không tìm thấy sản phẩm nào đạt chuẩn
+        if (sqlRankedIds.isEmpty() && vectorRankedIds.isEmpty()) {
+            return HybridSearchResponse.builder()
+                    .query(cleanQuery)
+                    .totalMatches(0)
+                    .searchStrategy("HYBRID_RRF")
+                    .items(Collections.emptyList())
+                    .build();
         }
 
         // 3. Thuật toán Reciprocal Rank Fusion (RRF)
@@ -480,6 +499,43 @@ public class AiSearchService {
             - HẢI DƯƠNG & QUẢNG NINH (43 mã): Cà rốt xuất khẩu, Hành tỏi Kinh Môn, Củ cải, Dưa bao tử.
             - MIỀN TÂY (27 mã): Khóm Tân Lập, Khổ qua, Rau muống nước, Xà lách xoong Bình Minh.
             - CHÍNH SÁCH B2B: Bán buôn sỉ theo lô (Tấn/Tạ, MOQ ≥ 200kg). Đơn ≥ 2 Tấn giảm 8%, ≥ 5 Tấn giảm 15%. Giao tại vườn (FOB) hoặc xe lạnh giao kho.
+
+            --- THỊ TRƯỜNG GIÁ NÔNG SẢN SỈ CHỢ ĐẦU MỐI HÔM NAY (THỦ ĐỨC, BÌNH ĐIỀN, HÓC MÔN) ---
+            - Cà chua beef Đà Lạt: 14.500 - 16.500 đ/kg (chuẩn VietGAP đẹp, quả chắc, tai xanh).
+            - Cà chua bi / Cherry đỏ: 22.000 - 26.000 đ/kg. Cà chua trứng: 15.000 - 16.500 đ/kg.
+            - Xà lách lô lô xanh / Roman: 21.000 - 24.500 đ/kg (cầu tiêu thụ nhà hàng tăng 15%).
+            - Xà lách mỡ / Carol: 18.000 - 20.500 đ/kg. Xà lách thủy canh VietGAP: 28.000 - 32.000 đ/kg.
+            - Bắp cải trái tim: 11.500 - 13.000 đ/kg. Bắp cải tím: 16.000 - 18.500 đ/kg.
+            - Ớt chuông Sweet Paler / Đà Lạt: 38.000 - 43.000 đ/kg (đỏ/vàng), ớt chuông xanh: 30.000 - 34.000 đ/kg.
+            - Khoai tây vàng Đà Lạt: 17.000 - 20.000 đ/kg. Cà rốt Buôn Hồ / Hải Dương: 12.000 - 15.000 đ/kg.
+            - Dưa leo baby: 16.000 - 19.500 đ/kg. Cải thìa / Cải ngọt: 13.000 - 16.000 đ/kg. Cải bó xôi: 22.000 - 26.000 đ/kg.
+            - Nấm sạch các loại (Bào ngư, đùi gà, kim châm, đông cô): 45.000 - 75.000 đ/kg.
+            - Xu hướng & Khuyến nghị: Giá sỉ theo bậc (Tier pricing) hiện đang khớp rất tốt các hợp đồng xe tải container lạnh giao các trạm trung chuyển TP.HCM.
+
+            --- QUY CHUẨN KHUNG GIỜ THU HOẠCH LÝ TƯỞNG THEO CHUỖI CUNG ỨNG LẠNH ---
+            1. Rau ăn lá (Xà lách thủy canh, xà lách cuộn, cải thìa, cải ngọt, cải bó xôi, rau thơm):
+               - Khung giờ vàng: 05:00 - 07:30 sáng hoặc sau 16:30 chiều.
+               - Cơ chế sinh lý: Cây vừa kết thúc hô hấp đêm và tích lũy quang hợp, mô tế bào ngậm nước căng mọng, giữ độ giòn ngọt Brix cao nhất.
+               - Tuyệt đối tránh: Thu hoạch lúc trưa nắng gắt (10:30 - 14:30) khiến lá thoát hơi nước cấp tốc, khi đưa vào trạm lạnh dễ bị sốc nhiệt và thâm viền mép lá.
+            2. Rau ăn quả (Cà chua, ớt chuông, dưa leo baby, đậu bắp):
+               - Khung giờ vàng: 07:30 - 10:00 sáng sau khi ráo sương đêm.
+               - Yêu cầu: Độ ẩm vỏ quả < 85% để tránh đọng ẩm cuống gây mốc cuống và thối nhũn vi khuẩn khi đóng thùng. Tránh hái lúc trời mưa dầm.
+            3. Rau ăn củ (Cà rốt, khoai tây, củ dền, củ sắn):
+               - Khung giờ vàng: 06:00 - 09:00 sáng khi mặt đất ráo nhẹ, giúp thu hoạch củ sạch sẽ, không bết dính bùn đất hoặc bị khô cứng đứt rễ.
+            4. Nấm sạch các loại:
+               - Khung giờ vàng: 04:30 - 06:30 sáng khi tai nấm vừa mở biên độ 80%, thu hái nhẹ nhàng trong phòng lạnh khép kín giữ trọn tán nấm.
+
+            --- KỸ THUẬT HẠ NHIỆT SƠ BỘ (PRE-COOLING) & TIÊU CHUẨN XE LẠNH GIAO TRẠM ---
+            - Mục đích sống còn: Nông sản sau cắt tiếp tục hô hấp và tỏa nhiệt nội tại (Field Heat). Nếu đưa ngay vào xe lạnh, máy lạnh xe không đủ công suất hạ nhiệt cấp tốc, gây hiện tượng sốc nhiệt, hấp hơi, đọng sương và thối nhũn lá. Pre-cooling giúp hạ nhiệt tâm trong 30 - 60 phút sau thu hoạch.
+            - 3 Phương pháp Pre-cooling chuyên dụng:
+              1. Forced-Air Cooling (Khí lạnh ẩm cưỡng bức): Thổi khí lạnh 6.0°C - 8.0°C (độ ẩm 90 - 95% RH) xuyên qua các sọt nan thông thoáng trong 45 - 90 phút. Tối ưu nhất cho xà lách, ớt chuông, cà chua, súp lơ.
+              2. Hydro-Cooling (Xối / ngâm nước lạnh khử khuẩn): Dùng nước lạnh sạch 2.0°C - 4.0°C pha Clo hoạt tính nồng độ thấp (50 - 100 ppm) khử khuẩn bề mặt. Tối ưu cho cà rốt, bắp ngọt, cần tây, củ quả.
+              3. Room-Cooling (Phòng đệm mát): Phòng mát 10.0°C - 12.0°C có quạt đảo chiều.
+            - Kiểm tra nhiệt độ tâm (Pulp Temperature): Phải đo que kiểm tra nhiệt độ tâm nông sản đạt dưới 8°C (tối ưu từ 4°C - 6°C) trước khi ký biên bản QC bàn giao lên xe container lạnh.
+            - Quy chuẩn xe lạnh trung chuyển:
+              • Nhiệt độ cài đặt thùng xe: 2.0°C đến 5.0°C.
+              • Độ ẩm: 90% - 95% RH.
+              • Cách xếp sọt: Xếp sọt chừa rãnh thoáng khí dọc sàn T-floor, cách trần tối thiểu 20cm, không bịt kín cửa thổi gió dàn lạnh để đạt tỷ lệ kiểm định QC trên 96%.
             \n""");
 
         // 2. Lô hàng trích xuất
@@ -510,16 +566,19 @@ public class AiSearchService {
 
         // System Prompt & Guardrails chuẩn
         String systemPrompt = """
-            Bạn là trợ lý AI chuyên nghiệp, nhiệt tình và am hiểu về hệ thống sàn giao dịch nông sản B2B HoNa Fresh - nơi kết nối trực tiếp các trang trại, nhà vườn với thương lái và doanh nghiệp thu mua.
-
-            NHIỆM VỤ CỦA BẠN:
-            Trả lời các câu hỏi của khách hàng về sản phẩm nông sản, tư vấn nguyên liệu cho các món ăn (như canh chua, nấu lẩu, món xào, món canh, salad...), thông tin mùa vụ, chính sách vận chuyển, giá cả, và cách sử dụng nền tảng, CHỈ DỰA TRÊN thông tin được cung cấp trong phần "Ngữ cảnh được trích xuất" bên dưới.
+            Bạn là Trợ Lý HoNa Fresh - Chuyên gia cố vấn Nông nghiệp B2B, Chuỗi cung ứng lạnh (Cold Chain) và Tư vấn Nông sản Thực phẩm của sàn HoNa Fresh.
+            Bạn giao tiếp chuyên nghiệp, nhiệt tình, am hiểu sâu sắc về:
+            1. Sản phẩm nông sản, tư vấn nguyên liệu cho các món ăn (như canh chua, nấu lẩu, món xào, món canh, salad...), công dụng dinh dưỡng, chính sách vận chuyển, giá cả.
+            2. Tra cứu biến động giá nông sản sỉ chợ đầu mối hôm nay (Thủ Đức, Bình Điền, Hóc Môn) và tư vấn giá sỉ theo bậc (Tier price) cho Hợp tác xã và Nhà vườn.
+            3. Tư vấn khung giờ thu hoạch lý tưởng, sinh lý cây trồng theo từng loại nông sản (rau ăn lá, ăn quả, củ, nấm) và điều kiện thời tiết (tránh mưa dầm, tránh nắng gắt, thu hoạch khi ráo sương).
+            4. Hướng dẫn kỹ thuật hạ nhiệt sơ bộ (Pre-cooling) tại vườn (Forced-Air Cooling, Hydro-Cooling, Room-cooling), kiểm soát nhiệt độ tâm Pulp Temperature < 8°C (tối ưu 4-6°C), dải nhiệt xe lạnh 2.0°C - 5.0°C và độ ẩm 90-95% để đạt tỷ lệ kiểm định QC trên 96%.
+            5. Quy trình đóng gói sọt nan thoáng khí, chứng từ mã số vùng trồng PUC, tiêu chuẩn VietGAP/GlobalGAP và giải ngân bảo chứng Escrow.
 
             QUY TẮC BẮT BUỘC (GUARDRAILS):
             1. TƯ VẤN MÓN ĂN & CÔNG DỤNG NÔNG SẢN: Khi khách hỏi về nguyên liệu cho món ăn cụ thể (ví dụ: "nguyên liệu nấu canh chua", "rau ăn lẩu"...), hãy giới thiệu các loại nông sản phù hợp có trong ngữ cảnh và giải thích ngắn gọn vai trò của từng loại (ví dụ: cà chua và khóm tạo vị chua ngọt thanh mát, đậu bắp và bạc hà tạo độ giòn ngọt mọng nước, rau muống ăn kèm giải nhiệt, ngò gai/húng quế dậy mùi thơm nồng đặc trưng). Nếu món ăn còn thiếu nguyên liệu nào chưa có trên sàn (như cá tươi, me chua), hãy giải thích lịch sự.
-            2. GIỚI HẠN CHỦ ĐỀ & TỪ CHỐI NGOÀI LỀ: Chỉ trả lời các câu hỏi liên quan đến nông nghiệp, sản phẩm trên sàn, món ăn chế biến từ nông sản, mua bán, vận chuyển. Nếu người dùng hỏi về chính trị, tôn giáo, viết code, giải toán, người nổi tiếng... BẠN PHẢI TỪ CHỐI LỊCH SỰ: "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản và giao dịch trên hệ thống. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?".
+            2. GIỚI HẠN CHỦ ĐỀ & TỪ CHỐI NGOÀI LỀ: Chỉ trả lời các câu hỏi liên quan đến nông nghiệp, sản phẩm trên sàn, món ăn chế biến từ nông sản, giá chợ đầu mối, mùa vụ, thu hoạch, kỹ thuật bảo quản lạnh/pre-cooling, kiểm định QC và giao dịch sàn B2B. Nếu người dùng hỏi về chính trị, tôn giáo, viết code, giải toán, người nổi tiếng... BẠN PHẢI TỪ CHỐI LỊCH SỰ: "Xin lỗi anh/chị, chuyên môn của em là hỗ trợ thông tin về các mặt hàng nông sản, kỹ thuật thu hoạch và giao dịch trên sàn HoNa Fresh. Anh/chị có đang cần tìm nguồn hàng hoặc nhà cung cấp nào không ạ?".
             3. KHÔNG BỊA ĐẶT (NO HALLUCINATION): Nếu câu hỏi liên quan đến sản phẩm nhưng trong "Ngữ cảnh được trích xuất" không có thông tin, tuyệt đối không tự bịa ra dữ liệu. Hãy trả lời: "Dạ, hiện tại em chưa tìm thấy thông tin chính xác về sản phẩm/vấn đề này trên hệ thống. Anh/chị có thể cung cấp thêm chi tiết hoặc từ khóa khác để em kiểm tra lại không ạ?".
-            4. NGÔN NGỮ & GIỌNG ĐIỆU: Giao tiếp bằng tiếng Việt chuẩn, xưng hô "em" và gọi khách hàng là "anh/chị". Thái độ tôn trọng, hỗ trợ và hướng tới việc thúc đẩy giao dịch. Trả lời súc tích, ngắn gọn, đúng trọng tâm.
+            4. TRÌNH BÀY & GIỌNG ĐIỆU: Giao tiếp bằng tiếng Việt chuẩn, xưng hô "em" hoặc "Trợ lý HoNa Fresh" và gọi khách hàng là "anh/chị". Thái độ tôn trọng, hỗ trợ và hướng tới việc thúc đẩy giao dịch. Trình bày rõ ràng, sử dụng gạch đầu dòng mạch lạc, cung cấp thông tin kỹ thuật chính xác, thực tế và dễ áp dụng.
             """;
 
         String userTurnPrompt = String.format("""

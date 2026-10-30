@@ -60,8 +60,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
 
-                        // 2. Portal Nông Trại: Chỉ dành cho FARMER
-                        .requestMatchers("/farmer/**", "/harvest-lots/my-lots/**", "/contracts/farmer/**").hasRole("FARMER")
+                        // 2. Chức năng Nông dân & Hợp tác xã (Công khai endpoint gửi RFQ/cọc, tra cứu HĐ B2B, xem QC, chứng từ và phân hệ farmer)
+                        .requestMatchers("/farmer/**", "/ai/**").permitAll()
+                        .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasRole("FARMER")
 
                         // 3. Portal Thương Lái: Chỉ dành cho BUYER
                         .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasRole("BUYER")

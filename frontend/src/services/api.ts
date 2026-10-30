@@ -64,9 +64,13 @@ export const getCurrentUserApi = async (): Promise<AuthResponse> => {
 export const getUsersApi = async (): Promise<User[]> => {
   try {
     const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
+    if (!res.ok && (res.status === 401 || res.status === 403)) {
+      throw new Error('Access Denied');
+    }
     const data: ApiResponse<User[]> = await res.json();
     return data.result || [];
-  } catch {
+  } catch (err: any) {
+    if (err?.message === 'Access Denied') throw err;
     return [];
   }
 };
@@ -742,8 +746,14 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
 
 export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
   const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Access Denied');
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json().catch(() => ({}) as any);
+    throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  }
   const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
   return data.result;
 };
 
@@ -754,7 +764,7 @@ export const updateOrderStatusApi = async (orderId: number, status: string): Pro
   return data.result;
 };
 
-// ======================= AI & PGVECTOR APIS =======================
+// // -------------------------------- AI & PGVECTOR APIS // --------------------------------
 
 export const semanticSearchApi = async (query: string, limit: number = 6): Promise<SemanticSearchResponse> => {
   const res = await fetch(`${API_BASE_URL}/ai/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
@@ -850,7 +860,10 @@ export const getSimilarProductsApi = async (idOrSlug: string | number, limit: nu
   }));
 };
 
-// ======================= MODULE 2: CATEGORIES CRUD APIS =======================
+
+//
+
+// -------------------------------- MODULE 2: CATEGORIES CRUD APIS // --------------------------------
 
 export const createCategoryApi = async (categoryData: Partial<Category>): Promise<Category> => {
   const res = await fetch(`${API_BASE_URL}/categories`, {
@@ -891,7 +904,7 @@ export const deleteCategoryApi = async (id: number): Promise<void> => {
   }
 };
 
-// ======================= MODULE 2: HARVEST LOTS APIS =======================
+// // -------------------------------- MODULE 2: HARVEST LOTS APIS // --------------------------------
 
 
 export const getAdminHarvestLotsApi = async (params?: {
@@ -1052,4 +1065,17 @@ export const deleteHarvestLotApi = async (id: number): Promise<void> => {
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi xóa lô nông sản');
   }
+};
+
+export const farmerAiChatApi = async (message: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/ai-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data: ApiResponse<{ answer: string }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi kết nối với Trợ Lý Nông Dân AI');
+  }
+  return data.result?.answer || '';
 };

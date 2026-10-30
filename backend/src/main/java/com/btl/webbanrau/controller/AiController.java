@@ -86,6 +86,19 @@ public class AiController {
                 .build());
     }
 
+
+    @Operation(summary = "Trợ lý HoNa Fresh AI chuyên biệt dành riêng cho Nông Dân & HTX")
+    @PostMapping("/farmer-chat")
+    public ResponseEntity<ApiResponse<Map<String, String>>> farmerChat(@RequestBody Map<String, String> request) {
+        String query = request.get("message");
+        String answer = geminiService.generateFarmerChat(query);
+        return ResponseEntity.ok(ApiResponse.<Map<String, String>>builder()
+                .code(200)
+                .message("Phản hồi AI Nông Dân thành công")
+                .result(Map.of("answer", answer))
+                .build());
+    }
+
     @Operation(summary = "Đồng bộ vector embedding cho toàn bộ nông sản trong DB")
     @PostMapping("/sync-embeddings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> syncEmbeddings() {

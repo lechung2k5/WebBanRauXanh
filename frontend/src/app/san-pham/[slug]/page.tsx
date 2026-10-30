@@ -418,11 +418,8 @@ function ProductDetailContent() {
           <div>
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-heading text-xl font-bold text-[#10542C] flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-[#8BC34A]" /> Sản phẩm tương tự (Gợi ý Vector AI)
+                <Sparkles className="w-5 h-5 text-[#8BC34A]" /> Sản phẩm tương tự
               </h2>
-              <span className="hidden sm:inline-flex text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200/60">
-                ⚡ pgvector Cosine Similarity
-              </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {relatedProducts.map((p) => (
