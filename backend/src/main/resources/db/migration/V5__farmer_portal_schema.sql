@@ -41,15 +41,42 @@ CREATE TABLE IF NOT EXISTS rfq_negotiations (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. B2B Contracts expansion
-ALTER TABLE b2b_contracts ALTER COLUMN buyer_id DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN offered_weight_kg DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN offered_price_per_kg DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN total_goods_amount DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN deposit_30_amount DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN platform_fee_rate DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN platform_fee_amount DROP NOT NULL;
-ALTER TABLE b2b_contracts ALTER COLUMN delivery_address DROP NOT NULL;
+-- 3. B2B Contracts expansion (Safe check in case table schema varies)
+DO $$
+BEGIN
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN buyer_id DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN offered_weight_kg DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN offered_price_per_kg DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN total_goods_amount DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN deposit_30_amount DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN platform_fee_rate DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN platform_fee_amount DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+    BEGIN
+        ALTER TABLE b2b_contracts ALTER COLUMN delivery_address DROP NOT NULL;
+    EXCEPTION WHEN undefined_column THEN NULL;
+    END;
+END $$;
 
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS rfq_id BIGINT REFERENCES rfq_negotiations(id);
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS harvest_lot_id BIGINT REFERENCES harvest_lots(id);

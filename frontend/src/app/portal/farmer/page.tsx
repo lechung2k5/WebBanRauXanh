@@ -45,6 +45,8 @@ import {
   LogOut,
   Wallet,
   Eye,
+  CreditCard,
+  Landmark,
 } from 'lucide-react';
 
 import {
@@ -91,10 +93,13 @@ import {
 import { getStoredUser, loginApi, aiChatRagApi } from '@/services/api';
 import FarmerDashboardView, { formatRfqTimestamp } from './components/FarmerDashboardView';
 import FarmerAiChatView from './components/FarmerAiChatView';
+import FarmerPostSaleView from './components/FarmerPostSaleView';
+import FarmerQcOverviewView from './components/FarmerQcOverviewView';
+import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 
-export default function FarmerPortalPage() {
+function FarmerPortalContent() {
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'lots' | 'rfq' | 'qc' | 'settlements' | 'profile' | 'ai'
+    'dashboard' | 'lots' | 'rfq' | 'qc' | 'settlements' | 'profile' | 'ai' | 'post_sale'
   >('dashboard');
 
   const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
@@ -112,6 +117,7 @@ export default function FarmerPortalPage() {
 
   // Subtab in RFQ
   const [rfqSubTab, setRfqSubTab] = useState<'inbox' | 'contracts'>('inbox');
+  const [settlementViewTab, setSettlementViewTab] = useState<'wallet' | 'settlement'>('wallet');
 
   // Modal State: Create Harvest Lot
   const [isLotModalOpen, setIsLotModalOpen] = useState(false);
@@ -137,9 +143,9 @@ export default function FarmerPortalPage() {
 
   // Open Create Lot Modal with dynamic dates in event handler (không gọi Date.now trong render)
   const handleOpenLotModal = () => {
-    const now = new Date();
-    const hDate = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
-    const eDate = new Date(now.getTime() + 16 * 86400000).toISOString().slice(0, 10);
+    if (typeof window === 'undefined') return;
+    const hDate = getSafeIsoDate(2);
+    const eDate = getSafeIsoDate(16);
     setNewLot((prev) => ({
       ...prev,
       harvestDate: prev.harvestDate || hDate,
@@ -185,10 +191,10 @@ export default function FarmerPortalPage() {
   const [syncNotice, setSyncNotice] = useState<string>('');
 
   useEffect(() => {
-    // Chỉ gán new Date() trên Client sau khi component đã mount
-    setRealtimeTime(new Date());
+    if (typeof window === 'undefined') return;
+    setRealtimeTime(getSafeCurrentDate());
     const timer = setInterval(() => {
-      setRealtimeTime(new Date());
+      setRealtimeTime(getSafeCurrentDate());
     }, 30000);
     return () => clearInterval(timer);
   }, []);
@@ -266,9 +272,9 @@ export default function FarmerPortalPage() {
   };
 
   const handleResetLotForm = () => {
-    const now = new Date();
-    const hDate = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
-    const eDate = new Date(now.getTime() + 16 * 86400000).toISOString().slice(0, 10);
+    if (typeof window === 'undefined') return;
+    const hDate = getSafeIsoDate(2);
+    const eDate = getSafeIsoDate(16);
     const activePuc = profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849';
     setNewLot({
       productName: '',
@@ -896,13 +902,9 @@ export default function FarmerPortalPage() {
   }
 
   return (
-    <div
-      className={`bg-[#F9F9F5] text-[#1E293B] flex flex-col font-sans ${
-        activeTab === 'ai' ? 'h-screen overflow-hidden' : 'min-h-screen'
-      }`}
-    >
+    <div className="h-screen overflow-hidden bg-[#F9F9F5] text-[#1E293B] flex flex-col font-sans">
       {/* HEADER PORTAL */}
-      <header className="shrink-0 sticky top-0 z-40 bg-[#10542C] text-white border-b border-[#0D4423] shadow-md px-4 sm:px-8 py-3 flex items-center justify-between">
+      <header className="shrink-0 z-40 bg-[#10542C] text-white border-b border-[#0D4423] shadow-md px-4 sm:px-6 py-2 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
             <Sprout className="w-6 h-6 text-emerald-400" />
@@ -956,23 +958,15 @@ export default function FarmerPortalPage() {
         </div>
       </header>
 
-      {/* BODY LAYOUT: SIDEBAR + MAIN CONTENT */}
-      <div
-        className={`flex-1 min-h-0 max-w-[1500px] w-full mx-auto px-4 sm:px-6 flex flex-col lg:flex-row gap-4 ${
-          activeTab === 'ai' ? 'py-2.5' : 'py-5'
-        }`}
-      >
-        {/* SIDEBAR NAVIGATION */}
-        <aside
-          className={`lg:w-64 shrink-0 bg-white rounded-3xl p-4 border border-[#EAECE8] shadow-2xs space-y-1.5 self-start ${
-            activeTab === 'ai' ? 'max-h-full overflow-y-auto' : ''
-          }`}
-        >
+      {/* BODY LAYOUT: SIDEBAR CỐ ĐỊNH + MAIN CONTENT SCROLL (ẨN SCROLLPANE) */}
+      <div className="flex-1 min-h-0 max-w-[1600px] w-full mx-auto px-3 sm:px-5 py-2 flex flex-col lg:flex-row gap-3 overflow-hidden">
+        {/* SIDEBAR NAVIGATION: CỐ ĐỊNH, KHÔNG BỊ SCROLL VỚI TRANG */}
+        <aside className="lg:w-64 shrink-0 bg-white rounded-2xl p-3 border border-[#EAECE8] shadow-2xs h-full overflow-y-auto scrollbar-none flex flex-col justify-between space-y-1">
           <div className="px-3 py-2 text-[11px] font-bold tracking-wider uppercase text-gray-600">
             Phân Hệ Nông Nghiệp
           </div>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('dashboard')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
               activeTab === 'dashboard'
@@ -984,24 +978,19 @@ export default function FarmerPortalPage() {
             <span>Tổng Quan (Dashboard)</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('lots')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
               activeTab === 'lots'
                 ? 'bg-[#10542C] text-white shadow-xs'
                 : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
             }`}
           >
-            <div className="flex items-center gap-3">
-              <Sprout className="w-4 h-4" />
-              <span>Lô Vụ Mùa ({lots.length})</span>
-            </div>
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md font-bold">
-              Tier Price
-            </span>
+            <Sprout className="w-4 h-4" />
+            <span>Lô Vụ Mùa ({lots.length})</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('rfq')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
               activeTab === 'rfq'
@@ -1020,7 +1009,7 @@ export default function FarmerPortalPage() {
             )}
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('qc')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
               activeTab === 'qc'
@@ -1032,25 +1021,32 @@ export default function FarmerPortalPage() {
             <span>Biên Bản QC Trạm</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('settlements')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
               activeTab === 'settlements'
                 ? 'bg-[#10542C] text-white shadow-xs'
                 : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
             }`}
           >
-            <div className="flex items-center gap-3">
-              <Receipt className="w-4 h-4" />
-              <span>Ví Tiền & Giải Ngân</span>
-            </div>
-            <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-md">
-              Mẫu 01
-            </span>
+            <Receipt className="w-4 h-4" />
+            <span>Ví Tiền & Giải Ngân</span>
+          </button>
+
+          <button type="button"
+            onClick={() => setActiveTab('post_sale')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
+              activeTab === 'post_sale'
+                ? 'bg-[#10542C] text-white shadow-xs'
+                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Theo Dõi Sau Bán</span>
           </button>
 
           <div className="pt-2 border-t border-[#EAECE8]">
-            <button
+            <button type="button"
               onClick={() => setActiveTab('profile')}
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'profile'
@@ -1062,7 +1058,7 @@ export default function FarmerPortalPage() {
               <span>Hồ Sơ Vùng Trồng & STK</span>
             </button>
 
-            <button
+            <button type="button"
               onClick={() => setActiveTab('ai')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition mt-1 cursor-pointer ${
                 activeTab === 'ai'
@@ -1098,12 +1094,8 @@ export default function FarmerPortalPage() {
           </div>
         </aside>
 
-        {/* MAIN CONTENT AREA */}
-        <main
-          className={`flex-1 ${
-            activeTab === 'ai' ? 'h-full flex flex-col min-h-0' : 'space-y-6'
-          }`}
-        >
+        {/* MAIN CONTENT AREA: CHỈ PHẦN NÀY ĐƯỢC SCROLL, ẨN SCROLLBAR */}
+        <main className="flex-1 h-full min-h-0 overflow-y-auto scrollbar-none pr-1 flex flex-col">
           {/* TAB 1: DASHBOARD (REDESIGNED BASED ON 8 CORE DESIGN RULES) */}
           {activeTab === 'dashboard' && (
             <FarmerDashboardView
@@ -1136,7 +1128,7 @@ export default function FarmerPortalPage() {
                     Chào bán sỉ theo sản lượng lớn kèm bảng giá phân tầng Tier Pricing và dải nhiệt độ bảo quản lạnh FEFO
                   </p>
                 </div>
-                <button
+                <button type="button"
                   onClick={handleOpenLotModal}
                   className="bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs flex items-center gap-2 transition cursor-pointer"
                 >
@@ -1225,7 +1217,7 @@ export default function FarmerPortalPage() {
                     </div>
 
                     <div className="p-4 pt-0">
-                      <button
+                      <button type="button"
                         onClick={() => {
                           alert(`Lô nông sản ${lot.lotCode} đã được đồng bộ công khai lên danh sách chào sỉ B2B toàn quốc.`);
                         }}
@@ -1245,7 +1237,7 @@ export default function FarmerPortalPage() {
             <div className="space-y-5">
               {/* SUBTABS */}
               <div className="flex items-center gap-2 border-b border-[#EAECE8] pb-3">
-                <button
+                <button type="button"
                   onClick={() => setRfqSubTab('inbox')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
                     rfqSubTab === 'inbox'
@@ -1256,7 +1248,7 @@ export default function FarmerPortalPage() {
                   <MessageSquare className="w-4 h-4" />
                   <span>Hộp Thư Báo Giá RFQ ({rfqs.length})</span>
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setRfqSubTab('contracts')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
                     rfqSubTab === 'contracts'
@@ -1408,13 +1400,13 @@ export default function FarmerPortalPage() {
                         {/* Actions */}
                         {rfq.status === 'PENDING' && (
                           <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-                            <button
+                            <button type="button"
                               onClick={() => setRejectModalRfq(rfq)}
                               className="px-3.5 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold rounded-xl transition cursor-pointer"
                             >
                               Từ Chối
                             </button>
-                            <button
+                            <button type="button"
                               onClick={() => {
                                 setCounterModalRfq(rfq);
                                 setCounterPrice(rfq.targetPrice);
@@ -1424,7 +1416,7 @@ export default function FarmerPortalPage() {
                             >
                               Thương Lượng Lại
                             </button>
-                            <button
+                            <button type="button"
                               onClick={() => handleAcceptRfq(rfq.id)}
                               className="px-5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                             >
@@ -1556,431 +1548,507 @@ export default function FarmerPortalPage() {
             </div>
           )}
 
-          {/* TAB 4: QC INSPECTIONS AT CROSS-DOCKING HUB */}
+          {/* TAB 4: QC INSPECTIONS AT CROSS-DOCKING HUB (TỔNG QUAN TOÀN BỘ BIÊN BẢN) */}
           {activeTab === 'qc' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-heading font-black text-[#10542C]">
-                    Biên Bản Kiểm Định Chất Lượng Tại Trạm Lạnh (Hub QC)
-                  </h2>
-                  <p className="text-xs text-gray-600">
-                    Thông số đo đạc khách quan tại bàn cân trạm trung chuyển trước khi đóng xe lạnh giao cho thương lái
-                  </p>
-                </div>
-
-                {/* Custom Elegant Contract Dropdown */}
-                {contracts.length > 0 && (
-                  <div className="relative">
-                    <div className="flex items-center gap-2.5 text-xs">
-                      <span className="font-bold text-gray-700 shrink-0">Chọn Hợp Đồng:</span>
-                      <button
-                        type="button"
-                        onClick={() => setIsQcDropdownOpen((prev) => !prev)}
-                        className="px-4 py-2.5 bg-white hover:bg-emerald-50/50 border border-emerald-300 rounded-2xl text-xs font-bold text-[#10542C] shadow-2xs hover:shadow-xs flex items-center justify-between gap-3 transition cursor-pointer min-w-[280px] sm:min-w-[360px]"
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="font-mono text-[11px] bg-[#10542C] text-white px-2 py-0.5 rounded-md shrink-0">
-                            {contracts.find((c) => c.id === (selectedContractId || contracts[0]?.id))?.contractCode || 'Chọn HĐ'}
-                          </span>
-                          <span className="text-gray-800 font-bold truncate">
-                            {contracts.find((c) => c.id === (selectedContractId || contracts[0]?.id))?.productName}
-                          </span>
-                        </div>
-                        <ChevronDown className={`w-4 h-4 text-[#10542C] shrink-0 transition-transform duration-200 ${isQcDropdownOpen ? 'rotate-180' : ''}`} />
-                      </button>
-                    </div>
-
-                    {/* Dropdown Menu Panel */}
-                    {isQcDropdownOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setIsQcDropdownOpen(false)}
-                        />
-                        <div className="absolute right-0 mt-2 z-50 w-full sm:w-[420px] bg-white rounded-2xl border border-emerald-200 shadow-xl p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                          <div className="px-3 py-1.5 border-b border-gray-100 flex items-center justify-between text-[11px] text-gray-500 font-semibold">
-                            <span>Danh sách Hợp đồng B2B có Biên bản QC</span>
-                            <span className="text-emerald-700 font-bold">{contracts.length} HĐ</span>
-                          </div>
-                          <div className="max-h-64 overflow-y-auto space-y-1">
-                            {contracts.map((c) => {
-                              const isSelected = c.id === (selectedContractId || contracts[0]?.id);
-                              return (
-                                <button
-                                  key={c.id}
-                                  type="button"
-                                  onClick={() => {
-                                    handleSelectContractQc(c.id);
-                                    setIsQcDropdownOpen(false);
-                                  }}
-                                  className={`w-full p-2.5 rounded-xl text-left transition flex items-center justify-between gap-3 cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-emerald-50 border border-emerald-300 text-[#10542C]'
-                                      : 'hover:bg-gray-50 border border-transparent text-gray-700'
-                                  }`}
-                                >
-                                  <div className="space-y-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                        isSelected ? 'bg-[#10542C] text-white' : 'bg-gray-200 text-gray-800'
-                                      }`}>
-                                        {c.contractCode}
-                                      </span>
-                                      <span className="font-bold text-xs truncate text-gray-900">
-                                        {c.productName}
-                                      </span>
-                                    </div>
-                                    <p className="text-[11px] text-gray-500">
-                                      SL: <strong>{c.quantity.toLocaleString()} kg</strong> • {c.hubName.replace('Trạm Lạnh Cross-docking ', 'Trạm ')}
-                                    </p>
-                                  </div>
-                                  {isSelected && (
-                                    <Check className="w-4 h-4 text-[#10542C] shrink-0" />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {selectedContractQc ? (
-                <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-6 space-y-6">
-                  {/* Top info */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-                    <div>
-                      <span className="text-[11px] font-mono font-bold bg-[#10542C] text-white px-2.5 py-1 rounded-md">
-                        HĐ: {selectedContractQc.contractCode}
-                      </span>
-                      <h3 className="font-heading font-bold text-base text-gray-900 mt-2">
-                        {selectedContractQc.productName}
-                      </h3>
-                      <p className="text-xs text-gray-600">
-                        Chuyên viên kiểm định: <strong>{selectedContractQc.inspectorName}</strong> • Thời gian: {selectedContractQc.inspectedAt.replace('T', ' ').slice(0, 16)}
-                      </p>
-                    </div>
-
-                    <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl text-center self-start sm:self-auto">
-                      <span className="text-[11px] text-emerald-800 font-semibold">Tỷ Lệ Đạt Chuẩn Kho Lạnh</span>
-                      <h4 className="text-2xl font-black font-heading text-emerald-700">
-                        {selectedContractQc.qualifiedPercent}%
-                      </h4>
-                    </div>
-                  </div>
-
-                  {/* 3 WEIGHT METRICS */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 text-center">
-                      <p className="text-xs text-gray-600 font-medium">Khối Lượng Bàn Cân Thực Nhận</p>
-                      <h4 className="text-xl font-black font-heading text-gray-900 mt-1">
-                        {selectedContractQc.grossWeight.toLocaleString()} kg
-                      </h4>
-                      <p className="text-[11px] text-gray-500 mt-0.5">Xe tải giao tại trạm</p>
-                    </div>
-
-                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-center">
-                      <p className="text-xs text-emerald-800 font-medium">Khối Lượng Đạt Chuẩn Lưu Kho</p>
-                      <h4 className="text-xl font-black font-heading text-[#10542C] mt-1">
-                        {selectedContractQc.netQualifiedWeight.toLocaleString()} kg
-                      </h4>
-                      <p className="text-[11px] text-emerald-700 mt-0.5">Tính tiền quyết toán</p>
-                    </div>
-
-                    <div className="p-4 bg-red-50 rounded-2xl border border-red-200 text-center">
-                      <p className="text-xs text-red-800 font-medium">Phế Phẩm Bị Loại Bỏ</p>
-                      <h4 className="text-xl font-black font-heading text-red-600 mt-1">
-                        {selectedContractQc.rejectedWeight.toLocaleString()} kg
-                      </h4>
-                      <p className="text-[11px] text-red-600 mt-0.5">Dập cuống, tách tại chỗ</p>
-                    </div>
-                  </div>
-
-                  {/* BRIX & MOISTURE GAUGES */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-gray-700">Độ Ngọt Brix (°Bx)</span>
-                        <span className="text-base font-black font-heading text-amber-600">
-                          {selectedContractQc.brixScore} °Bx
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
-                        <div
-                          className="bg-amber-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(selectedContractQc.brixScore / 15) * 100}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-gray-600">
-                        Chuẩn xuất khẩu từ 11.5°Bx trở lên • Đạt tiêu chuẩn phân phối hệ thống siêu thị
-                      </p>
-                    </div>
-
-                    <div className="p-4 bg-white rounded-2xl border border-blue-200 shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-gray-700">Độ Ẩm Tự Nhiên (%)</span>
-                        <span className="text-base font-black font-heading text-blue-600">
-                          {selectedContractQc.moisturePercent}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
-                        <div
-                          className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${selectedContractQc.moisturePercent}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-gray-600">
-                        Ngưỡng an toàn buồng lạnh từ 80% đến 88% • Rau củ mọng nước, không bị héo
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* QC NOTES */}
-                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-1.5 text-xs">
-                    <p className="font-bold text-gray-800">Ghi chú cảm quan từ chuyên viên QC:</p>
-                    <p className="text-gray-700 leading-relaxed italic">
-                      &quot;{selectedContractQc.qcNotes}&quot;
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-12 text-center bg-white rounded-3xl border border-gray-200">
-                  <p className="text-xs text-gray-600">Chưa có biên bản kiểm định nào</p>
-                </div>
-              )}
-            </div>
+            <FarmerQcOverviewView
+              contracts={contracts}
+              initialSelectedId={selectedContractId}
+              onNavigateToSettlement={() => setActiveTab('settlements')}
+              formatVnd={formatVnd}
+            />
           )}
 
           {/* TAB 5: VÍ TIỀN & QUYẾT TOÁN GIẢI NGÂN (SETTLEMENTS & ESCROW) */}
           {activeTab === 'settlements' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <h2 className="text-xl font-heading font-black text-[#10542C] flex items-center gap-2">
-                    <Receipt className="w-5 h-5 text-[#4CAF50]" />
-                    <span>Ví Tiền & Quyết Toán Doanh Thu Nông Vụ (Escrow & Settlements)</span>
-                  </h2>
-                  <p className="text-xs text-gray-600">
-                    Bảo chứng cọc 30% Escrow, khấu trừ phí sàn 3% minh bạch và phát hành chứng từ thuế hợp pháp
-                  </p>
-                </div>
-              </div>
-
-              {/* 3 Thẻ KPI Ví Tiền Nông Dân */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-[#10542C] to-[#1B743F] text-white p-5 rounded-3xl shadow-md space-y-2">
-                  <div className="flex items-center justify-between text-emerald-200 text-xs font-semibold">
-                    <span>Tổng Thu Nhập Thực Nhận (Đã về STK)</span>
-                    <DollarSign className="w-4 h-4 text-emerald-300" />
-                  </div>
-                  <div className="font-heading text-2xl font-black">
-                    {formatVnd(
-                      settlements.reduce((sum, s) => sum + (Number(s.payoutAmount) || 0), 0) ||
-                        stats?.totalRevenue ||
-                        39023100
-                    )}
-                  </div>
-                  <div className="text-[11px] text-emerald-100 flex items-center gap-1.5 pt-1 border-t border-emerald-600/50">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Đã giải ngân thẳng vào tài khoản ngân hàng</span>
-                  </div>
+              {/* ========================================================================= */}
+              {/* FINTECH COMMAND HEADER BANNER */}
+              {/* ========================================================================= */}
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#0C3E20] via-[#10542C] to-[#082B16] text-white p-6 sm:p-7 shadow-sm border border-emerald-900/50">
+                {/* Ambient Mesh Glow & Watermark */}
+                <div
+                  className="absolute -right-12 -bottom-16 w-80 h-80 bg-emerald-400/10 rounded-full blur-3xl pointer-events-none"
+                  aria-hidden="true"
+                />
+                <div
+                  className="absolute right-4 top-1/2 -translate-y-1/2 opacity-5 pointer-events-none hidden lg:block"
+                  aria-hidden="true"
+                >
+                  <Wallet className="w-56 h-56 text-white" />
                 </div>
 
-                <div className="bg-white p-5 rounded-3xl border border-[#D7EED6] shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-[#6B7280] text-xs font-semibold">
-                    <span>Quỹ Bảo Chứng Escrow (Cọc 30% Đang Giữ)</span>
-                    <ShieldCheck className="w-4 h-4 text-[#4CAF50]" />
-                  </div>
-                  <div className="font-heading text-2xl font-black text-[#10542C]">
-                    {formatVnd(
-                      contracts
-                        .filter((c) => c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStatus !== 'COMPLETED')
-                        .reduce((sum, c) => sum + (Number(c.depositAmount) || 0), 0) ||
-                        stats?.escrowHolding ||
-                        12150000
-                    )}
-                  </div>
-                  <div className="text-[11px] text-[#4CAF50] font-medium flex items-center gap-1.5 pt-1 border-t border-gray-100">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Sàn bảo chứng an toàn, không lo bị bùng hàng</span>
-                  </div>
-                </div>
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  {/* Cột trái: Tiêu đề & Thông tin giao thức Escrow */}
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Agri-Fintech Protocol • Escrow Smart Settlement
+                      </span>
+                      <span className="text-emerald-300 text-xs flex items-center gap-1 font-semibold">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
+                        Bảo Chứng 3 Bên Ngân Hàng
+                      </span>
+                    </div>
 
-                <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-[#6B7280] text-xs font-semibold">
-                    <span>Doanh Thu Chờ Quyết Toán</span>
-                    <Clock className="w-4 h-4 text-amber-500" />
-                  </div>
-                  <div className="font-heading text-2xl font-black text-amber-600">
-                    {formatVnd(
-                      contracts
-                        .filter((c) => c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStatus !== 'COMPLETED')
-                        .reduce((sum, c) => sum + (Number(c.totalAmount) * 0.97 || 0), 0) || 0
-                    )}
-                  </div>
-                  <div className="text-[11px] text-gray-500 flex items-center gap-1.5 pt-1 border-t border-gray-100">
-                    <span>Giải ngân ngay sau khi nghiệm thu QC xuất trạm</span>
-                  </div>
-                </div>
-              </div>
+                    <h2 className="text-xl sm:text-2xl font-black font-heading text-white tracking-tight">
+                      Ví Tiền & Quyết Toán Doanh Thu Nông Vụ (Escrow & Settlements)
+                    </h2>
 
-              {/* Hợp đồng đang thực hiện có thể Quyết toán ngay */}
-              {contracts.filter((c) => c.fulfillmentStatus !== 'COMPLETED').length > 0 && (
-                <div className="bg-[#F9F9F5] rounded-3xl border border-[#D7EED6] p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-heading font-black text-sm text-[#10542C] flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-500" />
-                      <span>Hợp Đồng Đã Có Cọc 30% - Sẵn Sàng Quyết Toán & Giải Ngân</span>
-                    </h3>
-                    <span className="text-[11px] text-gray-600">
-                      Giao hàng xong tại trạm → Bấm quyết toán để tiền chuyển thẳng vào STK
-                    </span>
+                    <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed">
+                      Bảo chứng ký quỹ cọc 30% liên ngân hàng, tự động đối soát và giải ngân thẳng vào STK nông dân trong 60 giây sau nghiệm thu KCS trạm lạnh. Khấu trừ phí sàn 3% minh bạch và hỗ trợ xuất chứng từ thuế Mẫu 01/TNDN hợp pháp.
+                    </p>
+
+                    <div className="flex items-center gap-2.5 pt-2">
+                      <button
+                        type="button"
+                        onClick={loadPortalData}
+                        className="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-white/60 active:scale-[0.98]"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Làm mới số dư ví</span>
+                      </button>
+
+                      <div className="text-[11px] text-emerald-200/80 font-mono flex items-center gap-1 pl-2 border-l border-white/20">
+                        <span>Hệ thống: Trực Tuyến 24/7</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {contracts
-                      .filter((c) => c.fulfillmentStatus !== 'COMPLETED')
-                      .map((c) => (
-                        <div
-                          key={c.id}
-                          className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between gap-3"
-                        >
-                          <div className="space-y-1 text-xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-mono font-bold text-[#10542C] bg-[#10542C]/10 px-2 py-0.5 rounded-md">
-                                {c.contractCode}
-                              </span>
-                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                                ✓ ĐÃ NHẬN CỌC 30%
-                              </span>
-                            </div>
-                            <h4 className="font-bold text-sm text-gray-900 pt-1">{c.productName}</h4>
-                            <p className="text-[11px] text-gray-600">
-                              Thương lái: <strong>{c.buyerName}</strong> • SĐT: {c.buyerPhone}
-                            </p>
-                            <div className="flex items-center justify-between pt-1">
-                              <span>Sản lượng: <strong>{c.quantity.toLocaleString()} kg</strong></span>
-                              <span>Tổng tiền: <strong>{formatVnd(c.totalAmount)}</strong></span>
-                            </div>
-                            <div className="flex items-center justify-between text-emerald-800 bg-emerald-50/60 p-1.5 rounded-lg font-medium text-[11px]">
-                              <span>Tiền cọc Sàn đang giữ (30%):</span>
-                              <strong className="text-emerald-900 font-bold">{formatVnd(c.depositAmount)}</strong>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            disabled={isSettlingId === c.id}
-                            onClick={() => handleSettleContract(c.id)}
-                            className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-[#8BC34A]" />
-                            <span>
-                              {isSettlingId === c.id
-                                ? 'Đang giải ngân...'
-                                : 'Quyết Toán & Giải Ngân Về STK Ngay (Khấu trừ 3% phí sàn)'}
-                            </span>
-                          </button>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Danh sách Quyết toán đã giải ngân */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-heading font-black text-sm text-[#10542C]">
-                    Lịch Sử Quyết Toán Đã Giải Ngân Thành Công ({settlements.length})
-                  </h3>
-                  <span className="text-[11px] text-gray-500">
-                    Tài khoản thụ hưởng: {profile?.bankAccount || '5400205219999'} ({profile?.bankName || 'Agribank'})
-                  </span>
-                </div>
-
-                <div className="space-y-4">
-                  {settlements.map((s) => (
-                    <div
-                      key={s.id}
-                      className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-5 space-y-4 transition-all hover:border-[#10542C]"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                        <div className="flex items-center gap-2.5">
-                          <span className="font-mono text-xs font-bold bg-[#10542C] text-white px-2.5 py-1 rounded-md">
-                            {s.settlementCode}
-                          </span>
-                          <div>
-                            <h4 className="font-heading font-bold text-sm text-gray-900">{s.productName}</h4>
-                            <p className="text-[11px] text-gray-600">
-                              Hợp đồng: <strong>{s.contractCode}</strong> • Mã giao dịch ngân hàng: <span className="font-mono font-bold text-[#10542C]">{s.bankReference}</span>
-                            </p>
-                          </div>
-                        </div>
-
+                  {/* Cột phải: Beneficiary Virtual Bank Card (Thẻ thụ hưởng định danh KYC) */}
+                  <div className="shrink-0 w-full lg:w-auto">
+                    <div className="relative rounded-2xl bg-gradient-to-br from-white/15 via-white/10 to-white/5 backdrop-blur-md border border-white/25 p-4 sm:p-5 shadow-xl text-white max-w-sm ml-auto">
+                      {/* Top row: Bank chip & Name */}
+                      <div className="flex items-center justify-between gap-3 mb-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-xl flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>ĐÃ GIẢI NGÂN VỀ STK</span>
+                          <div className="w-8 h-6 rounded bg-gradient-to-tr from-amber-400 to-amber-200 border border-amber-300 shadow-inner flex items-center justify-center">
+                            <div className="w-5 h-3.5 border border-amber-600/40 rounded-xs grid grid-cols-2 gap-0.5 p-0.5">
+                              <span className="bg-amber-600/40 rounded-2xs" />
+                              <span className="bg-amber-600/40 rounded-2xs" />
+                            </div>
+                          </div>
+                          <span className="font-heading font-black text-sm tracking-wide text-white">
+                            {profile?.bankName || 'Agribank'}
                           </span>
                         </div>
+
+                        <span className="bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          KYC LEVEL 2
+                        </span>
                       </div>
 
-                      {/* Phân rã dòng tiền minh bạch */}
-                      <div className="bg-[#F9F9F5] p-4 rounded-2xl border border-gray-200 space-y-2 text-xs">
-                        <div className="flex items-center justify-between text-gray-700">
-                          <span>Tiền hàng thực tế ({s.qualifiedWeight.toLocaleString()} kg đạt chuẩn QC × {formatVnd(s.unitPrice)}):</span>
-                          <span className="font-bold">{formatVnd(s.grossAmount)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-red-600">
-                          <span>Khấu trừ phí dịch vụ nền tảng Sàn ({s.platformFeePercent}%):</span>
-                          <span>- {formatVnd(s.platformFee)}</span>
-                        </div>
-                        <div className="flex items-center justify-between pt-2 border-t border-gray-300 text-sm font-bold text-[#10542C]">
-                          <span>SỐ TIỀN THỰC NHẬN VÀO TÀI KHOẢN NGÂN HÀNG:</span>
-                          <span className="text-base text-emerald-800 font-black">{formatVnd(s.payoutAmount)}</span>
-                        </div>
+                      {/* Card number masked */}
+                      <div className="font-mono text-base sm:text-lg font-bold tracking-widest text-emerald-100 mb-2">
+                        •••• •••• •••• {profile?.bankAccount ? profile.bankAccount.slice(-4) : '6868'}
                       </div>
 
-                      {/* Bank info & Actions */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
-                        <div className="text-gray-600">
-                          Chuyển khoản tới: <strong>{s.bankName}</strong> • STK: <span className="font-mono font-bold text-gray-900">{s.bankAccount}</span> ({s.bankAccountName})
+                      {/* Bottom row: Card holder & Escrow badge */}
+                      <div className="flex items-center justify-between text-[11px] text-emerald-200/90 pt-2 border-t border-white/15">
+                        <div>
+                          <div className="text-[9px] uppercase tracking-wider text-emerald-300/70 font-semibold">Chủ thụ hưởng</div>
+                          <div className="font-bold tracking-wider uppercase text-white truncate max-w-[140px]">
+                            {profile?.bankAccountName || profile?.fullName || 'NGUYỄN VĂN NÔNG DÂN'}
+                          </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTaxDocType('01_TNDN');
-                              setViewingTaxSettlementId(s.id);
-                            }}
-                            className="px-3.5 py-1.5 bg-[#10542C] hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer text-xs"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span>Bảng Kê Mẫu 01/TNDN</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTaxDocType('INVOICE_KCT');
-                              setViewingTaxSettlementId(s.id);
-                            }}
-                            className="px-3.5 py-1.5 bg-white hover:bg-gray-50 text-[#10542C] border border-[#10542C] font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer text-xs"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-[#10542C]" />
-                            <span>Hóa Đơn Điện Tử KCT</span>
-                          </button>
+                        <div className="text-right">
+                          <div className="text-[9px] uppercase tracking-wider text-emerald-300/70 font-semibold">Tài khoản</div>
+                          <div className="font-bold text-emerald-300">Nhận Tiền Tức Thì</div>
                         </div>
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
               </div>
+
+              {/* ========================================================================= */}
+              {/* SEGMENTED SWITCH VIEW CONTROLLER (1 BÊN LÀ VÍ TIỀN - 1 BÊN LÀ GIẢI NGÂN) */}
+              {/* ========================================================================= */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-[#EAECE8] shadow-2xs">
+                {/* Segmented Pill Switch chuẩn theo hình ảnh người dùng */}
+                <div className="flex items-center bg-[#F1F3ED] p-1 rounded-xl text-xs font-bold border border-gray-200/70">
+                  <button
+                    type="button"
+                    onClick={() => setSettlementViewTab('wallet')}
+                    className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
+                      settlementViewTab === 'wallet'
+                        ? 'bg-white text-[#10542C] shadow-xs font-black'
+                        : 'text-gray-600 hover:text-gray-900 font-semibold'
+                    }`}
+                  >
+                    <Wallet className="w-4 h-4 text-[#10542C]" aria-hidden="true" />
+                    <span>Ví Tiền & Ký Quỹ Escrow</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSettlementViewTab('settlement')}
+                    className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
+                      settlementViewTab === 'settlement'
+                        ? 'bg-white text-[#10542C] shadow-xs font-black'
+                        : 'text-gray-600 hover:text-gray-900 font-semibold'
+                    }`}
+                  >
+                    <Receipt className="w-4 h-4 text-[#10542C]" aria-hidden="true" />
+                    <span>Quyết Toán & Giải Ngân</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        settlementViewTab === 'settlement'
+                          ? 'bg-emerald-100 text-[#10542C]'
+                          : 'bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {settlements.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Thông tin tài khoản thụ hưởng & trạng thái đối soát */}
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <span className="flex items-center gap-1.5 font-medium bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
+                    <Landmark className="w-3.5 h-3.5 text-[#10542C]" aria-hidden="true" />
+                    <span>Tài khoản: <strong>{profile?.bankAccount || '5400205219999'}</strong> ({profile?.bankName || 'Agribank'})</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* VIEW 1: VÍ TIỀN & KÝ QUỸ ESCROW */}
+              {/* ========================================================================= */}
+              {settlementViewTab === 'wallet' && (
+                <div className="space-y-6">
+                  {/* 3 THẺ TÀI CHÍNH BENTO (FINANCIAL BENTO TRIO) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Thẻ 1: HERO WEALTH CARD - Tổng Thu Nhập Thực Nhận */}
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0C3E20] via-[#10542C] to-[#156736] text-white p-5 sm:p-6 shadow-md border border-emerald-600/30 flex flex-col justify-between gap-4 group transition-all hover:shadow-lg">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-emerald-200 text-xs font-bold">
+                          <span className="tracking-wide">TỔNG THU NHẬP THỰC NHẬN</span>
+                          <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                            <DollarSign className="w-4 h-4" aria-hidden="true" />
+                          </div>
+                        </div>
+
+                        <div className="font-heading text-2xl sm:text-3xl font-black tracking-tight tabular-nums text-white">
+                          {formatVnd(
+                            settlements.reduce((sum, s) => sum + (Number(s.payoutAmount) || 0), 0) ||
+                              stats?.totalRevenue ||
+                              39023100
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-emerald-100 flex items-center justify-between pt-3 border-t border-emerald-600/40">
+                        <span className="flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+                          Đã giải ngân thẳng vào STK
+                        </span>
+                        <span className="text-[10px] font-mono font-bold bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                          100% Đối Soát
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Thẻ 2: ESCROW TRUST CARD - Quỹ Bảo Chứng Escrow Cọc 30% */}
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-blue-50/70 via-white to-white p-5 sm:p-6 border border-blue-100/90 shadow-2xs flex flex-col justify-between gap-4 group transition-all hover:border-blue-300 hover:shadow-xs">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-blue-900 text-xs font-bold">
+                          <span className="tracking-wide">QUỸ BẢO CHỨNG ESCROW (CỌC 30%)</span>
+                          <div className="p-2 rounded-xl bg-blue-100 text-blue-700 border border-blue-200">
+                            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+                          </div>
+                        </div>
+
+                        <div className="font-heading text-2xl sm:text-3xl font-black text-blue-900 tracking-tight tabular-nums">
+                          {formatVnd(
+                            contracts
+                              .filter((c) => c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStatus !== 'COMPLETED')
+                              .reduce((sum, c) => sum + (Number(c.depositAmount) || 0), 0) ||
+                              stats?.escrowHolding ||
+                              12150000
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-blue-800 font-semibold flex items-center justify-between pt-3 border-t border-blue-100">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse shrink-0" />
+                          Sàn & Ngân hàng bảo chứng phong tỏa
+                        </span>
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-md">
+                          An toàn 100%
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Thẻ 3: PENDING SETTLEMENT CARD - Doanh Thu Chờ Quyết Toán */}
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-amber-50/70 via-white to-white p-5 sm:p-6 border border-amber-100/90 shadow-2xs flex flex-col justify-between gap-4 group transition-all hover:border-amber-300 hover:shadow-xs">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-amber-900 text-xs font-bold">
+                          <span className="tracking-wide">DOANH THU CHỜ QUYẾT TOÁN</span>
+                          <div className="p-2 rounded-xl bg-amber-100 text-amber-700 border border-amber-200">
+                            <Clock className="w-4 h-4" aria-hidden="true" />
+                          </div>
+                        </div>
+
+                        <div className="font-heading text-2xl sm:text-3xl font-black text-amber-700 tracking-tight tabular-nums">
+                          {formatVnd(
+                            contracts
+                              .filter((c) => c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStatus !== 'COMPLETED')
+                              .reduce((sum, c) => sum + (Number(c.totalAmount) * 0.97 || 0), 0) || 0
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-amber-900 font-semibold flex items-center justify-between pt-3 border-t border-amber-100">
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-hidden="true" />
+                          Giải ngân 60s sau nghiệm thu QC
+                        </span>
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                          Chờ hạ hàng
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Hợp đồng đang thực hiện có thể Quyết toán ngay */}
+                  {contracts.filter((c) => c.fulfillmentStatus !== 'COMPLETED').length > 0 ? (
+                    <div className="bg-white rounded-3xl border border-[#D7EED6] p-5 sm:p-6 space-y-4 shadow-2xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <h3 className="font-heading font-black text-sm text-[#10542C]">
+                            Hợp Đồng Đã Nhận Cọc 30% — Sẵn Sàng Quyết Toán & Giải Ngân
+                          </h3>
+                        </div>
+                        <span className="text-xs text-gray-500 font-medium">
+                          Giao hàng tại trạm QC → Bấm quyết toán để tiền chuyển thẳng vào STK
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {contracts
+                          .filter((c) => c.fulfillmentStatus !== 'COMPLETED')
+                          .map((c) => (
+                            <div
+                              key={c.id}
+                              className="bg-[#F8F9FA] p-5 rounded-2xl border border-gray-200/80 shadow-xs flex flex-col justify-between gap-4 transition-all hover:border-[#10542C] hover:bg-white"
+                            >
+                              <div className="space-y-2 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-mono font-bold text-[#10542C] bg-[#10542C]/10 px-2.5 py-1 rounded-md text-xs">
+                                    {c.contractCode}
+                                  </span>
+                                  <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200 flex items-center gap-1">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                                    ĐÃ KÝ QUỸ CỌC 30%
+                                  </span>
+                                </div>
+
+                                <h4 className="font-heading font-black text-base text-gray-900 pt-1">{c.productName}</h4>
+                                <p className="text-[11px] text-gray-600">
+                                  Thương lái: <strong>{c.buyerName}</strong> • SĐT: <span className="font-mono">{c.buyerPhone}</span>
+                                </p>
+
+                                <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                                  <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                                    <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Sản lượng</div>
+                                    <div className="font-black text-gray-900 font-heading text-sm tabular-nums">
+                                      {c.quantity.toLocaleString()} kg
+                                    </div>
+                                  </div>
+                                  <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                                    <div className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Tổng giá trị</div>
+                                    <div className="font-black text-gray-900 font-heading text-sm tabular-nums">
+                                      {formatVnd(c.totalAmount)}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-blue-900 bg-blue-50/80 p-2.5 rounded-xl font-medium text-xs border border-blue-100">
+                                  <span className="flex items-center gap-1">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                                    Tiền cọc Escrow đang giữ (30%):
+                                  </span>
+                                  <strong className="text-blue-950 font-black tabular-nums">{formatVnd(c.depositAmount)}</strong>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                disabled={isSettlingId === c.id}
+                                onClick={() => handleSettleContract(c.id)}
+                                className="w-full py-3 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-black text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-emerald-700"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-[#8BC34A]" />
+                                <span>
+                                  {isSettlingId === c.id
+                                    ? 'Đang giải ngân vào STK...'
+                                    : 'Quyết Toán & Giải Ngân Về STK Ngay (Khấu trừ 3% phí sàn)'}
+                                </span>
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-3xl border border-[#D7EED6] p-8 text-center space-y-2 shadow-2xs">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 text-[#10542C] mx-auto flex items-center justify-center border border-emerald-100">
+                        <CheckCircle2 className="w-6 h-6 text-[#10542C]" />
+                      </div>
+                      <h4 className="font-heading font-black text-base text-gray-900">
+                        Tất Cả Hợp Đồng Đã Được Giải Ngân Hoàn Tất
+                      </h4>
+                      <p className="text-xs text-gray-500 max-w-md mx-auto">
+                        Hiện tại không có hợp đồng nào đang chờ giải ngân. Toàn bộ tiền hàng đã được chuyển thẳng vào tài khoản ngân hàng của bạn.
+                      </p>
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setSettlementViewTab('settlement')}
+                          className="px-4 py-2 bg-[#10542C] text-white text-xs font-bold rounded-xl shadow-xs hover:bg-[#0C3E20] transition cursor-pointer"
+                        >
+                          Xem Lịch Sử Quyết Toán & Chứng Từ Thuế
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* VIEW 2: QUYẾT TOÁN & GIẢI NGÂN (LỊCH SỬ GIẢI NGÂN THÀNH CÔNG) */}
+              {/* ========================================================================= */}
+              {settlementViewTab === 'settlement' && (
+                <div className="space-y-4">
+                  {/* Settlement Summary Header Bar */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="bg-white p-4 rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
+                      <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Số Đợt Đã Giải Ngân</div>
+                      <div className="font-heading font-black text-2xl text-[#10542C] tabular-nums">
+                        {settlements.length} <span className="text-xs font-normal text-gray-500">đợt thành công</span>
+                      </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
+                      <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Tổng Tiền Đã Về STK</div>
+                      <div className="font-heading font-black text-2xl text-emerald-800 tabular-nums">
+                        {formatVnd(settlements.reduce((sum, s) => sum + (Number(s.payoutAmount) || 0), 0))}
+                      </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
+                      <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Tốc Độ Giải Ngân</div>
+                      <div className="font-heading font-black text-2xl text-blue-900 flex items-center gap-1.5">
+                        <Clock className="w-5 h-5 text-blue-600" />
+                        <span>Tức thì (60s)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Danh sách Quyết toán */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2">
+                    <h3 className="font-heading font-black text-base text-[#10542C] flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-[#4CAF50]" />
+                      <span>Bảng Kê Chi Tiết Các Khoản Giải Ngân ({settlements.length})</span>
+                    </h3>
+                    <div className="text-xs text-gray-600 flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
+                      <Landmark className="w-3.5 h-3.5 text-[#10542C]" />
+                      <span>Thụ hưởng: <strong>{profile?.bankAccount || '5400205219999'}</strong> ({profile?.bankName || 'Agribank'})</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {settlements.map((s) => (
+                      <div
+                        key={s.id}
+                        className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-5 sm:p-6 space-y-4 transition-all hover:border-[#10542C]"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-xs font-black bg-[#10542C] text-white px-2.5 py-1 rounded-lg">
+                              {s.settlementCode}
+                            </span>
+                            <div>
+                              <h4 className="font-heading font-black text-sm text-gray-900">{s.productName}</h4>
+                              <p className="text-[11px] text-gray-600">
+                                Hợp đồng: <strong>{s.contractCode}</strong> • Mã giao dịch ngân hàng:{' '}
+                                <span className="font-mono font-bold text-[#10542C]">{s.bankReference}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-2xs">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>ĐÃ GIẢI NGÂN VỀ STK</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Phân rã dòng tiền minh bạch */}
+                        <div className="bg-[#F8F9FA] p-4 rounded-2xl border border-gray-200 space-y-2.5 text-xs">
+                          <div className="flex items-center justify-between text-gray-700">
+                            <span>
+                              Tiền hàng thực tế ({s.qualifiedWeight.toLocaleString()} kg đạt chuẩn QC × {formatVnd(s.unitPrice)}):
+                            </span>
+                            <span className="font-bold tabular-nums">{formatVnd(s.grossAmount)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-rose-600">
+                            <span>Khấu trừ phí dịch vụ nền tảng Sàn ({s.platformFeePercent}%):</span>
+                            <span className="font-bold tabular-nums">- {formatVnd(s.platformFee)}</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-2.5 border-t border-gray-200 text-sm font-bold text-[#10542C]">
+                            <span className="uppercase tracking-wide">Số tiền thực nhận vào tài khoản ngân hàng:</span>
+                            <span className="text-base sm:text-lg text-emerald-800 font-black tabular-nums">
+                              {formatVnd(s.payoutAmount)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Bank info & Actions */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+                          <div className="text-gray-600 flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5 text-gray-400" />
+                            <span>
+                              Chuyển khoản tới: <strong>{s.bankName}</strong> • STK:{' '}
+                              <span className="font-mono font-bold text-gray-900">{s.bankAccount}</span> ({s.bankAccountName})
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaxDocType('01_TNDN');
+                                setViewingTaxSettlementId(s.id);
+                              }}
+                              className="px-3.5 py-2 bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer text-xs active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-emerald-700"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span>Bảng Kê Mẫu 01/TNDN</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaxDocType('INVOICE_KCT');
+                                setViewingTaxSettlementId(s.id);
+                              }}
+                              className="px-3.5 py-2 bg-white hover:bg-gray-50 text-[#10542C] border border-[#10542C] font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer text-xs active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-emerald-700"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-[#10542C]" />
+                              <span>Hóa Đơn Điện Tử KCT</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2749,6 +2817,11 @@ export default function FarmerPortalPage() {
           {activeTab === 'ai' && (
             <FarmerAiChatView farmerName={profile?.farmName || profile?.fullName} />
           )}
+
+          {/* TAB 8: THEO DÕI LÔ HÀNG SAU BÁN & CHUỖI LẠNH IOT */}
+          {activeTab === 'post_sale' && (
+            <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} />
+          )}
         </main>
       </div>
 
@@ -3143,13 +3216,13 @@ export default function FarmerPortalPage() {
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2">
-              <button
+              <button type="button"
                 onClick={() => setCounterModalRfq(null)}
                 className="px-3.5 py-1.5 border border-gray-200 rounded-xl font-bold text-gray-600 cursor-pointer"
               >
                 Hủy
               </button>
-              <button
+              <button type="button"
                 onClick={handleCounterRfq}
                 className="px-4 py-1.5 bg-[#10542C] text-white rounded-xl font-bold shadow-xs hover:bg-emerald-800 cursor-pointer"
               >
@@ -3175,13 +3248,13 @@ export default function FarmerPortalPage() {
               className="w-full p-3 rounded-xl border border-gray-300"
             />
             <div className="flex items-center justify-end gap-2">
-              <button
+              <button type="button"
                 onClick={() => setRejectModalRfq(null)}
                 className="px-3.5 py-1.5 border border-gray-200 rounded-xl font-bold text-gray-600 cursor-pointer"
               >
                 Hủy
               </button>
-              <button
+              <button type="button"
                 onClick={handleRejectRfq}
                 className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-xs cursor-pointer"
               >
@@ -3251,13 +3324,13 @@ export default function FarmerPortalPage() {
                   <span>Mở Tab Mới</span>
                 </a>
 
-                <button
+                <button type="button"
                   onClick={() => window.print()}
                   className="px-3 py-1.5 bg-white text-[#10542C] hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" /> In
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setViewingTaxSettlementId(null)}
                   className="text-white hover:text-gray-300 font-bold px-2 text-base cursor-pointer"
                 >
@@ -3461,5 +3534,25 @@ export default function FarmerPortalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+function FarmerPortalSkeleton() {
+  return (
+    <div className="min-h-screen bg-[#F9F9F5] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-9 h-9 border-3 border-[#10542C] border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs font-bold text-[#10542C]">Đang tải Cổng Nông Dân HoNa Fresh...</span>
+      </div>
+    </div>
+  );
+}
+
+export default function FarmerPortalPage() {
+  return (
+    <React.Suspense fallback={<FarmerPortalSkeleton />}>
+      <FarmerPortalContent />
+    </React.Suspense>
   );
 }

@@ -7,7 +7,31 @@ import {
   B2BContract,
   QcInspection,
   Settlement,
+  HarvestLotAllocation,
+  ColdChainTelemetry,
+  DeliveryProof,
+  LotTrace,
 } from '@/types';
+
+export const getAuthHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('xanhfarm_user') || sessionStorage.getItem('xanhfarm_user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        if (u?.token) {
+          headers['Authorization'] = `Bearer ${u.token}`;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return headers;
+};
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
@@ -1162,4 +1186,76 @@ export const updateDeliveryScheduleApi = async (
 // 11. Helper lấy URL in Hợp Đồng B2B Điện Tử
 export const getContractPrintUrl = (contractId: number): string => {
   return `${API_BASE_URL}/farmer/contracts/${contractId}/print`;
+};
+
+
+// 12. Lấy Cây Phân Bổ Sản Lượng của Lô Hàng (Post-sale Allocation Tree)
+export const getLotAllocationApi = async (lotId: number): Promise<HarvestLotAllocation | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots/${lotId}/allocation`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+    const data: ApiResponse<HarvestLotAllocation> = await res.json();
+    if (res.ok && data.code === 200 && data.result) {
+      return data.result;
+    }
+  } catch (err) {
+    console.warn('API getLotAllocation error:', err);
+  }
+  return null;
+};
+
+// 13. Lấy Dữ Liệu Cảm Biến Chuỗi Lạnh Xe Lạnh IoT (Cold-chain Telemetry)
+export const getColdChainTelemetryApi = async (contractId: number): Promise<ColdChainTelemetry | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/telemetry`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+    const data: ApiResponse<ColdChainTelemetry> = await res.json();
+    if (res.ok && data.code === 200 && data.result) {
+      return data.result;
+    }
+  } catch (err) {
+    console.warn('API getColdChainTelemetry error:', err);
+  }
+  return null;
+};
+
+// 14. Lấy Bằng Chứng Giao Hàng Điện Tử ePOD & Giám Định Hao Hụt
+export const getDeliveryProofApi = async (contractId: number): Promise<DeliveryProof | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/delivery-proof`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+    const data: ApiResponse<DeliveryProof> = await res.json();
+    if (res.ok && data.code === 200 && data.result) {
+      return data.result;
+    }
+  } catch (err) {
+    console.warn('API getDeliveryProof error:', err);
+  }
+  return null;
+};
+
+// 15. Lấy Dữ Liệu Tem Truy Xuất Nguồn Gốc Công Khai (Public QR Trace)
+export const getLotTraceApi = async (lotCode: string): Promise<LotTrace | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/trace/lot/${lotCode}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data: ApiResponse<LotTrace> = await res.json();
+    if (res.ok && data.code === 200 && data.result) {
+      return data.result;
+    }
+  } catch (err) {
+    console.warn('API getLotTrace error:', err);
+  }
+  return null;
 };

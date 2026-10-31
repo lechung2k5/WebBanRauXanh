@@ -727,9 +727,33 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
     });
     const data: ApiResponse<OrderResponse> = await res.json();
     if (!res.ok) throw new Error(data.message || 'Lỗi khi đặt hàng');
+    if (typeof window !== 'undefined' && data.result) {
+      try {
+        const list = JSON.parse(localStorage.getItem('hona_my_orders') || '[]');
+        const filtered = list.filter((o: OrderResponse) => o.id !== data.result.id && o.orderCode !== data.result.orderCode);
+        filtered.unshift(data.result);
+        localStorage.setItem('hona_my_orders', JSON.stringify(filtered));
+      } catch {}
+    }
     return data.result;
   } catch (err: unknown) {
     throw err;
+  }
+};
+
+export const getUserOrdersApi = async (userId: number, page = 0, size = 20): Promise<PageResponse<OrderResponse>> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/orders/user/${userId}?page=${page}&size=${size}`, {
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      return { data: [], totalElements: 0, totalPages: 0, pageSize: size, currentPage: page };
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+    return data.result;
+  } catch {
+    return { data: [], totalElements: 0, totalPages: 0, pageSize: size, currentPage: page };
   }
 };
 

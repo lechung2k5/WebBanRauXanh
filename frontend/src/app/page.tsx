@@ -84,7 +84,7 @@ export default function HomePage() {
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // User Auth State
-  const { currentUser, setCurrentUser, logout, cartCount } = useApp();
+  const { currentUser, setCurrentUser, logout, cartCount, addToCart, setIsCartOpen } = useApp();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
 
@@ -916,6 +916,26 @@ export default function HomePage() {
       <OrderTrackingModal
         isOpen={isTrackingOpen}
         onClose={() => setIsTrackingOpen(false)}
+        onReorder={(items) => {
+          items.forEach((it) => {
+            const prod = products.find((p) => p.id === it.productId) || {
+              id: typeof it.productId === 'number' ? it.productId : 1,
+              name: it.productName,
+              slug: it.productName.toLowerCase().replace(/ /g, '-'),
+              price: it.unitPrice,
+              stockQuantity: 100,
+              unit: it.unit,
+              categoryName: 'Rau Sạch',
+              categorySlug: 'rau-sach',
+              origin: 'Đà Lạt',
+              description: it.productName,
+              imageUrl: it.productImageUrl,
+              isFeatured: true,
+            };
+            addToCart(prod as any, it.quantity);
+          });
+          setIsCartOpen(true);
+        }}
       />
 
       <AuthModal

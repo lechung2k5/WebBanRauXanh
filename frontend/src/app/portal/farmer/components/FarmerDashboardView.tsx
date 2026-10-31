@@ -226,9 +226,9 @@ export default function FarmerDashboardView({
 
   // Tính toán tọa độ cho SVG Line Chart
   const svgWidth = 560;
-  const svgHeight = 220;
-  const paddingX = 45;
-  const paddingY = 30;
+  const svgHeight = 200;
+  const paddingX = 35;
+  const paddingY = 18;
   const chartInnerW = svgWidth - paddingX * 2;
   const chartInnerH = svgHeight - paddingY * 2;
 
@@ -260,12 +260,12 @@ export default function FarmerDashboardView({
       : '';
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col justify-between gap-3 overflow-hidden">
       {/* =========================================================================
           1. QUY TẮC 5 GIÂY: THANH CẢNH BÁO TÌNH TRẠNG VẬN HÀNH TỨC THÌ (5-SEC PULSE)
              -> LIÊN KẾT ĐỘNG VỚI SỐ LƯỢNG RFQ, HỢP ĐỒNG, CỌC ESCROW THỰC TẾ
          ========================================================================= */}
-      <div className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-4 sm:p-5">
+      <div className="shrink-0 bg-white rounded-2xl border border-[#EAECE8] shadow-2xs px-4 py-2 sm:py-2.5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Trạng thái hệ thống */}
           <div className="flex items-start sm:items-center gap-3.5">
@@ -330,21 +330,21 @@ export default function FarmerDashboardView({
           2. GÓC TRÊN CÙNG / BÊN TRÁI: 4 CHỈ SỐ KPI CỐT LÕI CÓ NGỮ CẢNH (F-PATTERN)
              -> CẬP NHẬT TỨC THÌ KHI CHẤP THUẬN RFQ HOẶC THAY ĐỔI HỢP ĐỒNG
          ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* KPI 1: TỔNG DOANH THU THỰC NHẬN */}
-        <div className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-300 transition group">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between hover:border-emerald-300 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-600">Tổng Doanh Thu Thực Nhận</span>
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#10542C] flex items-center justify-center group-hover:scale-105 transition">
-              <DollarSign className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center group-hover:scale-105 transition">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2">
-            <h3 className="text-2xl font-black font-heading text-[#10542C] tracking-tight">
+            <h3 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-[#10542C] tracking-tight">
               {formatVnd(currentData.revenue)}
             </h3>
             {/* Luôn cung cấp ngữ cảnh (So sánh với kỳ trước + mục tiêu) */}
-            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+            <div className="mt-1.5 pt-1.5 border-t border-gray-100 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
                 <TrendingUp className="w-3.5 h-3.5" /> {currentData.revGrowth}
               </span>
@@ -354,19 +354,19 @@ export default function FarmerDashboardView({
         </div>
 
         {/* KPI 2: SẢN LƯỢNG ĐÃ XUẤT BÁN */}
-        <div className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-300 transition group">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between hover:border-emerald-300 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-600">Sản Lượng Đã Bán & Xuất Trạm</span>
-            <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-700 flex items-center justify-center group-hover:scale-105 transition">
-              <Sprout className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center group-hover:scale-105 transition">
+              <Sprout className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2">
-            <h3 className="text-2xl font-black font-heading text-gray-900 tracking-tight">
+            <h3 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-gray-900 tracking-tight">
               {currentData.volume.toLocaleString('vi-VN')} <span className="text-sm font-normal text-gray-500">kg</span>
             </h3>
             {/* Luôn cung cấp ngữ cảnh */}
-            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+            <div className="mt-1.5 pt-1.5 border-t border-gray-100 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1 font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
                 <TrendingUp className="w-3.5 h-3.5" /> {currentData.volGrowth}
               </span>
@@ -376,19 +376,19 @@ export default function FarmerDashboardView({
         </div>
 
         {/* KPI 3: TỶ LỆ ĐẠT CHUẨN KIỂM ĐỊNH QC TRẠM LẠNH */}
-        <div className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-300 transition group">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between hover:border-emerald-300 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-600">Tỷ Lệ Đạt Chuẩn QC Trạm Lạnh</span>
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition">
-              <Scale className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition">
+              <Scale className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2">
-            <h3 className="text-2xl font-black font-heading text-emerald-800 tracking-tight">
+            <h3 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-emerald-800 tracking-tight">
               {currentData.qcRate}%
             </h3>
             {/* Luôn cung cấp ngữ cảnh */}
-            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+            <div className="mt-1.5 pt-1.5 border-t border-gray-100 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1 font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Vượt {currentData.qcDiff}
               </span>
@@ -398,19 +398,19 @@ export default function FarmerDashboardView({
         </div>
 
         {/* KPI 4: TIỀN CỌC ESCROW BẢO CHỨNG (CẬP NHẬT ĐỘNG KHI KÝ HĐ) */}
-        <div className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-amber-300 transition group">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between hover:border-amber-300 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-600">Tiền Cọc Sàn Giữ Hộ (Escrow)</span>
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-105 transition">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-105 transition">
+              <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2">
-            <h3 className="text-2xl font-black font-heading text-amber-700 tracking-tight">
+            <h3 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-amber-700 tracking-tight">
               {formatVnd(currentData.escrow)}
             </h3>
             {/* Luôn cung cấp ngữ cảnh */}
-            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+            <div className="mt-1.5 pt-1.5 border-t border-gray-100 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1 font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
                 🔒 {contracts.length} HĐ Bảo Chứng
               </span>
@@ -423,10 +423,10 @@ export default function FarmerDashboardView({
       {/* =========================================================================
           3. KHU VỰC TRUNG TÂM: BIỂU ĐỒ XU HƯỚNG & PHÂN TÍCH SO SÁNH (CENTER AREA)
          ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
         {/* CỘT TRÁI (8 COLS): BIỂU ĐỒ ĐƯỜNG (LINE CHART) HOẶC CỘT (BAR CHART) */}
-        <div className="lg:col-span-8 bg-white p-5 sm:p-6 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
+        <div className="lg:col-span-8 bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between h-full">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-gray-100">
             <div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#10542C]" />
@@ -470,11 +470,11 @@ export default function FarmerDashboardView({
             </div>
           </div>
 
-          {/* TAB 1: BIỂU ĐỒ ĐƯỜNG (LINE CHART) - Decluttered, không 3D, không shadow đậm */}
+          {/* TAB 1: BIỂU ĐỒ ĐƯỜNG (LINE CHART) - Lấp đầy khoảng trống, chân thẻ thẳng hàng */}
           {activeCenterTab === 'trends' && (
-            <div className="space-y-4">
+            <div className="flex-1 min-h-0 flex flex-col justify-between pt-1">
               {/* Legend & Metric Toggles */}
-              <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs pb-1">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="w-3 h-3 rounded-full bg-[#10542C]" />
@@ -496,6 +496,7 @@ export default function FarmerDashboardView({
                     ] as const
                   ).map((m) => (
                     <button
+                      type="button"
                       key={m.id}
                       onClick={() => setChartMetric(m.id)}
                       className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
@@ -510,8 +511,8 @@ export default function FarmerDashboardView({
                 </div>
               </div>
 
-              {/* SVG Line Chart */}
-              <div className="relative w-full overflow-hidden">
+              {/* SVG Line Chart Lấp Đầy Không Gian */}
+              <div className="flex-1 min-h-0 flex items-center justify-center relative w-full py-1">
                 <svg
                   viewBox={`0 0 ${svgWidth} ${svgHeight}`}
                   className="w-full h-auto overflow-visible select-none"
@@ -523,7 +524,7 @@ export default function FarmerDashboardView({
                     </linearGradient>
                   </defs>
 
-                  {/* Horizontal Gridlines (Decluttered - Rất mờ, không gây nhiễu thị giác) */}
+                  {/* Horizontal Gridlines */}
                   {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
                     const y = paddingY + ratio * chartInnerH;
                     return (
@@ -618,7 +619,7 @@ export default function FarmerDashboardView({
                     <text
                       key={`lbl-${idx}`}
                       x={pt.x}
-                      y={svgHeight - 8}
+                      y={svgHeight - 4}
                       textAnchor="middle"
                       className="text-[11px] fill-gray-500 font-medium"
                     >
@@ -627,13 +628,13 @@ export default function FarmerDashboardView({
                   ))}
                 </svg>
 
-                {/* Tooltip Card khi hover vào điểm số liệu */}
+                {/* Tooltip Card */}
                 {hoveredPointIdx !== null && (
                   <div
                     className="absolute bg-gray-900 text-white text-xs rounded-xl p-2.5 shadow-lg pointer-events-none z-20 space-y-1"
                     style={{
                       left: `${(revCoordinates[hoveredPointIdx].x / svgWidth) * 100}%`,
-                      top: '15px',
+                      top: '10px',
                       transform: 'translateX(-50%)',
                     }}
                   >
@@ -655,13 +656,23 @@ export default function FarmerDashboardView({
                   </div>
                 )}
               </div>
+
+              {/* Footer Thẻ Line Chart: Cân xứng tuyệt đối với chân thẻ Donut */}
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Tăng trưởng doanh thu: <strong className="text-[#10542C] font-bold">{currentData.revGrowth}</strong></span>
+                </span>
+                <span className="text-[11px] text-gray-400 font-mono">100% đối soát trạm cân</span>
+              </div>
             </div>
           )}
 
-          {/* TAB 2: BIỂU ĐỒ CỘT (BAR CHART) - So sánh Kế hoạch vs Thực tế */}
+          {/* TAB 2: BIỂU ĐỒ CỘT (BAR CHART) - Cuộn nội bộ trong khung khi vượt giới hạn */}
           {activeCenterTab === 'comparison' && (
-            <div className="space-y-4 pt-2">
-              <div className="flex items-center justify-between text-xs text-gray-500">
+            <div className="flex-1 min-h-0 flex flex-col justify-between pt-1">
+              {/* Legend của cột so sánh */}
+              <div className="flex items-center justify-between text-xs text-gray-500 pb-2">
                 <span className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-xs bg-[#10542C]" /> Thực tế xuất bán (kg)
                 </span>
@@ -670,36 +681,35 @@ export default function FarmerDashboardView({
                 </span>
               </div>
 
-              <div className="space-y-4">
+              {/* Danh sách nông sản: Hiển thị full sản phẩm ra lấp đầy ô trống, đầy ô rồi mới scroll, thanh scroll không ẩn */}
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 space-y-2.5">
                 {categoryComparison.map((cat, idx) => {
                   const maxVal = 10000;
                   const actualPct = Math.min(100, (cat.actual / maxVal) * 100);
                   const planPct = Math.min(100, (cat.plan / maxVal) * 100);
 
                   return (
-                    <div key={idx} className="space-y-1.5">
+                    <div key={idx} className="space-y-1 bg-gray-50/70 p-2 sm:p-2.5 rounded-xl border border-gray-100/90 hover:bg-emerald-50/40 transition">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-gray-800">{cat.name}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-gray-500">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-gray-500 font-mono text-[11px]">
                             {cat.actual.toLocaleString()} / {cat.plan.toLocaleString()} kg
                           </span>
-                          <span className="font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md">
+                          <span className="font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md text-[11px] border border-emerald-100">
                             {cat.status}
                           </span>
                         </div>
                       </div>
 
-                      {/* Biểu đồ cột kép phẳng, rõ ràng */}
-                      <div className="space-y-1">
-                        {/* Cột thực tế */}
-                        <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden flex">
+                      {/* Biểu đồ cột kép phẳng */}
+                      <div className="space-y-0.5">
+                        <div className="w-full bg-gray-200/80 h-2.5 rounded-full overflow-hidden flex">
                           <div
                             className="bg-[#10542C] h-full rounded-full transition-all duration-500"
                             style={{ width: `${actualPct}%` }}
                           />
                         </div>
-                        {/* Cột kế hoạch */}
                         <div className="w-full bg-transparent h-1.5 rounded-full overflow-hidden flex">
                           <div
                             className="bg-gray-300 h-full rounded-full transition-all duration-500"
@@ -711,12 +721,23 @@ export default function FarmerDashboardView({
                   );
                 })}
               </div>
+
+              {/* Footer của Cột so sánh */}
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 mt-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Tổng {categoryComparison.length} nhóm nông sản đang theo dõi</span>
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {categoryComparison.length > 4 ? 'Cuộn trong khung để xem thêm' : 'Đã hiển thị toàn bộ'}
+                </span>
+              </div>
             </div>
           )}
         </div>
 
-        {/* CỘT PHẢI (4 COLS): BIỂU ĐỒ TRÒN / DONUT (DONUT CHART) - Tối đa 4 nhóm */}
-        <div className="lg:col-span-4 bg-white p-5 sm:p-6 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4 flex flex-col justify-between">
+        {/* CỘT PHẢI (4 COLS): BIỂU ĐỒ TRÒNTRÒN / DONUT (DONUT CHART) - Tối đa 4 nhóm */}
+        <div className="lg:col-span-4 bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
@@ -731,10 +752,10 @@ export default function FarmerDashboardView({
             </div>
 
             {/* Donut Chart SVG */}
-            <div className="relative py-4 flex items-center justify-center">
-              <svg width="180" height="180" viewBox="0 0 180 180" className="transform -rotate-90">
+            <div className="relative py-1.5 flex items-center justify-center">
+              <svg width="135" height="135" viewBox="0 0 135 135" className="transform -rotate-90">
                 {(() => {
-                  const circumference = 2 * Math.PI * 70;
+                  const circumference = 2 * Math.PI * 50;
                   let accumulatedPercent = 0;
                   return productCategories.map((cat, idx) => {
                     const strokeDasharray = `${(cat.percent / 100) * circumference} ${circumference}`;
@@ -744,12 +765,12 @@ export default function FarmerDashboardView({
                     return (
                       <circle
                         key={idx}
-                        cx="90"
-                        cy="90"
-                        r="70"
+                        cx="67.5"
+                        cy="67.5"
+                        r="50"
                         fill="transparent"
                         stroke={cat.color}
-                        strokeWidth="22"
+                        strokeWidth="16"
                         strokeDasharray={strokeDasharray}
                         strokeDashoffset={strokeDashoffset}
                         className="transition-all hover:opacity-85 cursor-pointer"
@@ -768,7 +789,7 @@ export default function FarmerDashboardView({
             </div>
 
             {/* Chú giải (Legend) kèm số tiền & % chuẩn quy tắc */}
-            <div className="space-y-2 pt-2 border-t border-gray-100">
+            <div className="space-y-1.5 pt-1.5 border-t border-gray-100">
               {productCategories.map((cat, idx) => (
                 <div key={idx} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
@@ -793,8 +814,9 @@ export default function FarmerDashboardView({
 
           <div className="pt-3 border-t border-gray-100">
             <button
+              type="button"
               onClick={() => setActiveTab('lots')}
-              className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <span>Xem Quản Lý Lô Nông Sản</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -803,198 +825,6 @@ export default function FarmerDashboardView({
         </div>
       </div>
 
-      {/* =========================================================================
-          4. DƯỚI CÙNG / BÊN PHẢI: BẢNG BIỂU DỮ LIỆU CHI TIẾT & HÀNH ĐỘNG VẬN HÀNH
-             -> HIỂN THỊ RÕ THỜI GIAN HÌNH THÀNH ĐÀM PHÁN (CREATED AT)
-         ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* CỘT TRÁI (7 COLS): BẢNG HÀNH ĐỘNG VẬN HÀNH & RFQ CHỜ CHỐT */}
-        <div className="lg:col-span-7 bg-white p-5 sm:p-6 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center">
-                <MessageSquare className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-heading font-black text-sm text-gray-900">
-                  Yêu Cầu Báo Giá (RFQ) & Tiến Độ Đàm Phán
-                </h3>
-                <p className="text-[11px] text-gray-500">
-                  Các đề xuất sỉ từ thương lái kèm thời gian khởi tạo & hẹn giao hàng
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveTab('rfq')}
-              className="text-xs text-emerald-800 hover:text-emerald-950 font-bold flex items-center gap-1 cursor-pointer"
-            >
-              Xem tất cả ({rfqs.length}) <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {rfqs.slice(0, 3).map((rfq) => {
-              const rfqTime = formatRfqTimestamp(rfq.createdAt);
-              return (
-                <div
-                  key={rfq.id}
-                  className="p-3.5 rounded-2xl border border-gray-100 hover:border-emerald-300 bg-[#F9FAF8] flex flex-col gap-2.5 transition"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-[11px] font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded-md">
-                          {rfq.rfqCode}
-                        </span>
-                        <span className="text-xs font-bold text-gray-900">
-                          {rfq.buyerCompany || rfq.buyerName}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-700">
-                        Cần mua: <strong className="text-gray-900">{rfq.requestedQuantity.toLocaleString()} kg</strong>{' '}
-                        {rfq.productName}
-                      </p>
-                    </div>
-
-                    {rfq.status === 'PENDING' ? (
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                        <button
-                          onClick={() => handleAcceptRfq(rfq.id)}
-                          className="px-3.5 py-1.5 bg-[#10542C] hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-2xs transition cursor-pointer"
-                        >
-                          Chấp Thuận
-                        </button>
-                        <button
-                          onClick={() => {
-                            setCounterModalRfq(rfq);
-                            setCounterPrice(rfq.targetPrice);
-                            setCounterQty(rfq.requestedQuantity);
-                          }}
-                          className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-xs font-bold rounded-xl text-gray-700 transition cursor-pointer"
-                        >
-                          Thương Lượng
-                        </button>
-                      </div>
-                    ) : (
-                      <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl self-end sm:self-auto ${
-                          rfq.status === 'ACCEPTED'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        {rfq.status === 'ACCEPTED' ? '✓ Đã Ký Hợp Đồng' : rfq.status}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* THỜI GIAN HÌNH THÀNH ĐÀM PHÁN & ĐỀ XUẤT */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-200/70 text-[11px] text-gray-600">
-                    <div className="flex items-center gap-1.5 text-gray-700 font-medium">
-                      <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span>
-                        Thời gian gửi đàm phán: <strong className="text-gray-900">{rfqTime.full}</strong> ({rfqTime.relative})
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 font-semibold">
-                      <span className="text-[#10542C]">Đề xuất: {formatVnd(rfq.targetPrice)}/kg</span>
-                      <span className="text-gray-400">•</span>
-                      <span className="text-gray-700">Giao: {rfq.deliveryDate}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Banner hỗ trợ đăng lô thu hoạch nhanh */}
-          <div className="pt-2 flex items-center justify-between p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl">
-            <div className="flex items-center gap-2.5">
-              <Sprout className="w-5 h-5 text-[#10542C]" />
-              <div className="text-xs">
-                <p className="font-bold text-[#10542C]">Vườn sắp có đợt thu hoạch mới?</p>
-                <p className="text-[11px] text-emerald-800">
-                  Đăng lô hàng để mở biểu giá theo bậc (Tier Pricing) tiếp cận 50+ thương lái B2B
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleOpenLotModal}
-              className="px-3.5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Đăng Lô Mới</span>
-            </button>
-          </div>
-        </div>
-
-        {/* CỘT PHẢI (5 COLS): HỢP ĐỒNG B2B, BẢO CHỨNG ESCROW & BẢNG KÊ THUẾ */}
-        <div className="lg:col-span-5 bg-white p-5 sm:p-6 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
-                <Receipt className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-heading font-black text-sm text-gray-900">
-                  Hợp Đồng Đang Chạy ({contracts.length})
-                </h3>
-                <p className="text-[11px] text-gray-500">Quản lý dòng tiền bảo lãnh 30%</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveTab('settlements')}
-              className="text-xs text-emerald-800 hover:text-emerald-950 font-bold flex items-center gap-1 cursor-pointer"
-            >
-              Ví thanh toán <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {contracts.slice(0, 3).map((c) => (
-              <div
-                key={c.id}
-                className="p-3.5 rounded-2xl bg-emerald-50/40 border border-emerald-100 space-y-2 hover:border-emerald-300 transition"
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-mono font-bold text-[#10542C]">{c.contractCode}</span>
-                  <span className="text-[11px] bg-emerald-600 text-white px-2 py-0.5 rounded-md font-bold">
-                    ✓ Đã Ký Quỹ Escrow
-                  </span>
-                </div>
-                <p className="text-xs text-gray-800 font-bold">
-                  {c.productName} ({c.quantity.toLocaleString()} kg)
-                </p>
-                <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-100 text-gray-600">
-                  <span>Tiền cọc bảo chứng:</span>
-                  <strong className="text-amber-800 font-black">{formatVnd(c.depositAmount)}</strong>
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-600">
-                  <span>Trạm tiếp nhận:</span>
-                  <span className="font-medium text-gray-800 truncate max-w-[170px]">{c.hubName}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Chứng từ Bảng kê 01/TNDN hợp pháp */}
-          <div className="p-3.5 bg-blue-50/70 rounded-2xl border border-blue-200 text-xs text-blue-950 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold flex items-center gap-1.5 text-blue-900">
-                <FileText className="w-4 h-4 text-blue-700" />
-                Bảng Kê Mẫu 01/TNDN (Miễn Thuế)
-              </span>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md">
-                Tự động
-              </span>
-            </div>
-            <p className="text-[11px] text-blue-900/80 leading-relaxed">
-              Các lô hàng đã qua kiểm định QC được hệ thống tự động xuất bảng kê thu mua nông sản trực tiếp từ nông dân, hợp thức hóa chi phí cho doanh nghiệp thu mua.
-            </p>
-          </div>
-        </div>
       </div>
-    </div>
   );
 }

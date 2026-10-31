@@ -163,4 +163,29 @@ public class FarmerController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"BangKe_01_TNDN_" + id + ".html\"")
                 .body(html);
     }
+
+    // 8. Post-Sale Lot Tracking & Telemetry
+    @GetMapping("/harvest-lots/{id}/allocation")
+    @Operation(summary = "Xem cây phân bổ sản lượng lô vụ mùa (Hợp đồng con, khối lượng đã bán, lượng tồn khả dụng)")
+    public ResponseEntity<ApiResponse<HarvestLotAllocationResponse>> getLotAllocation(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.getLotAllocation(id)));
+    }
+
+    @GetMapping("/contracts/{id}/telemetry")
+    @Operation(summary = "Giám sát chuỗi lạnh xe lạnh IoT thời gian thực (Nhiệt độ, độ ẩm, cờ cảnh báo đứt gãy)")
+    public ResponseEntity<ApiResponse<ColdChainTelemetryResponse>> getColdChainTelemetry(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.getColdChainTelemetry(id)));
+    }
+
+    @GetMapping("/contracts/{id}/delivery-proof")
+    @Operation(summary = "Xem biên bản bàn giao điện tử (ePOD) có chữ ký số bên mua và khiếu nại sau bán")
+    public ResponseEntity<ApiResponse<DeliveryProofResponse>> getDeliveryProof(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.getDeliveryProof(id)));
+    }
+
+    @GetMapping("/trace/lot/{lotCode}")
+    @Operation(summary = "Tra cứu tem QR truy xuất nguồn gốc công khai cho người tiêu dùng")
+    public ResponseEntity<ApiResponse<LotTraceResponse>> getLotTrace(@PathVariable String lotCode) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.getLotTrace(lotCode)));
+    }
 }

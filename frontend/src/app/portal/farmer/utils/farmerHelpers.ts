@@ -413,6 +413,20 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
   };
 }
 
+// Helper: An toàn cho Next.js Turbopack SSR/Prerender (Chỉ gọi new Date trên Client)
+export function getSafeCurrentDate(): Date | null {
+  if (typeof window === 'undefined') return null;
+  return new Date();
+}
+
+export function getSafeIsoDate(offsetDays = 0): string {
+  if (typeof window === 'undefined') {
+    return offsetDays === 0 ? '2026-10-30' : '2026-11-15';
+  }
+  const d = new Date(Date.now() + offsetDays * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
 // Helper: Chuẩn hóa hiển thị thời gian tĩnh (Không gọi new Date để tránh lỗi Prerender/SSR Turbopack)
 export function parseDateStringDeterministic(dateStr: string): string {
   if (!dateStr) return '08:00:00 • 28/10/2026';
@@ -442,9 +456,9 @@ export function formatRealtimeTimestamp(
 
   const staticFull = parseDateStringDeterministic(dateStr);
 
-  // Khi đang ở giai đoạn SSR/Prerender (currentNow là null hoặc undefined):
+  // Khi đang ở giai đoạn SSR/Prerender (currentNow là null hoặc undefined hoặc không có window):
   // Trả về chuỗi tĩnh xác định, TUYỆT ĐỐI KHÔNG gọi new Date() trong render scope
-  if (!currentNow) {
+  if (!currentNow || typeof window === 'undefined') {
     return { full: staticFull, relative: 'Hôm nay', isRecent: false };
   }
 

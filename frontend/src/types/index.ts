@@ -459,3 +459,106 @@ export interface PublicRfqDepositRequest {
   shippingOption?: string;
   notes?: string;
 }
+
+// =========================================================================
+// PHÂN HỆ THEO DÕI LÔ HÀNG SAU KHI BÁN (POST-SALE TRACKING & TELEMETRY v2.0)
+// =========================================================================
+
+export interface ContractAllocation {
+  contractId: number;
+  contractCode: string;
+  buyerName: string;
+  buyerPhone: string;
+  quantityKg: number;
+  unitPrice: number;
+  totalAmount: number;
+  depositStatus: string;
+  fulfillmentStatus: string;
+  destinationWarehouse: string;
+  deliveryDate: string;
+  shipmentCode: string;
+  shipmentStatus: string;
+}
+
+export interface HarvestLotAllocation {
+  lotId: number;
+  lotCode: string;
+  productName: string;
+  totalWeightKg: number;
+  allocatedWeightKg: number;
+  availableWeightKg: number;
+  soldPercentage: number;
+  status: string;
+  allocations: ContractAllocation[];
+}
+
+export interface TelemetryLog {
+  time: string;
+  temperature: number;
+  humidity: number;
+  isAlert: boolean;
+  note?: string;
+}
+
+export interface ColdChainTelemetry {
+  contractId: number;
+  contractCode: string;
+  shipmentCode: string;
+  truckPlate: string;
+  driverName: string;
+  driverPhone: string;
+  currentTemp: number;
+  currentHumidity: number;
+  targetTempMin: number;
+  targetTempMax: number;
+  isBreachAlert: boolean;
+  alertMessage?: string;
+  shipmentStatus: string;
+  logs: TelemetryLog[];
+}
+
+export interface SpoilageClaim {
+  claimCode: string;
+  damagedWeightKg: number;
+  cause: string;
+  liableParty: string;
+  compensationAmount: number;
+  status: string;
+  resolutionNote?: string;
+}
+
+export interface DeliveryProof {
+  contractId: number;
+  contractCode: string;
+  shipmentCode: string;
+  departedAt?: string;
+  deliveredAt?: string;
+  epodPhotoUrl?: string;
+  epodSignatureName?: string;
+  epodSignatureData?: string;
+  loadedWeightKg: number;
+  deliveredWeightKg: number;
+  naturalShrinkageKg: number;
+  shrinkagePercent: number;
+  damagedWeightKg: number;
+  status: string;
+  spoilageClaim?: SpoilageClaim;
+}
+
+export interface LotTrace {
+  lotCode: string;
+  productName: string;
+  farmName: string;
+  farmerType: string;
+  pucCode: string;
+  farmAddress: string;
+  certifications: string;
+  harvestDate: string;
+  expiryDate: string;
+  brixScore: number;
+  moisturePercent: number;
+  inspectionNotes: string;
+  inspectorName: string;
+  status: string;
+  imageUrl?: string;
+}

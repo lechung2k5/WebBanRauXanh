@@ -61,8 +61,19 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
 
                         // 2. Chức năng Nông dân & Hợp tác xã (Công khai endpoint gửi RFQ/cọc, tra cứu HĐ B2B, xem QC, chứng từ và phân hệ farmer)
-                        .requestMatchers("/farmer/**", "/ai/**").permitAll()
-                        .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasRole("FARMER")
+                        // 2. Chức năng Nông dân & Hợp tác xã (Chuẩn hóa bảo mật Zero-Trust theo master plan v2.0)
+                        .requestMatchers(
+                                "/farmer/ai-chat",
+                                "/farmer/rfq/public-submit",
+                                "/farmer/contracts/track/**",
+                                "/farmer/trace/**",
+                                "/farmer/contracts/*/print",
+                                "/farmer/settlements/*/pdf-01-tndn",
+                                "/farmer/settlements/*/invoice-kct",
+                                "/ai/**"
+                        ).permitAll()
+                        .requestMatchers("/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
+                        .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
 
                         // 3. Portal Thương Lái: Chỉ dành cho BUYER
                         .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasRole("BUYER")

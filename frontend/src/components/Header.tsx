@@ -30,6 +30,8 @@ function HeaderInner() {
     logout,
     isAiOpen,
     setIsAiOpen,
+    addToCart,
+    setIsCartOpen,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,6 +129,26 @@ function HeaderInner() {
       <OrderTrackingModal
         isOpen={isTrackingOpen}
         onClose={() => setIsTrackingOpen(false)}
+        onReorder={(items) => {
+          items.forEach((it) => {
+            const prod = {
+              id: typeof it.productId === 'number' ? it.productId : 1,
+              name: it.productName,
+              slug: it.productName.toLowerCase().replace(/ /g, '-'),
+              price: it.unitPrice,
+              stockQuantity: 100,
+              unit: it.unit,
+              categoryName: 'Rau Sạch',
+              categorySlug: 'rau-sach',
+              origin: 'Đà Lạt',
+              description: it.productName,
+              imageUrl: it.productImageUrl,
+              isFeatured: true,
+            };
+            addToCart(prod as any, it.quantity);
+          });
+          setIsCartOpen(true);
+        }}
       />
 
       {/* AI Assistant & Vector Search Modal */}

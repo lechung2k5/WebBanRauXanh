@@ -13,6 +13,9 @@ import java.util.Optional;
 
 @Repository
 public interface B2bContractRepository extends JpaRepository<B2bContract, Long> {
+    List<B2bContract> findByHarvestLotOrderByCreatedAtDesc(com.btl.webbanrau.model.HarvestLot harvestLot);
+    List<B2bContract> findByHarvestLotIdOrderByCreatedAtDesc(Long harvestLotId);
+
     Optional<B2bContract> findByContractCode(String contractCode);
     Optional<B2bContract> findFirstByContractCodeIgnoreCase(String contractCode);
     List<B2bContract> findByBuyerPhoneOrderByCreatedAtDesc(String buyerPhone);

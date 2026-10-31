@@ -82,7 +82,8 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         // 2. Seed Nông dân B2B (ROLE_FARMER)
-        if (!userRepository.existsByUsername("farmer_dalat")) {
+        User farmerUser = userRepository.findByUsername("farmer_dalat").orElse(null);
+        if (farmerUser == null) {
             userRepository.save(User.builder()
                 .username("farmer_dalat")
                 .email("farmer@honafresh.vn")
@@ -97,15 +98,27 @@ public class DataInitializer implements CommandLineRunner {
                 .bankAccountNo("102839281928")
                 .pucCode("PUC-LD-001")
                 .certification("VietGAP")
+                .enabled(true)
                 .emailVerified(true)
                 .kycStatus("VERIFIED")
                 .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_FARMER").orElseThrow())))
                 .build());
             log.info("Seeded default farmer account: farmer_dalat / Farmer@123456");
+        } else {
+            farmerUser.setEnabled(true);
+            farmerUser.setEmailVerified(true);
+            farmerUser.setKycStatus("VERIFIED");
+            farmerUser.setPassword(passwordEncoder.encode("Farmer@123456"));
+            if (farmerUser.getRoles() == null || farmerUser.getRoles().isEmpty()) {
+                farmerUser.setRoles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_FARMER").orElseThrow())));
+            }
+            userRepository.save(farmerUser);
+            log.info("Synchronized existing farmer account: farmer_dalat / Farmer@123456");
         }
 
         // Seed Khách hàng bán lẻ (ROLE_USER)
-        if (!userRepository.existsByUsername("user")) {
+        User custUser = userRepository.findByUsername("user").orElse(null);
+        if (custUser == null) {
             userRepository.save(User.builder()
                 .username("user")
                 .password(passwordEncoder.encode("user123"))
@@ -119,6 +132,12 @@ public class DataInitializer implements CommandLineRunner {
                 .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_USER").orElseThrow())))
                 .build());
             log.info("Seeded default customer account: user / user123");
+        } else {
+            custUser.setEnabled(true);
+            custUser.setEmailVerified(true);
+            custUser.setPassword(passwordEncoder.encode("user123"));
+            userRepository.save(custUser);
+            log.info("Synchronized existing customer account: user / user123");
         }
 
         // 3. Seed Thương lái B2B (ROLE_BUYER)

@@ -57,14 +57,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAi,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-  // Chỉ hiển thị Cổng Nông Trại khi đã đăng nhập với tài khoản FARMER
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // An toàn tuyệt đối chống lỗi Hydration Mismatch giữa SSR và Client
+  const activeUser = isMounted ? currentUser : null;
+
+  // Chỉ hiển thị Cổng Nông Trại khi đã mount và đăng nhập với tài khoản FARMER
   const isFarmerUser = Boolean(
-    currentUser && (
-      currentUser.roles?.some((r) =>
+    activeUser && (
+      activeUser.roles?.some((r) =>
         ['ROLE_FARMER', 'FARMER', 'ROLE_COOPERATIVE', 'COOPERATIVE'].includes(r)
       ) ||
-      currentUser.username === 'farmer_dalat'
+      activeUser.username === 'farmer_dalat'
     )
   );
   const [isScrolled, setIsScrolled] = useState(false);
@@ -445,7 +453,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </Link>
 
               {/* Nút Admin Nhanh Nếu Là Admin */}
-              {currentUser?.roles?.includes('ROLE_ADMIN') && (
+              {activeUser?.roles?.includes('ROLE_ADMIN') && (
                 <Link
                   href="/admin/dashboard"
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
@@ -498,7 +506,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               {/* Khối Tài Khoản */}
-              {currentUser ? (
+              {activeUser ? (
                 <div className="relative shrink-0">
                   <button
                     type="button"
@@ -506,10 +514,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="flex items-center gap-2 p-1.5 pl-2 bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl border border-[#EAECE8] transition-colors cursor-pointer"
                   >
                     <div className="w-7 h-7 rounded-full bg-[#10542C] text-white flex items-center justify-center text-xs font-bold shrink-0">
-                      {currentUser.fullName?.charAt(0) || currentUser.username.charAt(0).toUpperCase()}
+                      {activeUser.fullName?.charAt(0) || activeUser.username.charAt(0).toUpperCase()}
                     </div>
                     <span className="text-xs font-bold text-[#2C3E2E] max-w-[80px] truncate hidden sm:inline">
-                      {currentUser.fullName || currentUser.username}
+                      {activeUser.fullName || activeUser.username}
                     </span>
                     <ChevronDown className="w-3.5 h-3.5 text-[#6B7280] shrink-0" />
                   </button>
@@ -519,11 +527,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-[#EAECE8] py-1.5 z-50 text-xs">
                       <div className="px-3 py-2 border-b border-[#EAECE8]">
                         <p className="font-bold text-[#2C3E2E] truncate">
-                          {currentUser.fullName || currentUser.username}
+                          {activeUser.fullName || activeUser.username}
                         </p>
-                        <p className="text-[11px] text-[#6B7280] truncate">{currentUser.email}</p>
+                        <p className="text-[11px] text-[#6B7280] truncate">{activeUser.email}</p>
                       </div>
-                      {currentUser?.roles?.includes('ROLE_ADMIN') && (
+                      {activeUser?.roles?.includes('ROLE_ADMIN') && (
                         <Link
                           href="/admin/dashboard"
                           onClick={() => setIsUserMenuOpen(false)}
@@ -543,9 +551,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <span>Cổng Nông Trại & HTX</span>
                         </Link>
                       )}
-                      {currentUser?.roles && !currentUser.roles.includes('ROLE_ADMIN') && !isFarmerUser && portalFor(currentUser.roles) !== '/' && (
+                      {activeUser?.roles && !activeUser.roles.includes('ROLE_ADMIN') && !isFarmerUser && portalFor(activeUser.roles) !== '/' && (
                         <Link
-                          href={portalFor(currentUser.roles)}
+                          href={portalFor(activeUser.roles)}
                           onClick={() => setIsUserMenuOpen(false)}
                           className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-[#EAF5E9] font-bold flex items-center gap-2 cursor-pointer border-b border-[#EAECE8]"
                         >
