@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Script from 'next/script';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { api, AuthResult, isChallenge, OtpChallenge, portalFor } from '@/services/auth';
 import { useApp } from '@/context/AppContext';
@@ -115,6 +116,15 @@ const VIETNAM_BANKS = [
   { code: 'VIB', name: 'VIB - Quốc tế Việt Nam' },
   { code: 'OTHER', name: 'Ngân hàng khác (Nhập tên thủ công)' },
 ];
+
+/* ─── Shared style tokens ─── */
+const INPUT_CLS =
+  'mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 ' +
+  'transition-all placeholder:text-gray-400 ' +
+  'focus:outline-none focus:border-[#10542C] focus:ring-2 focus:ring-[#10542C]/15 focus:bg-white ' +
+  'hover:border-gray-300';
+
+const LABEL_CLS = 'block text-[13px] font-semibold text-gray-600 tracking-wide';
 
 export default function AuthForm({
   initialMode = 'login',
@@ -312,8 +322,8 @@ export default function AuthForm({
     placeholder = '',
     hint = ''
   ) => (
-    <label className="block text-sm" key={name}>
-      <span className="font-medium text-gray-700">
+    <label className="block" key={name}>
+      <span className={LABEL_CLS}>
         {label} {required && <span className="text-red-500">*</span>}
       </span>
       <input
@@ -323,63 +333,95 @@ export default function AuthForm({
         defaultValue={defaultValue}
         placeholder={placeholder}
         maxLength={name === 'fullName' ? 100 : name === 'username' ? 50 : 150}
-        className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 focus:outline-none focus:border-[#10542C] focus:ring-1 focus:ring-[#10542C] text-sm placeholder:text-gray-400"
+        className={INPUT_CLS}
       />
-      {hint && <span className="text-[11px] text-gray-500 mt-1 block">{hint}</span>}
+      {hint && <span className="text-[11px] text-gray-400 mt-1 block leading-snug">{hint}</span>}
     </label>
   );
 
+  /* ─── Title map ─── */
+  const pageTitle = challenge
+    ? 'Xác thực OTP'
+    : mode === 'register'
+    ? 'Đăng ký tài khoản'
+    : mode === 'reset'
+    ? 'Quên mật khẩu'
+    : mode === 'activate'
+    ? 'Kích hoạt tài khoản'
+    : 'Đăng nhập';
+
   return (
-    <div className="space-y-5">
-      {/* Tiêu đề trang */}
-      <div>
-        <h1 className="text-2xl font-black text-[#10542C] tracking-tight">
-          {challenge
-            ? 'Xác thực OTP'
-            : mode === 'register'
-            ? 'Đăng ký tài khoản'
-            : mode === 'reset'
-            ? 'Quên mật khẩu'
-            : mode === 'activate'
-            ? 'Kích hoạt tài khoản'
-            : 'Đăng nhập'}
-        </h1>
+    <div className="space-y-6">
+      {/* ─── Logo + Tiêu đề ─── */}
+      <div className="text-center space-y-3">
+        <div className="flex justify-center">
+          <Image
+            src="/assets/logo/Logo_full.png"
+            alt="HoNa Fresh"
+            width={148}
+            height={56}
+            priority
+            className="object-contain h-12 w-auto"
+          />
+        </div>
+        <div>
+          <h1 className="text-[22px] font-black text-[#10542C] tracking-tight leading-tight">
+            {pageTitle}
+          </h1>
+          {/* Thin accent line under title */}
+          <div className="mt-1.5 mx-auto w-10 h-[3px] rounded-full bg-gradient-to-r from-[#10542C] to-[#8BC34A]" />
+        </div>
       </div>
 
-      {/* Thông báo lỗi & thành công */}
+      {/* ─── Thông báo lỗi & thành công ─── */}
       {error && (
-        <div role="alert" className="bg-red-50 text-red-700 border border-red-200 p-3 rounded-xl text-sm flex items-start gap-2">
-          <span className="font-bold">✕</span>
-          <div className="flex-1">{error}</div>
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xs"
+        >
+          <svg className="mt-0.5 h-4 w-4 shrink-0 fill-current" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          <span className="flex-1 leading-snug">{error}</span>
         </div>
       )}
       {message && (
-        <div role="status" className="bg-green-50 text-green-800 border border-green-200 p-3 rounded-xl text-sm flex items-start gap-2">
-          <span className="font-bold">✓</span>
-          <div className="flex-1">{message}</div>
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-xs"
+        >
+          <svg className="mt-0.5 h-4 w-4 shrink-0 fill-current" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <span className="flex-1 leading-snug">{message}</span>
         </div>
       )}
 
-      {/* Form chính */}
+      {/* ─── Form chính ─── */}
       <form onSubmit={submit} className="space-y-4">
         {challenge ? (
-          /* ==================== MÀN HÌNH NHẬP OTP 6 SỐ ==================== */
-          <div className="bg-green-50/50 border border-green-100 rounded-2xl p-5 text-center space-y-4">
-            <div>
-              <p className="text-sm font-semibold text-gray-800">
-                Mã xác thực đã được gửi đến:
-              </p>
-              <p className="text-base font-bold text-[#10542C] break-all">{email}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Mã có hiệu lực trong <strong>{formatTimer(expires)}</strong>
-              </p>
+          /* ══════ MÀN HÌNH NHẬP OTP 6 SỐ ══════ */
+          <div className="rounded-2xl border border-green-100 bg-gradient-to-b from-green-50/60 to-white px-5 py-6 text-center space-y-4">
+            {/* Email target */}
+            <div className="space-y-1">
+              <p className="text-sm text-gray-500">Mã xác thực đã được gửi đến</p>
+              <p className="text-[15px] font-bold text-[#10542C] break-all">{email}</p>
+              {/* Timer */}
+              <div className="inline-flex items-center gap-1.5 mt-1 rounded-full bg-amber-50 border border-amber-200 px-3 py-1">
+                <svg className="h-3.5 w-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span className="text-xs font-semibold text-amber-700">
+                  Hiệu lực: <strong className="tabular-nums">{formatTimer(expires)}</strong>
+                </span>
+              </div>
             </div>
 
             <OtpInput value={otp} onChange={setOtp} />
 
             {(mode === 'reset' || mode === 'activate') && (
-              <label className="block text-left text-sm mt-3">
-                <span className="font-semibold text-gray-700">Mật khẩu mới (tối thiểu 10 ký tự) *</span>
+              <label className="block text-left">
+                <span className={LABEL_CLS}>Mật khẩu mới (tối thiểu 10 ký tự) *</span>
                 <input
                   type="password"
                   autoComplete="new-password"
@@ -388,23 +430,34 @@ export default function AuthForm({
                   maxLength={72}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 border border-gray-300 rounded-xl px-3.5 py-2.5 w-full text-sm focus:border-[#10542C] focus:outline-none"
+                  className={INPUT_CLS}
                 />
               </label>
             )}
 
-            <div className="pt-2 flex flex-col items-center gap-2">
+            <div className="pt-1 flex flex-col items-center gap-2">
               <button
                 type="button"
                 disabled={busy || cooldown > 0 || challenge.otpType === 'STAFF_ACTIVATION' || challenge.otpType === 'GOOGLE_LOGIN'}
-                className="text-xs sm:text-sm font-bold text-[#10542C] hover:underline disabled:text-gray-400 disabled:no-underline cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#10542C] hover:underline disabled:text-gray-400 disabled:no-underline cursor-pointer transition-colors"
                 onClick={() =>
                   void run(async () => {
                     accept(await api<OtpChallenge>('auth/resend-otp', 'POST', { email, type: challenge.otpType }));
                   })
                 }
               >
-                {cooldown > 0 ? `Gửi lại mã sau ${formatTimer(cooldown)}` : 'Gửi lại mã OTP'}
+                {cooldown > 0 ? (
+                  <>
+                    <span className="tabular-nums">Gửi lại mã sau {formatTimer(cooldown)}</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Gửi lại mã OTP
+                  </>
+                )}
               </button>
               {challenge.otpType === 'STAFF_ACTIVATION' && (
                 <p className="text-xs text-gray-500">Mã kích hoạt nằm trong thư mời.</p>
@@ -412,46 +465,54 @@ export default function AuthForm({
             </div>
           </div>
         ) : (
-          /* ==================== MÀN HÌNH ĐIỀN FORM ==================== */
+          /* ══════ MÀN HÌNH ĐIỀN FORM ══════ */
           <>
             {mode === 'register' && (
               <>
                 {/* Lựa chọn vai trò */}
-                <div className="space-y-1.5">
-                  <span className="block text-sm font-semibold text-gray-700">Vai trò:</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <span className={LABEL_CLS}>Vai trò:</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {/* FARMER */}
                     <button
                       type="button"
                       onClick={() => setRole('FARMER')}
-                      className={`text-left p-3 rounded-xl border-2 transition-all flex items-center justify-between cursor-pointer ${
+                      className={`relative text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
                         role === 'FARMER'
-                          ? 'border-[#10542C] bg-green-50/50 shadow-xs ring-1 ring-[#10542C]'
-                          : 'border-gray-200 bg-white hover:border-green-300'
+                          ? 'border-[#10542C] bg-green-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-green-200 hover:bg-green-50/30'
                       }`}
                     >
-                      <span className="font-bold text-sm text-[#10542C]">Nông dân / Hợp tác xã</span>
                       {role === 'FARMER' && (
-                        <span className="bg-[#10542C] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Đã chọn
+                        <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#10542C]">
+                          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
                         </span>
                       )}
+                      <span className="text-lg">🚜</span>
+                      <p className="mt-1 font-bold text-sm text-[#10542C]">Nông dân / Hợp tác xã</p>
                     </button>
 
+                    {/* BUYER */}
                     <button
                       type="button"
                       onClick={() => setRole('BUYER')}
-                      className={`text-left p-3 rounded-xl border-2 transition-all flex items-center justify-between cursor-pointer ${
+                      className={`relative text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
                         role === 'BUYER'
-                          ? 'border-[#10542C] bg-green-50/50 shadow-xs ring-1 ring-[#10542C]'
-                          : 'border-gray-200 bg-white hover:border-green-300'
+                          ? 'border-[#10542C] bg-green-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-green-200 hover:bg-green-50/30'
                       }`}
                     >
-                      <span className="font-bold text-sm text-[#10542C]">Thương lái / Mua sỉ</span>
                       {role === 'BUYER' && (
-                        <span className="bg-[#10542C] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Đã chọn
+                        <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#10542C]">
+                          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
                         </span>
                       )}
+                      <span className="text-lg">🏢</span>
+                      <p className="mt-1 font-bold text-sm text-[#10542C]">Thương lái / Mua sỉ</p>
                     </button>
                   </div>
                 </div>
@@ -463,10 +524,8 @@ export default function AuthForm({
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-3">
-                  <label className="block text-sm">
-                    <span className="font-medium text-gray-700">
-                      Email <span className="text-red-500">*</span>
-                    </span>
+                  <label className="block">
+                    <span className={LABEL_CLS}>Email <span className="text-red-500">*</span></span>
                     <input
                       name="email"
                       type="email"
@@ -474,7 +533,7 @@ export default function AuthForm({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="vidu@gmail.com"
-                      className="mt-1 border border-gray-300 rounded-xl px-3.5 py-2.5 w-full text-sm focus:border-[#10542C] focus:outline-none"
+                      className={INPUT_CLS}
                     />
                   </label>
                   {field('phone', 'Số điện thoại', 'tel', true)}
@@ -484,10 +543,8 @@ export default function AuthForm({
 
                 {/* Mật khẩu */}
                 <div className="grid sm:grid-cols-2 gap-3">
-                  <label className="block text-sm">
-                    <span className="font-medium text-gray-700">
-                      Mật khẩu (≥10 ký tự) <span className="text-red-500">*</span>
-                    </span>
+                  <label className="block">
+                    <span className={LABEL_CLS}>Mật khẩu (≥10 ký tự) <span className="text-red-500">*</span></span>
                     <input
                       name="password"
                       type="password"
@@ -497,15 +554,15 @@ export default function AuthForm({
                       maxLength={72}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-xl px-3.5 py-2.5 w-full text-sm focus:border-[#10542C] focus:outline-none"
+                      className={INPUT_CLS}
                     />
                   </label>
                   {field('confirmPassword', 'Xác nhận mật khẩu', 'password', true)}
                 </div>
 
                 {/* Thông tin cơ sở đối tác */}
-                <div className="border-t border-gray-200 pt-3 space-y-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
+                <div className="rounded-xl border border-gray-100 bg-gray-50/50 px-4 pt-3 pb-4 space-y-3">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
                     Thông tin {role === 'FARMER' ? 'nông trại / hợp tác xã' : 'doanh nghiệp / vựa thu mua'}
                   </p>
 
@@ -522,14 +579,16 @@ export default function AuthForm({
 
                   {role === 'BUYER' ? (
                     <div className="space-y-3">
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <label className="flex items-center gap-2.5 cursor-pointer group">
                         <input
                           type="checkbox"
                           checked={individualBuyer}
                           onChange={(e) => setIndividualBuyer(e.target.checked)}
-                          className="rounded text-[#10542C] focus:ring-[#10542C] w-4 h-4"
+                          className="rounded border-gray-300 text-[#10542C] focus:ring-[#10542C] w-4 h-4"
                         />
-                        <span>Thương lái cá thể / Bếp ăn (chưa có mã số thuế doanh nghiệp)</span>
+                        <span className="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">
+                          Thương lái cá thể / Bếp ăn (chưa có mã số thuế doanh nghiệp)
+                        </span>
                       </label>
 
                       {field(
@@ -553,14 +612,16 @@ export default function AuthForm({
                   ) : (
                     /* Vai trò FARMER */
                     <div className="space-y-3">
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <label className="flex items-center gap-2.5 cursor-pointer group">
                         <input
                           type="checkbox"
                           checked={household}
                           onChange={(e) => setHousehold(e.target.checked)}
-                          className="rounded text-[#10542C] focus:ring-[#10542C] w-4 h-4"
+                          className="rounded border-gray-300 text-[#10542C] focus:ring-[#10542C] w-4 h-4"
                         />
-                        <span>Đăng ký dưới hình thức Hộ nông dân cá thể</span>
+                        <span className="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">
+                          Đăng ký dưới hình thức Hộ nông dân cá thể
+                        </span>
                       </label>
 
                       {field(
@@ -573,32 +634,30 @@ export default function AuthForm({
                       )}
 
                       {/* Tài khoản ngân hàng nhận tiền */}
-                      <div className="bg-emerald-50/40 border border-emerald-100 p-3.5 rounded-xl space-y-3">
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3.5 py-3 space-y-3">
                         <div className="flex items-center justify-between flex-wrap gap-2">
-                          <span className="text-xs font-bold text-[#10542C] uppercase tracking-wider">
+                          <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">
                             Tài khoản ngân hàng nhận thanh toán
                           </span>
-                          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={skipBank}
                               onChange={(e) => setSkipBank(e.target.checked)}
-                              className="rounded text-[#10542C]"
+                              className="rounded border-gray-300 text-[#10542C]"
                             />
-                            <span>Bổ sung sau</span>
+                            <span className="text-xs text-gray-500">Bổ sung sau</span>
                           </label>
                         </div>
 
                         {!skipBank ? (
-                          <div className="grid sm:grid-cols-2 gap-3 pt-1">
-                            <label className="block text-sm">
-                              <span className="font-medium text-gray-700">
-                                Ngân hàng thụ hưởng <span className="text-red-500">*</span>
-                              </span>
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            <label className="block">
+                              <span className={LABEL_CLS}>Ngân hàng thụ hưởng <span className="text-red-500">*</span></span>
                               <select
                                 value={bankCode}
                                 onChange={(e) => setBankCode(e.target.value)}
-                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5 bg-white text-gray-900 focus:outline-none focus:border-[#10542C] text-sm"
+                                className={INPUT_CLS}
                               >
                                 {VIETNAM_BANKS.map((b) => (
                                   <option key={b.code} value={b.code}>
@@ -613,48 +672,32 @@ export default function AuthForm({
                                   value={customBankName}
                                   onChange={(e) => setCustomBankName(e.target.value)}
                                   placeholder="Nhập tên ngân hàng..."
-                                  className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white text-sm focus:border-[#10542C] focus:outline-none"
+                                  className={INPUT_CLS + ' mt-2'}
                                 />
                               )}
                             </label>
 
-                            <label className="block text-sm">
-                              <span className="font-medium text-gray-700">
-                                Số tài khoản ngân hàng <span className="text-red-500">*</span>
-                              </span>
+                            <label className="block">
+                              <span className={LABEL_CLS}>Số tài khoản ngân hàng <span className="text-red-500">*</span></span>
                               <input
                                 name="bankAccountNo"
                                 type="text"
                                 required={!skipBank}
                                 placeholder="Số tài khoản chính chủ"
-                                className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 focus:outline-none focus:border-[#10542C] text-sm"
+                                className={INPUT_CLS}
                               />
                             </label>
                           </div>
                         ) : (
-                          <p className="text-xs text-gray-600">
+                          <p className="text-xs text-gray-500 leading-relaxed">
                             Có thể bổ sung thông tin tài khoản ngân hàng sau trong trang quản trị.
                           </p>
                         )}
                       </div>
 
                       <div className="grid sm:grid-cols-2 gap-3">
-                        {field(
-                          'pucCode',
-                          'Mã số vùng trồng PUC',
-                          'text',
-                          false,
-                          '',
-                          'Ví dụ: PUC-VN-DL-0982'
-                        )}
-                        {field(
-                          'certification',
-                          'Tiêu chuẩn chất lượng',
-                          'text',
-                          false,
-                          '',
-                          'Ví dụ: VietGAP, GlobalGAP, Hữu cơ'
-                        )}
+                        {field('pucCode', 'Mã số vùng trồng PUC', 'text', false, '', 'Ví dụ: PUC-VN-DL-0982')}
+                        {field('certification', 'Tiêu chuẩn chất lượng', 'text', false, '', 'Ví dụ: VietGAP, GlobalGAP, Hữu cơ')}
                       </div>
                       <ImageUploadField
                         name="certificationUrl"
@@ -667,37 +710,37 @@ export default function AuthForm({
                   )}
                 </div>
 
-                <label className="flex items-start gap-2 text-xs text-gray-600 pt-1 cursor-pointer">
-                  <input type="checkbox" required className="mt-0.5 rounded text-[#10542C] focus:ring-[#10542C]" />
-                  <span>Tôi cam kết thông tin kê khai là chính xác và đồng ý với Quy chế hoạt động của HoNa Fresh.</span>
+                <label className="flex items-start gap-2.5 cursor-pointer group pt-0.5">
+                  <input type="checkbox" required className="mt-0.5 rounded border-gray-300 text-[#10542C] focus:ring-[#10542C]" />
+                  <span className="text-xs text-gray-500 leading-relaxed group-hover:text-gray-700 transition-colors">
+                    Tôi cam kết thông tin kê khai là chính xác và đồng ý với Quy chế hoạt động của HoNa Fresh.
+                  </span>
                 </label>
               </>
             )}
 
             {mode === 'login' && (
               <>
-                {/* Phương thức đăng nhập */}
-                <div className="flex bg-gray-100 p-1 rounded-xl mb-3 text-xs font-bold">
+                {/* Tab phương thức đăng nhập */}
+                <div className="flex bg-gray-100/80 p-1 rounded-xl text-xs font-semibold">
                   <button
                     type="button"
-                    onClick={() => {
-                      setLoginMethod('password');
-                      setError('');
-                    }}
-                    className={`flex-1 py-2 rounded-lg transition-all cursor-pointer ${
-                      loginMethod === 'password' ? 'bg-white text-[#10542C] shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                    onClick={() => { setLoginMethod('password'); setError(''); }}
+                    className={`flex-1 py-2.5 rounded-lg transition-all cursor-pointer ${
+                      loginMethod === 'password'
+                        ? 'bg-white text-[#10542C] shadow-sm font-bold'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     Mật khẩu
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setLoginMethod('otp');
-                      setError('');
-                    }}
-                    className={`flex-1 py-2 rounded-lg transition-all cursor-pointer ${
-                      loginMethod === 'otp' ? 'bg-white text-[#10542C] shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                    onClick={() => { setLoginMethod('otp'); setError(''); }}
+                    className={`flex-1 py-2.5 rounded-lg transition-all cursor-pointer ${
+                      loginMethod === 'otp'
+                        ? 'bg-white text-[#10542C] shadow-sm font-bold'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     Mã OTP Email
@@ -705,9 +748,9 @@ export default function AuthForm({
                 </div>
 
                 {loginMethod === 'password' ? (
-                  <>
-                    <label className="block text-sm">
-                      <span className="font-medium text-gray-700">Tên đăng nhập hoặc Email</span>
+                  <div className="space-y-3.5">
+                    <label className="block">
+                      <span className={LABEL_CLS}>Tên đăng nhập hoặc Email</span>
                       <input
                         name="username"
                         type="text"
@@ -715,20 +758,17 @@ export default function AuthForm({
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         placeholder="Tên đăng nhập hoặc email"
-                        className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 text-sm focus:outline-none focus:border-[#10542C]"
+                        className={INPUT_CLS}
                       />
                     </label>
 
-                    <label className="block text-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium text-gray-700">Mật khẩu</span>
+                    <label className="block">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className={LABEL_CLS}>Mật khẩu</span>
                         <button
                           type="button"
-                          className="text-xs text-[#10542C] hover:underline cursor-pointer font-medium"
-                          onClick={() => {
-                            setMode('reset');
-                            setError('');
-                          }}
+                          className="text-xs font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
+                          onClick={() => { setMode('reset'); setError(''); }}
                         >
                           Quên mật khẩu?
                         </button>
@@ -740,26 +780,26 @@ export default function AuthForm({
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 text-sm focus:outline-none focus:border-[#10542C]"
+                        className={INPUT_CLS}
                       />
                     </label>
 
-                    <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                      <input name="remember" type="checkbox" className="rounded text-[#10542C]" />
-                      <span>Ghi nhớ đăng nhập</span>
+                    <label className="flex items-center gap-2.5 cursor-pointer group">
+                      <input name="remember" type="checkbox" className="rounded border-gray-300 text-[#10542C]" />
+                      <span className="text-xs text-gray-500 group-hover:text-gray-700 transition-colors">Ghi nhớ đăng nhập</span>
                     </label>
-                  </>
+                  </div>
                 ) : (
                   /* Đăng nhập bằng OTP */
-                  <label className="block text-sm">
-                    <span className="font-medium text-gray-700">Email đã đăng ký</span>
+                  <label className="block">
+                    <span className={LABEL_CLS}>Email đã đăng ký</span>
                     <input
                       type="email"
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="email@example.com"
-                      className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 text-sm focus:outline-none focus:border-[#10542C]"
+                      className={INPUT_CLS}
                     />
                   </label>
                 )}
@@ -767,60 +807,77 @@ export default function AuthForm({
             )}
 
             {(mode === 'reset' || mode === 'activate') && (
-              <label className="block text-sm">
-                <span className="font-medium text-gray-700">Email tài khoản</span>
+              <label className="block">
+                <span className={LABEL_CLS}>Email tài khoản</span>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email@example.com"
-                  className="mt-1 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 bg-white text-gray-900 text-sm focus:outline-none focus:border-[#10542C]"
+                  className={INPUT_CLS}
                 />
               </label>
             )}
           </>
         )}
 
-        {/* Nút bấm Submit chính */}
+        {/* ─── Nút Submit chính ─── */}
         <button
           type="submit"
           disabled={busy || (!!challenge && otp.replace(/\s/g, '').length !== 6)}
-          className="w-full bg-[#10542C] hover:bg-[#0c3e20] text-white rounded-xl py-3 font-bold text-sm tracking-wide shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          className="
+            w-full relative overflow-hidden rounded-xl py-3 px-4
+            bg-[#10542C] hover:bg-[#0d4524] active:scale-[0.98]
+            text-white font-bold text-sm tracking-wide
+            shadow-[0_4px_14px_rgba(16,84,44,0.3)] hover:shadow-[0_6px_20px_rgba(16,84,44,0.4)]
+            transition-all duration-200
+            disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:scale-100
+            cursor-pointer
+          "
         >
-          {busy
-            ? 'Đang xử lý…'
-            : challenge
-            ? mode === 'reset'
-              ? 'Đặt lại mật khẩu'
-              : 'Xác nhận OTP'
-            : mode === 'register'
-            ? 'Đăng ký'
-            : mode === 'activate'
-            ? 'Tiếp tục'
-            : mode === 'reset'
-            ? 'Gửi mã xác thực'
-            : loginMethod === 'otp'
-            ? 'Gửi mã OTP'
-            : 'Đăng nhập'}
+          {busy ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Đang xử lý…
+            </span>
+          ) : challenge ? (
+            mode === 'reset' ? 'Đặt lại mật khẩu' : 'Xác nhận OTP'
+          ) : mode === 'register' ? (
+            'Đăng ký'
+          ) : mode === 'activate' ? (
+            'Tiếp tục'
+          ) : mode === 'reset' ? (
+            'Gửi mã xác thực'
+          ) : loginMethod === 'otp' ? (
+            'Gửi mã OTP'
+          ) : (
+            'Đăng nhập'
+          )}
         </button>
       </form>
 
-      {/* Đăng nhập với Google (khi ở chế độ login) */}
+      {/* ─── Đăng nhập với Google ─── */}
       {!challenge && mode === 'login' && (
-        <div className="space-y-3 border-t border-gray-200 pt-3">
-          <div className="relative flex items-center justify-center">
-            <span className="bg-white px-3 text-xs text-gray-400 font-medium">
+        <div className="space-y-3 pt-1">
+          {/* Divider */}
+          <div className="relative flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Hoặc tiếp tục với
             </span>
+            <div className="flex-1 h-px bg-gray-200" />
           </div>
 
           <div className="flex items-center justify-center gap-2 text-xs">
-            <span className="text-gray-600">Vai trò nếu tạo tài khoản mới:</span>
+            <span className="text-gray-500">Vai trò nếu tạo tài khoản mới:</span>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as 'FARMER' | 'BUYER')}
-              className="border border-gray-300 rounded-lg px-2 py-1 text-xs font-semibold text-[#10542C] bg-white cursor-pointer"
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-[#10542C] focus:outline-none focus:border-[#10542C] cursor-pointer"
             >
               <option value="BUYER">Thương lái / Mua sỉ</option>
               <option value="FARMER">Nông dân / Hợp tác xã</option>
@@ -842,61 +899,52 @@ export default function AuthForm({
         </div>
       )}
 
-      {/* Nút quay lại khi đang nhập OTP */}
+      {/* ─── Nút quay lại khi đang nhập OTP ─── */}
       {challenge && (
         <div className="text-center">
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-gray-900 underline cursor-pointer"
-            onClick={() => {
-              setChallenge(null);
-              setOtp('');
-              setError('');
-            }}
+            className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+            onClick={() => { setChallenge(null); setOtp(''); setError(''); }}
           >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
             Quay lại
           </button>
         </div>
       )}
 
-      {/* Điều hướng chuyển qua lại */}
-      <div className="text-xs sm:text-sm flex flex-wrap justify-between items-center gap-2 border-t border-gray-200 pt-3 text-gray-600">
+      {/* ─── Điều hướng chuyển trang ─── */}
+      <div className="flex flex-wrap justify-between items-center gap-2 border-t border-gray-100 pt-4 text-xs">
         {mode === 'reset' ? (
           <button
             type="button"
-            onClick={() => {
-              setMode('login');
-              setChallenge(null);
-              setError('');
-            }}
-            className="font-semibold text-[#10542C] hover:underline cursor-pointer"
+            onClick={() => { setMode('login'); setChallenge(null); setError(''); }}
+            className="font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
           >
-            Quay lại đăng nhập
+            ← Quay lại đăng nhập
           </button>
         ) : (
           <Link
             href={mode === 'register' ? '/dang-nhap' : '/dang-ky'}
-            className="font-semibold text-[#10542C] hover:underline"
+            className="font-semibold text-[#10542C] hover:underline transition-colors"
           >
             {mode === 'register' ? 'Đã có tài khoản? Đăng nhập' : 'Chưa có tài khoản? Đăng ký'}
           </Link>
         )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 text-gray-400">
           {mode !== 'login' && mode !== 'reset' && (
             <button
               type="button"
-              onClick={() => {
-                setMode('login');
-                setChallenge(null);
-                setError('');
-              }}
-              className="font-semibold text-[#10542C] hover:underline cursor-pointer"
+              onClick={() => { setMode('login'); setChallenge(null); setError(''); }}
+              className="font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
             >
               Về đăng nhập
             </button>
           )}
-          <Link href="/kich-hoat" className="hover:underline text-gray-400 text-xs">
+          <Link href="/kich-hoat" className="hover:underline hover:text-gray-600 transition-colors">
             Kích hoạt tài khoản
           </Link>
         </div>
