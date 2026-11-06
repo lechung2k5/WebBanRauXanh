@@ -73,7 +73,15 @@ public class OrderService {
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
         User user = null;
-        if (request.getUserId() != null) {
+        try {
+            User authenticated = AuthService.current();
+            if (!AuthService.has(authenticated, "ADMIN")) {
+                user = authenticated;
+            }
+        } catch (AuthException ignored) {
+            // Guest checkout remains supported.
+        }
+        if (user == null && request.getUserId() != null) {
             user = userRepository.findById(request.getUserId()).orElse(null);
         }
 

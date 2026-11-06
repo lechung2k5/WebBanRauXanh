@@ -757,6 +757,17 @@ export const getUserOrdersApi = async (userId: number, page = 0, size = 20): Pro
   }
 };
 
+export const getBuyerOrdersApi = async (page = 0, size = 20): Promise<PageResponse<OrderResponse>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/orders?page=${page}&size=${size}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải sản phẩm đã mua');
+  return data.result;
+};
+
 export const getOrderByCode = async (orderCode: string): Promise<OrderResponse | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/orders/code/${encodeURIComponent(orderCode)}`, { cache: 'no-store' });
@@ -836,6 +847,52 @@ export const respondBuyerRfqApi = async (id: number, request: { action: 'ACCEPT'
 };
 
 export type BuyerAddress = { id: number; name: string; address: string; phone?: string; defaultWarehouse: boolean };
+
+export type BuyerProfile = {
+  userId: number;
+  username: string;
+  email: string;
+  fullName: string;
+  phone?: string;
+  address?: string;
+  companyName?: string;
+  taxCode?: string;
+  contactName?: string;
+  contactPhone?: string;
+  warehouseAddress?: string;
+  kycStatus?: string;
+  emailVerified?: boolean;
+};
+
+export type BuyerProfileUpdate = {
+  companyName: string;
+  fullName: string;
+  taxCode?: string;
+  contactName?: string;
+  phone?: string;
+  address?: string;
+  warehouseAddress?: string;
+  contactPhone?: string;
+};
+
+export const getBuyerProfileApi = async (): Promise<BuyerProfile> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/profile`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<BuyerProfile> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải hồ sơ Buyer');
+  return data.result;
+};
+
+export const updateBuyerProfileApi = async (request: BuyerProfileUpdate): Promise<BuyerProfile> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<BuyerProfile> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật hồ sơ Buyer');
+  return data.result;
+};
 
 export const getBuyerAddressesApi = async (): Promise<BuyerAddress[]> => {
   const res = await fetch(`${API_BASE_URL}/buyer/addresses`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });

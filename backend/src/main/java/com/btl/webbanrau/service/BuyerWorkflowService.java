@@ -7,6 +7,9 @@ import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
 import com.btl.webbanrau.dto.request.BuyerProfileRequest;
+import com.btl.webbanrau.dto.response.BuyerProfileResponse;
+import com.btl.webbanrau.dto.response.OrderResponse;
+import com.btl.webbanrau.dto.response.PageResponse;
 import com.btl.webbanrau.model.BuyerProfile;
 import com.btl.webbanrau.model.BuyerWarehouse;
 import com.btl.webbanrau.model.HarvestLot;
@@ -41,6 +44,7 @@ public class BuyerWorkflowService {
     private final BuyerWarehouseRepository warehouses;
     private final JdbcTemplate db;
     private final AdminBusinessService business;
+    private final OrderService orderService;
     private final ObjectMapper objectMapper;
 
     public User currentBuyer() {
@@ -52,35 +56,45 @@ public class BuyerWorkflowService {
     }
 
     @Transactional
-    public BuyerProfile profile() {
+    public BuyerProfileResponse profile() {
         User buyer = currentBuyer();
-        return profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
+        BuyerProfile profile = profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
                 .user(buyer)
                 .companyName(buyer.getCompanyName())
                 .taxCode(buyer.getTaxCode())
                 .contactName(buyer.getFullName())
                 .contactPhone(buyer.getPhone())
                 .build()));
+        return toProfileResponse(buyer, profile);
     }
 
     @Transactional
-    public BuyerProfile updateProfile(BuyerProfileRequest request) {
-        BuyerProfile profile = profile();
+    public BuyerProfileResponse updateProfile(BuyerProfileRequest request) {
+        User buyer = currentBuyer();
+        BuyerProfile profile = profileEntity(buyer);
         profile.setCompanyName(request.getCompanyName().trim());
         profile.setTaxCode(request.getTaxCode());
-        profile.setContactName(request.getContactName());
-        profile.setContactPhone(request.getContactPhone());
-        return profiles.save(profile);
+        profile.setContactName(blankToDefault(request.getContactName(), request.getFullName()));
+        profile.setContactPhone(blankToDefault(request.getContactPhone(), request.getPhone()));
+
+        buyer.setFullName(request.getFullName().trim());
+        buyer.setCompanyName(request.getCompanyName().trim());
+        buyer.setTaxCode(request.getTaxCode());
+        buyer.setPhone(blankToDefault(request.getPhone(), request.getContactPhone()));
+        buyer.setAddress(request.getAddress());
+        buyer.setWarehouseAddress(request.getWarehouseAddress());
+        users.save(buyer);
+        return toProfileResponse(buyer, profiles.save(profile));
     }
 
     @Transactional
     public List<BuyerWarehouse> addresses() {
-        return warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profile());
+        return warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profileEntity(currentBuyer()));
     }
 
     @Transactional
     public BuyerWarehouse addAddress(BuyerWarehouseRequest request) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         if (request.isDefaultWarehouse() || warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profile).isEmpty()) {
             clearDefault(profile);
         }
@@ -95,7 +109,7 @@ public class BuyerWorkflowService {
 
     @Transactional
     public BuyerWarehouse updateAddress(Long id, BuyerWarehouseRequest request) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         BuyerWarehouse address = ownedAddress(profile, id);
         if (request.isDefaultWarehouse()) clearDefault(profile);
         address.setName(request.getName().trim());
@@ -107,7 +121,7 @@ public class BuyerWorkflowService {
 
     @Transactional
     public void deleteAddress(Long id) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         BuyerWarehouse address = ownedAddress(profile, id);
         boolean wasDefault = address.isDefaultWarehouse();
         warehouses.delete(address);
@@ -118,6 +132,11 @@ public class BuyerWorkflowService {
                 warehouses.save(remaining.getFirst());
             }
         }
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<OrderResponse> orders(int page, int size) {
+        return orderService.getOrdersByUser(currentBuyer().getId(), page, size);
     }
 
     @Transactional
@@ -312,6 +331,38 @@ public class BuyerWorkflowService {
         BuyerWarehouse address = warehouses.findById(id).orElseThrow(() -> new AuthException(404, "ADDRESS_NOT_FOUND", "Không tìm thấy địa chỉ."));
         if (!Objects.equals(address.getBuyerProfile().getId(), profile.getId())) throw new AuthException(403, "ADDRESS_OWNER_REQUIRED", "Bạn không có quyền với địa chỉ này.");
         return address;
+    }
+
+    private BuyerProfile profileEntity(User buyer) {
+        return profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
+                .user(buyer)
+                .companyName(buyer.getCompanyName())
+                .taxCode(buyer.getTaxCode())
+                .contactName(buyer.getFullName())
+                .contactPhone(buyer.getPhone())
+                .build()));
+    }
+
+    private BuyerProfileResponse toProfileResponse(User buyer, BuyerProfile profile) {
+        return BuyerProfileResponse.builder()
+                .userId(buyer.getId())
+                .username(buyer.getUsername())
+                .email(buyer.getEmail())
+                .fullName(buyer.getFullName())
+                .phone(buyer.getPhone())
+                .address(buyer.getAddress())
+                .companyName(profile.getCompanyName())
+                .taxCode(profile.getTaxCode())
+                .contactName(profile.getContactName())
+                .contactPhone(profile.getContactPhone())
+                .warehouseAddress(buyer.getWarehouseAddress())
+                .kycStatus(buyer.getKycStatus())
+                .emailVerified(buyer.isEmailVerified())
+                .build();
+    }
+
+    private static String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private void clearDefault(BuyerProfile profile) {

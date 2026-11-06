@@ -148,7 +148,7 @@ public class DataInitializer implements CommandLineRunner {
         if (!userRepository.existsByUsername("buyer_sg")) {
             userRepository.save(User.builder()
                 .username("buyer_sg")
-                .email("buyer@honafresh.vn")
+                .email("buyer_sg@honafresh.vn")
                 .password(passwordEncoder.encode("Buyer@123456"))
                 .fullName("Trần Thị Thương")
                 .phone("0987654321")
@@ -216,7 +216,7 @@ public class DataInitializer implements CommandLineRunner {
                     .username("buyer")
                     .password(passwordEncoder.encode("buyer123"))
                     .fullName("Đại diện Buyer Demo")
-                    .email("buyer@honafresh.vn")
+                    .email("buyer.demo@honafresh.vn")
                     .phone("0909123456")
                     .address("Kho Buyer Demo, TP.HCM")
                     .enabled(true)

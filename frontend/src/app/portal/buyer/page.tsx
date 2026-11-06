@@ -8,6 +8,8 @@ import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import BuyerAddressesPanel from '@/components/BuyerAddressesPanel';
+import BuyerOrdersPanel from '@/components/BuyerOrdersPanel';
+import BuyerProfilePanel from '@/components/BuyerProfilePanel';
 import { Product } from '@/types';
 import {
   getProducts,
@@ -46,6 +48,8 @@ import {
   Upload,
   Download,
   MessageSquareQuote,
+  ShoppingBag,
+  UserRound,
   Send,
   Check,
   MapPin,
@@ -66,7 +70,7 @@ export default function BuyerPortalPage() {
 
   // Tab điều hướng
   const [activeSection, setActiveSection] = useState<
-    'lots' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
+    'lots' | 'purchases' | 'orders' | 'profile' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
   >('lots');
 
   // Dữ liệu đồng bộ Realtime B2B
@@ -367,6 +371,33 @@ export default function BuyerPortalPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setActiveSection('purchases')}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
+                  activeSection === 'purchases' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4 text-emerald-300" /> Sản phẩm đã mua
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSection('orders')}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
+                  activeSection === 'orders' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                }`}
+              >
+                <Truck className="w-4 h-4 text-cyan-300" /> Theo dõi đơn hàng
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSection('profile')}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
+                  activeSection === 'profile' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                }`}
+              >
+                <UserRound className="w-4 h-4 text-violet-300" /> Trang cá nhân
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveSection('negotiation')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between font-medium transition-all ${
                   activeSection === 'negotiation'
@@ -455,6 +486,9 @@ export default function BuyerPortalPage() {
 
           {/* Nội dung chi tiết các Section */}
           <section className="flex-1 min-w-0 space-y-6">
+            {activeSection === 'purchases' && <BuyerOrdersPanel mode="purchases" />}
+            {activeSection === 'orders' && <BuyerOrdersPanel mode="tracking" />}
+            {activeSection === 'profile' && <BuyerProfilePanel />}
             {activeSection === 'addresses' && <BuyerAddressesPanel />}
 
             {/* Header Tổng Quan */}

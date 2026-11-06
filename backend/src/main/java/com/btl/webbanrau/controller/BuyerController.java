@@ -6,7 +6,9 @@ import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
-import com.btl.webbanrau.model.BuyerProfile;
+import com.btl.webbanrau.dto.response.BuyerProfileResponse;
+import com.btl.webbanrau.dto.response.OrderResponse;
+import com.btl.webbanrau.dto.response.PageResponse;
 import com.btl.webbanrau.model.BuyerWarehouse;
 import com.btl.webbanrau.service.BuyerWorkflowService;
 import jakarta.validation.Valid;
@@ -26,11 +28,18 @@ public class BuyerController {
     private final BuyerWorkflowService buyer;
 
     @GetMapping("/profile")
-    public ApiResponse<BuyerProfile> getProfile() { return ApiResponse.success(buyer.profile()); }
+    public ApiResponse<BuyerProfileResponse> getProfile() { return ApiResponse.success(buyer.profile()); }
 
     @PutMapping("/profile")
-    public ApiResponse<BuyerProfile> updateProfile(@Valid @RequestBody BuyerProfileRequest request) {
+    public ApiResponse<BuyerProfileResponse> updateProfile(@Valid @RequestBody BuyerProfileRequest request) {
         return ApiResponse.success("Cập nhật hồ sơ Buyer thành công", buyer.updateProfile(request));
+    }
+
+    @GetMapping("/orders")
+    public ApiResponse<PageResponse<OrderResponse>> orders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(buyer.orders(Math.max(page, 0), Math.min(Math.max(size, 1), 50)));
     }
 
     @GetMapping("/addresses")
