@@ -31,6 +31,10 @@ export interface AuthResponse {
   kycStatus: 'PENDING' | 'VERIFIED' | 'REJECTED';
   kycNote?: string;
   profileComplete: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresInSeconds?: number;
+  refreshExpiresInSeconds?: number;
 }
 
 export interface Category {

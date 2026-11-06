@@ -1,6 +1,7 @@
 package com.btl.webbanrau.model;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -25,6 +26,11 @@ public class RfqNegotiation extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "harvest_lot_id", nullable = false)
     private HarvestLot harvestLot;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "buyer_id")
+    @JsonIgnore
+    private User buyer;
 
     @Column(nullable = false, length = 150)
     private String buyerName; // Tên thương lái / Doanh nghiệp thu mua
@@ -55,6 +61,12 @@ public class RfqNegotiation extends BaseEntity {
 
     @Column(length = 200)
     private String hubLocation; // Trạm trung chuyển tiếp nhận
+
+    @Column(length = 40)
+    private String shippingOption;
+
+    @Column(columnDefinition = "TEXT")
+    private String notes;
 
     @Column(nullable = false, length = 30)
     @Builder.Default
