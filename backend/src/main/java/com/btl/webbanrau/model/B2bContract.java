@@ -32,8 +32,12 @@ public class B2bContract extends BaseEntity {
     private HarvestLot harvestLot;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "farmer_id", nullable = false)
+    @JoinColumn(name = "farmer_id")
     private User farmer;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "buyer_id")
+    private User buyer;
 
     @Column(nullable = false, length = 150)
     private String buyerName;
@@ -44,14 +48,23 @@ public class B2bContract extends BaseEntity {
     @Column(nullable = false)
     private Double quantity; // Khối lượng chốt (kg)
 
+    @Column(precision = 12, scale = 2)
+    private BigDecimal quantityKg;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal unitPrice; // Đơn giá chốt (VNĐ/kg)
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal agreedPricePerKg;
 
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal totalAmount; // Tổng giá trị hợp đồng = quantity * unitPrice
 
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal depositAmount; // Cọc 30% bảo chứng Escrow = totalAmount * 0.3
+
+    @Column(length = 30)
+    private String status;
 
     @Column(nullable = false, length = 30)
     @Builder.Default
@@ -78,4 +91,7 @@ public class B2bContract extends BaseEntity {
 
     @Column(columnDefinition = "TEXT")
     private String deliveryNotes; // Ghi chú giao hàng trạm
+
+    @Column(length = 255)
+    private String deliveryAddress;
 }

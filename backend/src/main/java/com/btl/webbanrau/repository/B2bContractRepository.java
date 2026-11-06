@@ -1,6 +1,7 @@
 package com.btl.webbanrau.repository;
 
 import com.btl.webbanrau.model.B2bContract;
+import com.btl.webbanrau.model.HarvestLot;
 import com.btl.webbanrau.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,7 +14,7 @@ import java.util.Optional;
 
 @Repository
 public interface B2bContractRepository extends JpaRepository<B2bContract, Long> {
-    List<B2bContract> findByHarvestLotOrderByCreatedAtDesc(com.btl.webbanrau.model.HarvestLot harvestLot);
+    List<B2bContract> findByHarvestLotOrderByCreatedAtDesc(HarvestLot harvestLot);
     List<B2bContract> findByHarvestLotIdOrderByCreatedAtDesc(Long harvestLotId);
 
     Optional<B2bContract> findByContractCode(String contractCode);
@@ -21,6 +22,9 @@ public interface B2bContractRepository extends JpaRepository<B2bContract, Long> 
     List<B2bContract> findByBuyerPhoneOrderByCreatedAtDesc(String buyerPhone);
     List<B2bContract> findByFarmerOrderByCreatedAtDesc(User farmer);
     List<B2bContract> findByFarmerAndFulfillmentStatus(User farmer, String status);
+
+    List<B2bContract> findByBuyerIdOrderByCreatedAtDesc(Long buyerId);
+    Optional<B2bContract> findByRfqId(Long rfqId);
 
     @Query("SELECT c FROM B2bContract c WHERE LOWER(c.contractCode) = LOWER(:query) OR c.buyerPhone = :query OR c.buyerPhone LIKE %:query% ORDER BY c.createdAt DESC")
     List<B2bContract> searchContractsForBuyer(@Param("query") String query);

@@ -51,11 +51,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
-                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
-                        .requestMatchers("/buyer/**").hasRole("BUYER")
                         .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
-                        .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()
                         .requestMatchers(HttpMethod.GET, "/cold-assets/public-status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
