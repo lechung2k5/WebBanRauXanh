@@ -16,6 +16,9 @@ public interface RfqNegotiationRepository extends JpaRepository<RfqNegotiation, 
     Optional<RfqNegotiation> findByRfqCode(String rfqCode);
     List<RfqNegotiation> findByHarvestLot(HarvestLot harvestLot);
 
+    @Query("SELECT r FROM RfqNegotiation r WHERE r.buyer = :buyer ORDER BY r.createdAt DESC")
+    List<RfqNegotiation> findByBuyerOrderByCreatedAtDesc(@Param("buyer") User buyer);
+
     @Query("SELECT r FROM RfqNegotiation r WHERE r.harvestLot.farmer = :farmer ORDER BY r.createdAt DESC")
     List<RfqNegotiation> findByFarmerOrderByCreatedAtDesc(@Param("farmer") User farmer);
 

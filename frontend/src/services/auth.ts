@@ -2,10 +2,20 @@ import type { AuthResponse } from '@/types';
 
 export type OtpChallenge = { email: string; requireOtp: true; otpType: string; otpExpirySeconds: number; resendAfterSeconds: number };
 export type AuthResult = AuthResponse | OtpChallenge;
+export function getAccessToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('xanhfarm_user') || sessionStorage.getItem('xanhfarm_user');
+  if (!raw) return null;
+  try { return (JSON.parse(raw) as AuthResponse).accessToken || null; } catch { return null; }
+}
+export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = getAccessToken();
+  return { ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
 export function isChallenge(value: AuthResult): value is OtpChallenge { return 'requireOtp' in value && value.requireOtp; }
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-  const headers: Record<string, string> = { 'X-HoNa-Request': '1' };
+  const headers: Record<string, string> = authHeaders({ 'X-HoNa-Request': '1' });
   if (!isFormData) {
     headers['Content-Type'] = 'application/json';
   }

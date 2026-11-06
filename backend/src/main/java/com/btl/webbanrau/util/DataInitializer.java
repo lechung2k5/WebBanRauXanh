@@ -206,6 +206,13 @@ public class DataInitializer implements CommandLineRunner {
             userRepository.save(buyer);
             log.info("Seeded Buyer account: buyer/buyer123");
         }
+        userRepository.findByUsername("buyer").ifPresent(buyer -> {
+            buyer.setEmailVerified(true);
+            buyer.setKycStatus("VERIFIED");
+            if (buyer.getCompanyName() == null || buyer.getCompanyName().isBlank()) buyer.setCompanyName("HoNa Fresh Buyer Demo");
+            if (buyer.getWarehouseAddress() == null || buyer.getWarehouseAddress().isBlank()) buyer.setWarehouseAddress("Kho Buyer Demo, TP.HCM");
+            userRepository.save(buyer);
+        });
 
         // Đảm bảo tài khoản admin chỉ có ROLE_ADMIN, loại bỏ ROLE_USER nếu có
         userRepository.findByUsername("admin").ifPresent(targetAdmin -> {
