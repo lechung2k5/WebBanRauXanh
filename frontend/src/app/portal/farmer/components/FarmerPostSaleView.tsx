@@ -1,5 +1,7 @@
 'use client';
 
+import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, B2bSyncContract } from '@/services/b2bSyncService';
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Truck,
@@ -61,12 +63,14 @@ interface FarmerPostSaleViewProps {
   lots: HarvestLot[];
   contracts: B2BContract[];
   formatVnd: (val?: number) => string;
+  initialContractId?: number;
 }
 
 export default function FarmerPostSaleView({
   lots,
   contracts,
   formatVnd,
+  initialContractId,
 }: FarmerPostSaleViewProps) {
   const [subTab, setSubTab] = useState<'allocation' | 'coldchain' | 'epod' | 'trace'>('allocation');
 
@@ -125,7 +129,7 @@ export default function FarmerPostSaleView({
   const [loadingAllocation, setLoadingAllocation] = useState(false);
   const [allocationFilter, setAllocationFilter] = useState<'ALL' | 'PAID' | 'TRANSIT' | 'COMPLETED'>('ALL');
 
-  // 2. COLD-CHAIN & ORDER FULFILLMENT TIMELINE STATE
+    // 2. COLD-CHAIN & ORDER FULFILLMENT TIMELINE STATE
   const [selectedContractId, setSelectedContractId] = useState<number>(contracts[0]?.id || 1);
   const [telemetry, setTelemetry] = useState<ColdChainTelemetry | null>(null);
   const [loadingTelemetry, setLoadingTelemetry] = useState(false);
@@ -136,6 +140,30 @@ export default function FarmerPostSaleView({
   const [fulfillmentStep, setFulfillmentStep] = useState<number>(4);
   const [autoCompleteType, setAutoCompleteType] = useState<'MANUAL' | 'AUTO_48H' | 'IN_PROGRESS'>('IN_PROGRESS');
   const [hoursRemaining, setHoursRemaining] = useState<number>(38);
+
+  // Tự động nhận diện contract từ Quản Lý Đơn Hàng & Đồng bộ B2B Realtime
+  useEffect(() => {
+    if (initialContractId) {
+      setSelectedContractId(initialContractId);
+      setEpodContractId(initialContractId);
+      setSubTab('coldchain');
+    }
+  }, [initialContractId]);
+
+  useEffect(() => {
+    const list: B2bSyncContract[] = getSyncContracts();
+    const matched = list.find((c: B2bSyncContract) => c.id === selectedContractId);
+    if (matched) {
+      setFulfillmentStep(matched.fulfillmentStep);
+    }
+    const unsub = subscribeB2bSyncEvents(() => {
+      const refreshed = getSyncContracts().find((c: B2bSyncContract) => c.id === selectedContractId);
+      if (refreshed) {
+        setFulfillmentStep(refreshed.fulfillmentStep);
+      }
+    });
+    return () => unsub();
+  }, [selectedContractId]);
 
   // 3. EPOD STATE
   const [epodContractId, setEpodContractId] = useState<number>(contracts[0]?.id || 1);
@@ -1486,49 +1514,94 @@ export default function FarmerPostSaleView({
                   )}
                 </div>
 
-                {/* CÁC NÚT MÔ PHỎNG DEMO TRÌNH BÀY ĐỒ ÁN */}
+                                {/* CÁC NÚT ĐIỀU HƯỚNG MỐC NGHIỆP VỤ & TỰ ĐỘNG MÔ PHỎNG */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider hidden md:inline">
-                    Mô phỏng đồ án:
+                  <span className="text-[10px] font-bold text-[#10542C] uppercase tracking-wider hidden md:inline">
+                    Cập nhật mốc:
                   </span>
-                  
-                  {fulfillmentStep !== 5 && fulfillmentStep !== 6 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentStep(5);
-                        setAutoCompleteType('MANUAL');
-                      }}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      Khách bấm nhận ngay
-                    </button>
-                  )}
 
-                  {fulfillmentStep !== 6 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFulfillmentStep(6);
-                        setAutoCompleteType('AUTO_48H');
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
-                    >
-                      <Timer className="w-3.5 h-3.5" />
-                      Quá hạn 48h (Tự Động Hoàn Tất)
-                    </button>
-                  )}
+                  {/* Nút lùi 1 mốc */}
+                  <button
+                    type="button"
+                    disabled={fulfillmentStep <= 1}
+                    onClick={() => {
+                      try {
+                        const prev = Math.max(1, fulfillmentStep - 1) as 1 | 2 | 3 | 4 | 5 | 6;
+                        setFulfillmentStep(prev);
+                        updateContractFulfillmentStep(selectedContractId, prev);
+                      } catch (err) {
+                        console.warn('Lỗi cập nhật mốc trước:', err);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition disabled:opacity-40"
+                    title="Lùi về mốc trước"
+                  >
+                    &larr; Mốc trước
+                  </button>
+
+                  {/* Nút tiến 1 mốc */}
+                  <button
+                    type="button"
+                    disabled={fulfillmentStep >= 6}
+                    onClick={() => {
+                      try {
+                        const next = Math.min(6, fulfillmentStep + 1) as 1 | 2 | 3 | 4 | 5 | 6;
+                        setFulfillmentStep(next);
+                        updateContractFulfillmentStep(selectedContractId, next);
+                      } catch (err) {
+                        console.warn('Lỗi cập nhật mốc tiếp theo:', err);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs disabled:opacity-40"
+                  >
+                    <span>Mốc tiếp theo ({fulfillmentStep + 1}/6)</span>
+                    &rarr;
+                  </button>
+
+                  {/* Nút mô phỏng tự động */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      let cur = 1;
+                      setFulfillmentStep(1);
+                      try {
+                        updateContractFulfillmentStep(selectedContractId, 1);
+                      } catch (err) {
+                        console.warn('Lỗi mô phỏng:', err);
+                      }
+                      const timer = setInterval(() => {
+                        cur++;
+                        if (cur <= 6) {
+                          setFulfillmentStep(cur);
+                          try {
+                            updateContractFulfillmentStep(selectedContractId, cur as 1 | 2 | 3 | 4 | 5 | 6);
+                          } catch (err) {
+                            console.warn('Lỗi mô phỏng bước:', cur, err);
+                          }
+                        } else {
+                          clearInterval(timer);
+                        }
+                      }, 2500);
+                    }}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                    title="Tự động nhảy từ mốc 1 đến mốc 6 sau mỗi 2.5 giây"
+                  >
+                    <span>▶ Mô Phỏng Tự Động</span>
+                  </button>
 
                   <button
                     type="button"
                     onClick={() => {
-                      setFulfillmentStep(4);
-                      setAutoCompleteType('IN_PROGRESS');
-                      setHoursRemaining(38);
+                      setFulfillmentStep(1);
+                      try {
+                        updateContractFulfillmentStep(selectedContractId, 1);
+                      } catch (err) {
+                        console.warn('Lỗi reset mốc:', err);
+                      }
+                      setHoursRemaining(48);
                     }}
                     className="p-1.5 bg-white hover:bg-gray-100 border border-gray-300 text-gray-600 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-95"
-                    title="Đặt lại về Bước 4 (Đang chờ 48h)"
+                    title="Đặt lại về Bước 1 (Mới chốt đơn)"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                   </button>

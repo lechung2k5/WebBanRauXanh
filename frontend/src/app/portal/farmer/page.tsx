@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   LayoutDashboard,
+  ShoppingBag,
   Sprout,
   MessageSquare,
   FileText,
@@ -94,13 +95,16 @@ import { getStoredUser, loginApi, aiChatRagApi } from '@/services/api';
 import FarmerDashboardView, { formatRfqTimestamp } from './components/FarmerDashboardView';
 import FarmerAiChatView from './components/FarmerAiChatView';
 import FarmerPostSaleView from './components/FarmerPostSaleView';
+import FarmerOrderManagementView from './components/FarmerOrderManagementView';
+import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 
 function FarmerPortalContent() {
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'lots' | 'rfq' | 'qc' | 'settlements' | 'profile' | 'ai' | 'post_sale'
+    'dashboard' | 'lots' | 'rfq' | 'orders' | 'qc' | 'settlements' | 'profile' | 'ai' | 'post_sale'
   >('dashboard');
+  const [selectedPostSaleContractId, setSelectedPostSaleContractId] = useState<number | undefined>(undefined);
 
   const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -516,18 +520,24 @@ function FarmerPortalContent() {
     setCurrentUser(getStoredUser());
     loadPortalData();
 
-    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ từ Trang Chủ
+    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ từ Trang Chủ hoặc Buyer Portal
     const handleRfqUpdate = (e?: Event) => {
-      if (e instanceof StorageEvent) {
-        if (!e.key || !e.key.startsWith('b2b_')) return;
-      }
+      console.log('Farmer Portal: Sync event received, reloading data...', e);
       loadPortalData();
     };
     window.addEventListener('b2b_rfq_updated', handleRfqUpdate);
     window.addEventListener('storage', handleRfqUpdate);
+
+    // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal)
+    const unsubscribeSync = subscribeB2bSyncEvents((event) => {
+      console.log('Farmer Portal received BroadcastChannel event:', event);
+      loadPortalData();
+    });
+
     return () => {
       window.removeEventListener('b2b_rfq_updated', handleRfqUpdate);
       window.removeEventListener('storage', handleRfqUpdate);
+      unsubscribeSync();
     };
   }, []);
 
@@ -653,6 +663,7 @@ function FarmerPortalContent() {
       return;
     try {
       await respondToRfqApi(rfqId, { action: 'ACCEPT' });
+      try { farmerRespondRfq(rfqId, 'ACCEPT'); } catch (_) {}
 
       const targetRfq = rfqs.find((r) => r.id === rfqId);
       setRfqs((prev) =>
@@ -719,6 +730,14 @@ function FarmerPortalContent() {
         counterQuantity: Number(counterQty),
       });
 
+      try {
+        farmerRespondRfq(counterModalRfq.id, 'COUNTER', Number(counterPrice));
+      } catch (_) {
+        try {
+          farmerRespondRfq(counterModalRfq.rfqCode, 'COUNTER', Number(counterPrice));
+        } catch (e) {}
+      }
+
       saveLocalRfqUpdate({
         id: counterModalRfq.id,
         rfqCode: counterModalRfq.rfqCode,
@@ -749,6 +768,14 @@ function FarmerPortalContent() {
         action: 'REJECT',
         rejectReason,
       });
+
+      try {
+        farmerRespondRfq(rejectModalRfq.id, 'REJECT', undefined, rejectReason);
+      } catch (_) {
+        try {
+          farmerRespondRfq(rejectModalRfq.rfqCode, 'REJECT', undefined, rejectReason);
+        } catch (e) {}
+      }
 
       saveLocalRfqUpdate({
         id: rejectModalRfq.id,
@@ -1232,6 +1259,17 @@ function FarmerPortalContent() {
             </div>
           )}
 
+          {/* TAB QUẢN LÝ ĐƠN HÀNG B2B & ESCROW */}
+          {activeTab === 'orders' && (
+            <FarmerOrderManagementView
+              onNavigateToPostSale={(contractId) => {
+                setSelectedPostSaleContractId(contractId);
+                setActiveTab('post_sale');
+              }}
+              formatVnd={formatVnd}
+            />
+          )}
+
           {/* TAB 3: RFQ NEGOTIATION & B2B CONTRACTS */}
           {activeTab === 'rfq' && (
             <div className="space-y-5">
@@ -1299,7 +1337,7 @@ function FarmerPortalContent() {
                   <div className="grid grid-cols-1 gap-4">
                     {rfqs.map((rfq) => (
                       <div
-                        key={rfq.id}
+                        key={`${rfq.rfqCode || "rfq"}-${rfq.id}`}
                         className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-200 transition space-y-4"
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
@@ -1322,6 +1360,10 @@ function FarmerPortalContent() {
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : rfq.status === 'PENDING'
                                 ? 'bg-amber-100 text-amber-800 animate-pulse'
+                                : rfq.status === 'COUNTER_OFFER'
+                                ? 'bg-sky-100 text-sky-800'
+                                : rfq.status === 'REJECTED'
+                                ? 'bg-rose-100 text-rose-800'
                                 : 'bg-gray-100 text-gray-700'
                             }`}
                           >
@@ -1329,6 +1371,10 @@ function FarmerPortalContent() {
                               ? '✓ ĐÃ CHẤP THUẬN (HỢP ĐỒNG KHỞI TẠO)'
                               : rfq.status === 'PENDING'
                               ? 'ĐANG CHỜ BÀ CON PHẢN HỒI'
+                              : rfq.status === 'COUNTER_OFFER'
+                              ? 'ĐÃ GỬI ĐỀ XUẤT GIÁ MỚI (CHỜ BUYER)'
+                              : rfq.status === 'REJECTED'
+                              ? 'ĐÃ TỪ CHỐI'
                               : rfq.status}
                           </span>
                         </div>
@@ -1437,7 +1483,7 @@ function FarmerPortalContent() {
                   <div className="grid grid-cols-1 gap-4">
                     {contracts.map((c) => (
                       <div
-                        key={c.id}
+                        key={`${c.contractCode || "contract"}-${c.id}`}
                         className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4"
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
@@ -2820,7 +2866,7 @@ function FarmerPortalContent() {
 
           {/* TAB 8: THEO DÕI LÔ HÀNG SAU BÁN & CHUỖI LẠNH IOT */}
           {activeTab === 'post_sale' && (
-            <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} />
+            <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} initialContractId={selectedPostSaleContractId} />
           )}
         </main>
       </div>

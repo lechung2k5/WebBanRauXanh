@@ -551,12 +551,17 @@ export const createHarvestLotApi = async (lotData: {
 export const getLocalSubmittedRfqs = (): RfqItem[] => {
   if (typeof window === 'undefined') return [];
   try {
+    const rawSyncRfqs = localStorage.getItem('hona_b2b_sync_rfqs_v2');
+    const rawSubmitted = localStorage.getItem('b2b_submitted_rfqs');
     const rawHistory = localStorage.getItem('b2b_rfq_history');
     const rawFarmerRfqs = localStorage.getItem('b2b_farmer_rfqs');
+
+    const syncList = rawSyncRfqs ? JSON.parse(rawSyncRfqs) : [];
+    const submittedList = rawSubmitted ? JSON.parse(rawSubmitted) : [];
     const historyList = rawHistory ? JSON.parse(rawHistory) : [];
     const farmerList = rawFarmerRfqs ? JSON.parse(rawFarmerRfqs) : [];
 
-    const combined = [...farmerList, ...historyList];
+    const combined = [...syncList, ...submittedList, ...farmerList, ...historyList];
     const seenCodes = new Set<string>();
     const result: RfqItem[] = [];
 
@@ -580,8 +585,8 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
       result.push({
         id: numericId,
         rfqCode,
-        harvestLotId: item.harvestLotId || item.productId || 1,
-        harvestLotCode: item.harvestLotCode || 'LOT-2026-DL-001',
+        harvestLotId: item.harvestLotId || item.lotId || item.productId || 1,
+        harvestLotCode: item.harvestLotCode || item.lotCode || 'LOT-2026-DL-001',
         productName: item.productName || 'Nông Sản VietGAP HoNa Fresh',
         buyerName: item.buyerName || item.traderName || 'Thương Lái Mua Sỉ',
         buyerPhone: item.buyerPhone || item.traderPhone || '0908.776.889',
@@ -589,15 +594,15 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
           item.buyerCompany ||
           item.traderCompany ||
           (item.traderName ? `Vựa Nông Sản ${item.traderName}` : 'Đơn vị phân phối sỉ'),
-        requestedQuantity: Number(item.requestedQuantity || item.quantity || 1000),
-        targetPrice: Number(item.targetPrice || 15000),
-        counterPrice: item.counterPrice,
-        counterQuantity: item.counterQuantity,
-        rejectReason: item.rejectReason,
-        deliveryDate: item.deliveryDate || '2026-10-29',
+        requestedQuantity: Number(item.requestedQuantityKg || item.requestedQuantity || item.quantity || 1000),
+        targetPrice: Number(item.targetPricePerKg || item.targetPrice || 15000),
+        counterPrice: item.counterPricePerKg ?? item.counterPrice,
+        counterQuantity: Number(item.counterQuantity || item.requestedQuantityKg || item.requestedQuantity || 1000),
+        rejectReason: item.rejectReason || item.notes,
+        deliveryDate: item.desiredDeliveryDate || item.deliveryDate || '2026-10-29',
         hubLocation:
-          item.hubLocation ||
           item.deliveryLocation ||
+          item.hubLocation ||
           'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
         status: item.status || 'PENDING',
         createdAt: item.createdAt || new Date().toISOString(),
@@ -743,14 +748,27 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
     // fallback
   }
 
-  // Kết hợp RFQs từ local và server/fallback
+  // Kết hợp RFQs từ local và server/fallback, đảm bảo rfqCode và ID duy nhất 100%
   let combined: RfqItem[] = [];
-  if (localRfqs.length > 0) {
-    const seenCodes = new Set(localRfqs.map((r) => r.rfqCode));
-    combined = [...localRfqs, ...baseRfqs.filter((r) => !seenCodes.has(r.rfqCode))];
-  } else {
-    combined = [...baseRfqs];
-  }
+  const seenCodes = new Set<string>();
+  const seenIds = new Set<number>();
+
+  const processRfq = (rfq: RfqItem) => {
+    const code = rfq.rfqCode || `RFQ-${rfq.id}`;
+    if (seenCodes.has(code)) return;
+    seenCodes.add(code);
+
+    let finalId = rfq.id;
+    while (seenIds.has(finalId)) {
+      finalId = finalId + 1000 + Math.floor(Math.random() * 9000);
+    }
+    seenIds.add(finalId);
+
+    combined.push({ ...rfq, id: finalId, rfqCode: code });
+  };
+
+  localRfqs.forEach(processRfq);
+  baseRfqs.forEach(processRfq);
 
   // Áp dụng overrides từ b2b_rfq_status_overrides cho TẤT CẢ RFQ (kể cả fallback mẫu)
   const overrides = getLocalRfqOverrides();
