@@ -96,18 +96,25 @@ export default function FarmerDashboardView({
   // =========================================================================
   // DỮ LIỆU ĐỘNG THỰC TẾ LIÊN KẾT TRỰC TIẾP VỚI CÁC HÀNH ĐỘNG ĐÀM PHÁN & HỢP ĐỒNG
   // =========================================================================
+  // Tiền cọc Escrow 30% bảo chứng THỰC TẾ của các hợp đồng đang thực hiện (Mốc 2 đến Mốc 5)
   const liveEscrow =
-    contracts.reduce((sum, c) => sum + (c.depositAmount || 0), 0) ||
-    stats?.escrowHolding ||
-    16500000;
+    contracts
+      .filter(
+        (c) =>
+          ((c.depositStatus as string) === 'DEPOSIT_PAID' || (c.depositStatus as string) === 'PAID') &&
+          c.fulfillmentStatus !== 'COMPLETED'
+      )
+      .reduce((sum, c) => sum + (c.depositAmount || 0), 0) || (stats?.escrowHolding ?? 0);
 
-  const totalContractsValue = contracts.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+  // Tổng doanh thu THỰC TẾ: Hợp đồng đã hoàn tất (Mốc 6 / COMPLETED) hoặc đã giải ngân thành công
+  const completedContracts = contracts.filter((c) => c.fulfillmentStatus === 'COMPLETED');
+  const completedRev = completedContracts.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
   const settlementsPaid = settlements.reduce((sum, s) => sum + (s.payoutAmount || 0), 0);
-  const liveRevenue =
-    Math.max(settlementsPaid, totalContractsValue, stats?.totalRevenue || 0) || 88444600;
+  const liveRevenue = Math.max(settlementsPaid, completedRev, stats?.totalRevenue || 0);
 
+  // Khối lượng thực tế giao dịch
   const totalContractVolume = contracts.reduce((sum, c) => sum + (c.quantity || 0), 0);
-  const liveVolume = Math.max(6790, totalContractVolume);
+  const liveVolume = totalContractVolume > 0 ? totalContractVolume : (lots.reduce((s, l) => s + (l.totalWeightKg || 0), 0) || 4500);
 
   const pendingRfqs = rfqs.filter((r) => r.status === 'PENDING');
   const qcPassRate = selectedContractQc?.qualifiedPercent || 97.8;
