@@ -267,6 +267,9 @@ export interface OrderResponse {
   id: number;
   orderCode: string;
   userId?: number;
+  buyerUsername?: string;
+  buyerName?: string;
+  buyerCompany?: string;
   recipientName: string;
   recipientPhone: string;
   shippingAddress: string;

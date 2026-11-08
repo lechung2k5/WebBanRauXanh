@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +33,7 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final OrderRepository orderRepository;
     private final HarvestLotRepository harvestLotRepository;
     private final FarmerProfileRepository farmerProfileRepository;
     private final RfqNegotiationRepository rfqNegotiationRepository;
@@ -746,6 +748,79 @@ public class DataInitializer implements CommandLineRunner {
         // Seed Farmer Portal Demo Data
         Role roleFarmer = roleRepository.findByName("ROLE_FARMER").orElseThrow();
         seedFarmerPortalData(roleFarmer);
+
+        // Seed orders linked to Buyer accounts so Admin and Buyer read the same database records.
+        seedBuyerOrders();
+    }
+
+    private void seedBuyerOrders() {
+        List<Product> products = productRepository.findAll();
+        if (products.size() < 3) {
+            log.warn("Bỏ qua seed đơn Buyer vì database chưa có đủ 3 sản phẩm.");
+            return;
+        }
+
+        List<User> buyers = userRepository.findAll().stream()
+                .filter(user -> user.getRoles() != null && user.getRoles().stream()
+                        .anyMatch(role -> "ROLE_BUYER".equals(role.getName())))
+                .toList();
+
+        for (User buyer : buyers) {
+            String codePrefix = "ORD-DEMO-" + buyer.getUsername().toUpperCase().replaceAll("[^A-Z0-9]", "-");
+            if (codePrefix.length() > 41) codePrefix = codePrefix.substring(0, 41);
+            String recipientName = buyer.getFullName() == null || buyer.getFullName().isBlank()
+                    ? buyer.getUsername() : buyer.getFullName();
+            String recipientPhone = buyer.getPhone() == null || buyer.getPhone().isBlank()
+                    ? "0900000000" : buyer.getPhone();
+            String shippingAddress = buyer.getWarehouseAddress() == null || buyer.getWarehouseAddress().isBlank()
+                    ? buyer.getAddress() : buyer.getWarehouseAddress();
+            if (shippingAddress == null || shippingAddress.isBlank()) shippingAddress = "Kho Buyer, TP.HCM";
+
+            seedBuyerOrderIfMissing(codePrefix + "-01", buyer, products.get(0), 5,
+                    recipientName, recipientPhone, shippingAddress, "COD", OrderStatus.PENDING, false);
+            seedBuyerOrderIfMissing(codePrefix + "-02", buyer, products.get(1), 8,
+                    recipientName, recipientPhone, shippingAddress, "BANK_TRANSFER", OrderStatus.SHIPPING, true);
+            seedBuyerOrderIfMissing(codePrefix + "-03", buyer, products.get(2), 4,
+                    recipientName, recipientPhone, shippingAddress, "COD", OrderStatus.DELIVERED, true);
+        }
+        log.info("Đã đồng bộ dữ liệu đơn hàng mẫu cho {} tài khoản Buyer.", buyers.size());
+    }
+
+    private void seedBuyerOrderIfMissing(String orderCode, User buyer, Product product, int quantity,
+                                         String recipientName, String recipientPhone, String shippingAddress,
+                                         String paymentMethod, OrderStatus status, boolean paid) {
+        if (orderRepository.findByOrderCode(orderCode).isPresent()) return;
+        if (product.getStockQuantity() == null || product.getStockQuantity() < quantity) {
+            log.warn("Bỏ qua đơn mẫu {} vì sản phẩm {} không đủ tồn kho.", orderCode, product.getName());
+            return;
+        }
+
+        BigDecimal unitPrice = product.getPrice() == null ? BigDecimal.ZERO : product.getPrice();
+        BigDecimal totalPrice = unitPrice.multiply(BigDecimal.valueOf(quantity));
+        Order order = Order.builder()
+                .orderCode(orderCode)
+                .user(buyer)
+                .recipientName(recipientName)
+                .recipientPhone(recipientPhone)
+                .shippingAddress(shippingAddress)
+                .note("Đơn hàng mẫu đồng bộ Buyer - Admin")
+                .paymentMethod(paymentMethod)
+                .isPaid(paid)
+                .status(status)
+                .totalAmount(totalPrice)
+                .items(new ArrayList<>())
+                .build();
+        order.addItem(OrderItem.builder()
+                .product(product)
+                .quantity(quantity)
+                .unitPrice(unitPrice)
+                .totalPrice(totalPrice)
+                .build());
+        orderRepository.save(order);
+
+        // Giữ tồn kho nhất quán với các đơn thật: khi Admin hủy đơn mẫu, logic hoàn kho cũng đúng.
+        product.setStockQuantity(product.getStockQuantity() - quantity);
+        productRepository.save(product);
     }
 
     private void seedFarmerPortalData(Role roleFarmer) {

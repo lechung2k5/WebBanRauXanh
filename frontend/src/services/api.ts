@@ -723,7 +723,8 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
   try {
     const res = await fetch(`${API_BASE_URL}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
+      headers: authHeaders({ 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }),
+      credentials: 'include',
       body: JSON.stringify(orderReq),
     });
     const data: ApiResponse<OrderResponse> = await res.json();
@@ -781,7 +782,11 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
 };
 
 export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
-  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
       throw new Error('Access Denied');
@@ -1099,7 +1104,12 @@ export const submitBuyerReviewApi = async (contractId: number, request: { rating
 export const getBuyerInvoiceUrl = (contractId: number) => `${API_BASE_URL}/buyer/contracts/${contractId}/invoice`;
 
 export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
-  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }, body: '{}', credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }),
+    body: '{}',
+    credentials: 'include',
+  });
   const data: ApiResponse<OrderResponse> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
   return data.result;

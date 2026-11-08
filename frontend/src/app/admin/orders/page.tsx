@@ -126,7 +126,13 @@ export default function AdminOrdersPage() {
                       {order.orderCode}
                     </td>
                     <td className="py-3 px-3">
-                      <p className="font-bold text-[#2C3E2E]">{order.recipientName}</p>
+                      <p className="font-bold text-[#2C3E2E]">{order.buyerName || order.recipientName}</p>
+                      {order.buyerUsername && (
+                        <p className="text-[10px] font-semibold text-[#10542C]">Buyer: {order.buyerUsername}</p>
+                      )}
+                      {order.buyerCompany && (
+                        <p className="text-[10px] text-[#6B7280] truncate max-w-[190px]">{order.buyerCompany}</p>
+                      )}
                       <p className="text-[10px] text-[#6B7280]">{order.recipientPhone}</p>
                     </td>
                     <td className="py-3 px-3 text-[#6B7280] whitespace-nowrap">
@@ -208,6 +214,13 @@ export default function AdminOrdersPage() {
             {/* Thân Modal Cuộn Độc Lập */}
             <div className="p-5 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-4 text-xs">
               <div className="space-y-2 bg-[#F9F9F5] p-4 rounded-2xl border border-[#EAECE8] text-[#2C3E2E]">
+                <p>
+                  <strong>Tài khoản Buyer:</strong>{' '}
+                  {selectedOrder.buyerUsername
+                    ? `${selectedOrder.buyerName || selectedOrder.buyerUsername} (@${selectedOrder.buyerUsername})`
+                    : 'Khách vãng lai'}
+                  {selectedOrder.buyerCompany ? ` - ${selectedOrder.buyerCompany}` : ''}
+                </p>
                 <p>
                   <strong>Người nhận:</strong> {selectedOrder.recipientName} - {selectedOrder.recipientPhone}
                 </p>
