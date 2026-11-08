@@ -18,6 +18,7 @@ import com.btl.webbanrau.model.RfqStatus;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.BuyerProfileRepository;
 import com.btl.webbanrau.repository.BuyerWarehouseRepository;
+import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.repository.HarvestLotRepository;
 import com.btl.webbanrau.repository.RfqNegotiationRepository;
 import com.btl.webbanrau.repository.UserRepository;
@@ -44,6 +45,7 @@ public class BuyerWorkflowService {
     private final RfqNegotiationRepository rfqs;
     private final BuyerProfileRepository profiles;
     private final BuyerWarehouseRepository warehouses;
+    private final B2bContractRepository b2bContracts;
     private final JdbcTemplate db;
     private final AdminBusinessService business;
     private final OrderService orderService;
@@ -444,6 +446,13 @@ public class BuyerWorkflowService {
         result.put("shippingOption", rfq.getShippingOption());
         result.put("notes", rfq.getNotes());
         result.put("expiresAt", rfq.getExpiresAt());
+        b2bContracts.findByRfqId(rfq.getId()).ifPresent(contract -> {
+            result.put("contractId", contract.getId());
+            result.put("contractCode", contract.getContractCode());
+            result.put("contractStatus", contract.getStatus());
+            result.put("depositStatus", contract.getDepositStatus());
+            result.put("depositAmount", contract.getDepositAmount());
+        });
         result.put("createdAt", rfq.getCreatedAt());
         result.put("updatedAt", rfq.getUpdatedAt());
         return result;

@@ -837,6 +837,11 @@ export type BuyerRfq = {
   createdAt?: string;
   updatedAt?: string;
   expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
 };
 
 export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {

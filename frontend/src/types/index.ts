@@ -190,6 +190,11 @@ export interface B2BRFQNegotiation {
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
   createdAt: string;
 }
 
@@ -349,6 +354,11 @@ export interface RfqItem {
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
   createdAt: string;
 }
 

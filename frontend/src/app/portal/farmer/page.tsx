@@ -1458,6 +1458,12 @@ function FarmerPortalContent() {
                           </div>
                         )}
 
+                        {rfq.contractCode && (
+                          <div className="p-3 bg-emerald-50 rounded-xl text-xs text-emerald-900 border border-emerald-200">
+                            <strong>Hợp đồng đã tạo:</strong> {rfq.contractCode} · Chờ Buyer đặt cọc 30%.
+                          </div>
+                        )}
+
                         <div className="border-t border-gray-100 pt-3">
                           <button
                             type="button"

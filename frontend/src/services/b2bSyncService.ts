@@ -24,6 +24,10 @@ export interface B2bSyncRfq {
   createdAt: string;
   updatedAt: string;
   expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  depositStatus?: string;
+  depositAmount?: number;
 }
 
 export interface B2bNotification {
@@ -432,10 +436,13 @@ export function buyerAcceptCounterRfq(rfqIdOrCode: number | string): { rfq: B2bS
   rfq.targetPricePerKg = finalPrice;
   rfq.updatedAt = new Date().toISOString();
 
+  const newContract = createContractFromRfq(rfq, finalPrice);
+  rfq.contractId = newContract.id;
+  rfq.contractCode = newContract.contractCode;
+  rfq.depositStatus = newContract.depositStatus;
+  rfq.depositAmount = newContract.depositAmount;
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
-
-  const newContract = createContractFromRfq(rfq, finalPrice);
   notifySyncEvent('RFQ_ACCEPTED_BY_BUYER', { rfq, newContract });
   return { rfq, newContract };
 }

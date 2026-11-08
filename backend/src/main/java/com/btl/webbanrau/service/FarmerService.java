@@ -238,8 +238,13 @@ public class FarmerService {
 
             // Tự động sinh Hợp Đồng B2B điện tử kèm mã duy nhất
             String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
-            BigDecimal unitPrice = rfq.getTargetPrice();
-            Double quantity = rfq.getRequestedQuantity();
+            BigDecimal unitPrice = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
+            Double quantity = rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity();
+            if (lot.getAvailableWeightKg() == null || lot.getAvailableWeightKg().compareTo(BigDecimal.valueOf(quantity)) < 0) {
+                throw new IllegalArgumentException("Lô không còn đủ sản lượng để chốt hợp đồng.");
+            }
+            lot.setAvailableWeightKg(lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)));
+            harvestLotRepository.save(lot);
             BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
             BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3)); // Cọc 30%
 
@@ -248,12 +253,16 @@ public class FarmerService {
                     .rfq(rfq)
                     .harvestLot(lot)
                     .farmer(lot.getFarmer())
+                    .buyer(rfq.getBuyer())
                     .buyerName(rfq.getBuyerName())
                     .buyerPhone(rfq.getBuyerPhone())
                     .quantity(quantity)
+                    .quantityKg(BigDecimal.valueOf(quantity))
                     .unitPrice(unitPrice)
+                    .agreedPricePerKg(unitPrice)
                     .totalAmount(totalAmount)
                     .depositAmount(depositAmount)
+                    .status("AGREED")
                     .depositStatus("PENDING_DEPOSIT")
                     .fulfillmentStatus("WAITING_HARVEST")
                     .hubDeliveryDate(rfq.getDeliveryDate())
@@ -1130,6 +1139,11 @@ public class FarmerService {
                 .statusLabel(RfqStatus.label(rfq.getStatus()))
                 .nextActor(RfqStatus.nextActor(rfq.getStatus()))
                 .expiresAt(rfq.getExpiresAt())
+                .contractId(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getId).orElse(null))
+                .contractCode(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getContractCode).orElse(null))
+                .contractStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getStatus).orElse(null))
+                .depositStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositStatus).orElse(null))
+                .depositAmount(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositAmount).orElse(null))
                 .createdAt(rfq.getCreatedAt())
                 .build();
     }

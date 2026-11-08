@@ -161,6 +161,10 @@ export default function BuyerPortalPage() {
         createdAt: rfq.createdAt || new Date().toISOString(),
         updatedAt: rfq.updatedAt || rfq.createdAt || new Date().toISOString(),
         expiresAt: rfq.expiresAt,
+        contractId: rfq.contractId,
+        contractCode: rfq.contractCode,
+        depositStatus: rfq.depositStatus,
+        depositAmount: rfq.depositAmount,
       })));
       refreshSyncData();
     }).catch(() => {});
@@ -826,7 +830,7 @@ export default function BuyerPortalPage() {
                               </h4>
                               <p className="text-xs text-emerald-700 mt-1">
                                 Hai bên đã thống nhất giá {(currentRfq.counterPricePerKg || currentRfq.targetPricePerKg).toLocaleString('vi-VN')} đ/kg.
-                                Vui lòng tiến hành Ký Quỹ VietQR 30% để tiến hành thu hoạch.
+                                {currentRfq.contractCode ? ` Hợp đồng ${currentRfq.contractCode} đã được tạo.` : ''} Vui lòng tiến hành Ký Quỹ VietQR 30% để tiến hành thu hoạch.
                               </p>
                             </div>
                           </div>
