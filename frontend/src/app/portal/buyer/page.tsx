@@ -8,14 +8,13 @@ import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import BuyerAddressesPanel from '@/components/BuyerAddressesPanel';
-import BuyerOrdersPanel from '@/components/BuyerOrdersPanel';
 import BuyerProfilePanel from '@/components/BuyerProfilePanel';
 import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import {
   getProducts,
   getStoredUser,
-  getBuyerContractsApi,
+  getBuyerB2bContractsApi,
   getBuyerTelemetryApi,
   getBuyerQcReportApi,
   getBuyerRfqsApi,
@@ -34,6 +33,7 @@ import {
   updateContractFulfillmentStep,
   buyerSignEpod,
   buyerPayFinalSettlement,
+  replaceSyncContracts,
   mergeSyncRfqs,
   subscribeB2bSyncEvents,
   type B2bSyncRfq,
@@ -59,7 +59,6 @@ import {
   Upload,
   Download,
   MessageSquareQuote,
-  ShoppingBag,
   UserRound,
   Send,
   Check,
@@ -85,7 +84,7 @@ export default function BuyerPortalPage() {
 
   // Tab điều hướng
   const [activeSection, setActiveSection] = useState<
-    'lots' | 'purchases' | 'orders' | 'profile' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
+    'lots' | 'reviews' | 'profile' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
   >('lots');
 
   // Dữ liệu đồng bộ Realtime B2B
@@ -175,7 +174,54 @@ export default function BuyerPortalPage() {
       })));
       refreshSyncData();
     }).catch(() => {});
-    getBuyerContractsApi().catch(() => {});
+    getBuyerB2bContractsApi().then((serverContracts) => {
+      const syncedContracts = serverContracts.map((contract): B2bSyncContract => {
+        const fulfillmentStep: B2bSyncContract['fulfillmentStep'] =
+          contract.fulfillmentStatus === 'WAITING_HARVEST' ? 1 :
+          contract.fulfillmentStatus === 'HARVESTING' ? 2 :
+          contract.fulfillmentStatus === 'HUB_DELIVERED' ? 3 :
+          contract.fulfillmentStatus === 'IN_TRANSIT' ? 4 : 6;
+        return {
+          id: contract.id,
+          contractCode: contract.contractCode,
+          rfqCode: contract.rfqCode,
+          lotId: contract.harvestLotId,
+          lotCode: contract.lotCode,
+          productName: contract.productName,
+          buyerName: contract.buyerName,
+          buyerPhone: contract.buyerPhone,
+          buyerCompany: user.companyName || '',
+          farmerName: contract.farmName || '',
+          farmerPhone: contract.farmerPhone || '',
+          farmerCompany: '',
+          quantityKg: contract.quantity,
+          agreedPricePerKg: contract.unitPrice,
+          totalAmount: contract.totalAmount,
+          depositAmount: contract.depositAmount,
+          remainingAmount: contract.remainingAmount || Math.max(0, contract.totalAmount - contract.depositAmount),
+          depositStatus: contract.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+          depositPaidAt: undefined,
+          fulfillmentStep,
+          fulfillmentStatusName: contract.fulfillmentStatus,
+          truckLicensePlate: '',
+          truckDriverName: '',
+          truckDriverPhone: '',
+          truckTempCurrent: 4,
+          deliveryAddress: contract.hubName,
+          deliveryTimeSlot: '',
+          finalPaidStatus: fulfillmentStep === 6 ? 'PAID' : 'UNPAID',
+          createdAt: contract.createdAt,
+        };
+      });
+      replaceSyncContracts(syncedContracts);
+      if (active) refreshSyncData();
+    }).catch(() => {
+      // Không dùng dữ liệu mẫu để giả lập Buyer khi API không truy cập được.
+      if (active) {
+        replaceSyncContracts([]);
+        refreshSyncData();
+      }
+    });
 
     return () => {
       active = false;
@@ -483,21 +529,12 @@ export default function BuyerPortalPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveSection('purchases')}
+                onClick={() => setActiveSection('reviews')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
-                  activeSection === 'purchases' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                  activeSection === 'reviews' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
                 }`}
               >
-                <ShoppingBag className="w-4 h-4 text-emerald-300" /> Sản phẩm đã mua
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveSection('orders')}
-                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
-                  activeSection === 'orders' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
-                }`}
-              >
-                <Truck className="w-4 h-4 text-cyan-300" /> Theo dõi đơn hàng
+                <Star className="w-4 h-4 text-amber-300" /> Đánh giá giao dịch B2B
               </button>
               <button
                 type="button"
@@ -598,8 +635,7 @@ export default function BuyerPortalPage() {
 
           {/* Nội dung chi tiết các Section */}
           <section className="flex-1 min-w-0 space-y-6">
-            {activeSection === 'purchases' && <BuyerOrdersPanel mode="purchases" />}
-            {activeSection === 'purchases' && (
+            {activeSection === 'reviews' && (
               <div className="bg-white rounded-3xl border border-amber-100 shadow-sm p-6 space-y-4">
                 <div>
                   <p className="text-xs font-bold text-amber-600 uppercase tracking-wider">POST-TRADE FEEDBACK</p>
@@ -651,7 +687,6 @@ export default function BuyerPortalPage() {
                 )}
               </div>
             )}
-            {activeSection === 'orders' && <BuyerOrdersPanel mode="tracking" />}
             {activeSection === 'profile' && <BuyerProfilePanel />}
             {activeSection === 'addresses' && <BuyerAddressesPanel />}
 

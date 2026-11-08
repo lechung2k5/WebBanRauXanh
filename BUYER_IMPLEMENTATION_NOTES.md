@@ -164,6 +164,12 @@ Mở `http://localhost:3000`, đăng nhập bằng `buyer / buyer123`, sau đó 
 - Trang `Theo dõi đơn hàng`: hiển thị tiến trình `PENDING` → `CONFIRMED` → `SHIPPING` → `DELIVERED`, địa chỉ giao và tổng thanh toán; có trạng thái riêng cho đơn đã hủy.
 - Trang cá nhân Buyer: sửa họ tên, số điện thoại, địa chỉ liên hệ, công ty/cửa hàng, mã số thuế và địa chỉ kho nhận.
 
+### Đồng bộ Buyer B2B và loại bỏ luồng bán lẻ
+
+- Màn hình theo dõi chỉ lấy hợp đồng từ `GET /buyer/contracts` theo JWT Buyer; không còn lấy dữ liệu Farmer, fallback hoặc đơn hàng bán lẻ từ localStorage.
+- Portal Buyer thay danh sách hợp đồng mẫu bằng dữ liệu backend sau khi đăng nhập; Buyer chưa có hợp đồng sẽ hiển thị danh sách rỗng.
+- Đã gỡ mục `Sản phẩm đã mua`, `Theo dõi đơn hàng` và tab `Đơn Hàng Tiêu Dùng`; phần đánh giá được giữ ở mục `Đánh giá giao dịch B2B`.
+
 ### API mới
 
 - `GET /buyer/orders?page=0&size=20`

@@ -506,6 +506,14 @@ export function getSyncContracts(): B2bSyncContract[] {
   }
 }
 
+/** Đồng bộ danh sách hợp đồng Buyer từ backend, loại bỏ dữ liệu mẫu cũ trong localStorage. */
+export function replaceSyncContracts(contracts: B2bSyncContract[]): B2bSyncContract[] {
+  if (typeof window === 'undefined') return contracts;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  notifySyncEvent('CONTRACTS_SYNCED', { contracts });
+  return contracts;
+}
+
 function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncContract {
   const contracts = getSyncContracts();
   const total = rfq.requestedQuantityKg * pricePerKg;

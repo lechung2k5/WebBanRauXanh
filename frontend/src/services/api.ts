@@ -1,4 +1,4 @@
-import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest } from '@/types';
+import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest, B2BContract } from '@/types';
 
 import { api, authHeaders } from './auth';
 export { api } from './auth';
@@ -955,6 +955,53 @@ export const getBuyerContractsApi = async (): Promise<Array<{ id: number; contra
     status: String(item.status || ''),
     depositStatus: String(item.depositStatus || item.deposit_status || ''),
   }));
+};
+
+/** Hợp đồng B2B đầy đủ của Buyer, dùng cho màn hình theo dõi tiến trình. */
+export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải hợp đồng B2B của Buyer');
+
+  return (data.result || []).map((item) => {
+    const status = String(item.status || '');
+    const fulfillmentStatus: B2BContract['fulfillmentStatus'] =
+      status === 'AT_HUB_QC' ? 'HUB_DELIVERED' :
+      status === 'IN_TRANSIT' ? 'IN_TRANSIT' :
+      status === 'DELIVERED' || status === 'SETTLED' ? 'COMPLETED' :
+      'WAITING_HARVEST';
+    const createdAt = String(item.created_at || item.createdAt || new Date().toISOString());
+    const depositAmount = Number(item.deposit_30_amount ?? item.depositAmount ?? 0);
+    const depositReceived = Number(item.deposit_received ?? 0);
+
+    return {
+      id: Number(item.id),
+      contractCode: String(item.contract_code || item.contractCode || ''),
+      rfqId: Number(item.rfq_id || item.rfqId || 0),
+      rfqCode: String(item.rfq_code || item.rfqCode || ''),
+      harvestLotId: Number(item.lot_id || item.harvestLotId || 0),
+      lotCode: String(item.lot_code || item.lotCode || ''),
+      productName: String(item.product_name || item.productName || 'Nông sản'),
+      imageUrl: String(item.image_url || item.imageUrl || ''),
+      buyerName: String(item.buyer_name || item.buyerName || ''),
+      buyerPhone: String(item.buyer_phone || item.buyerPhone || ''),
+      quantity: Number(item.offered_weight_kg ?? item.quantity ?? 0),
+      unitPrice: Number(item.offered_price_per_kg ?? item.unitPrice ?? 0),
+      totalAmount: Number(item.total_goods_amount ?? item.totalAmount ?? 0),
+      depositAmount,
+      remainingAmount: Math.max(0, Number(item.total_goods_amount ?? item.totalAmount ?? 0) - depositAmount),
+      depositStatus: depositReceived > 0 ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
+      fulfillmentStatus,
+      hubDeliveryDate: createdAt.slice(0, 10),
+      hubName: String(item.delivery_address || item.deliveryAddress || 'Chưa cập nhật trạm nhận'),
+      createdAt,
+      hasQc: status === 'AT_HUB_QC' || status === 'IN_TRANSIT' || status === 'DELIVERED' || status === 'SETTLED',
+      pucCode: String(item.puc_code || ''),
+      farmName: String(item.farmer_name || ''),
+      farmerPhone: String(item.farmer_phone || ''),
+      farmerAddress: '',
+    };
+  });
 };
 
 export const getBuyerTelemetryApi = async (contractId: number): Promise<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> => {

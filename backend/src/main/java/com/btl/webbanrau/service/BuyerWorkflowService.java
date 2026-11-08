@@ -267,9 +267,18 @@ public class BuyerWorkflowService {
         return db.queryForList("""
                 SELECT c.id, c.contract_code, c.status, c.total_goods_amount, c.deposit_30_amount,
                        c.deposit_received, c.balance_received, c.refund_amount, c.delivery_address,
-                       c.offered_weight_kg, c.offered_price_per_kg, c.created_at, l.product_name,
-                       l.lot_code, c.rfq_id
-                FROM b2b_contracts c JOIN harvest_lots l ON l.id=c.lot_id
+                       c.offered_weight_kg, c.offered_price_per_kg, c.created_at, c.lot_id,
+                       l.product_name, l.lot_code, l.puc_code, l.image_url,
+                       c.rfq_id, r.rfq_code,
+                       COALESCE(c.buyer_name, bu.full_name) AS buyer_name,
+                       COALESCE(c.buyer_phone, bu.phone) AS buyer_phone,
+                       fu.full_name AS farmer_name, fu.phone AS farmer_phone,
+                       fu.company_name AS farmer_company
+                FROM b2b_contracts c
+                JOIN harvest_lots l ON l.id=c.lot_id
+                LEFT JOIN rfq_negotiations r ON r.id=c.rfq_id
+                LEFT JOIN users bu ON bu.id=c.buyer_id
+                LEFT JOIN users fu ON fu.id=c.farmer_id
                 WHERE c.buyer_id=? ORDER BY c.id DESC
                 """, buyer.getId());
     }
