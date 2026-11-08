@@ -25,6 +25,17 @@ export interface B2bSyncRfq {
   updatedAt: string;
 }
 
+export interface B2bNotification {
+  id: string;
+  audience: 'BUYER' | 'FARMER' | 'ALL';
+  type: string;
+  title: string;
+  message: string;
+  rfqCode?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface B2bSyncContract {
   id: number;
   contractCode: string;
@@ -68,6 +79,7 @@ export interface B2bSyncContract {
 
 const STORAGE_KEY_RFQS = 'hona_b2b_sync_rfqs_v2';
 const STORAGE_KEY_CONTRACTS = 'hona_b2b_sync_contracts_v2';
+const STORAGE_KEY_NOTIFICATIONS = 'hona_b2b_notifications_v1';
 const CHANNEL_NAME = 'hona_b2b_sync_channel';
 
 // Dữ liệu mẫu khởi tạo đồng bộ ban đầu
@@ -228,8 +240,48 @@ function getChannel(): BroadcastChannel | null {
   return broadcastChannel;
 }
 
+function addNotification(notification: Omit<B2bNotification, 'id' | 'read' | 'createdAt'>) {
+  if (typeof window === 'undefined') return;
+  const current = getSyncNotifications();
+  const next: B2bNotification = {
+    ...notification,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    read: false,
+    createdAt: new Date().toISOString(),
+  };
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify([next, ...current].slice(0, 80)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated', { detail: next }));
+}
+
+function createNotificationForEvent(type: string, payload: any) {
+  if (type === 'RFQ_SERVER_SYNCED') return;
+  const rfq = payload?.rfq || payload;
+  const rfqCode = rfq?.rfqCode;
+  const productName = rfq?.productName || 'lô nông sản';
+  if (type === 'RFQ_CREATED') {
+    addNotification({ audience: 'FARMER', type, title: 'Có RFQ mới', message: `Buyer vừa gửi yêu cầu báo giá cho ${productName}.`, rfqCode });
+  } else if (type === 'RFQ_UPDATED') {
+    const status = rfq?.status;
+    const message = status === 'WAITING_BUYER'
+      ? `Người bán đã gửi đề xuất mới cho ${productName}.`
+      : status === 'ACCEPTED'
+      ? `Đề xuất cho ${productName} đã được chấp nhận.`
+      : status === 'REJECTED'
+      ? `Đề xuất cho ${productName} đã bị từ chối.`
+      : `RFQ ${rfqCode || ''} vừa được cập nhật.`;
+    addNotification({ audience: 'BUYER', type, title: 'RFQ được cập nhật', message, rfqCode });
+  } else if (type === 'RFQ_COUNTERED_BY_BUYER') {
+    addNotification({ audience: 'FARMER', type, title: 'Buyer gửi counter-offer', message: `Buyer đã gửi mức giá mới cho ${productName}.`, rfqCode });
+  } else if (type === 'RFQ_ACCEPTED_BY_BUYER') {
+    addNotification({ audience: 'FARMER', type, title: 'Buyer đã chấp nhận giá', message: `Buyer đã chấp nhận đề xuất của ${productName} và tạo hợp đồng.`, rfqCode });
+  } else if (type === 'CONTRACT_CREATED') {
+    addNotification({ audience: 'BUYER', type, title: 'Hợp đồng B2B đã tạo', message: `Hợp đồng cho ${productName} đã sẵn sàng để đặt cọc.`, rfqCode });
+  }
+}
+
 function notifySyncEvent(type: string, payload: unknown) {
   if (typeof window === 'undefined') return;
+  createNotificationForEvent(type, payload);
   const channel = getChannel();
   if (channel) {
     channel.postMessage({ type, payload, timestamp: Date.now() });
@@ -239,6 +291,38 @@ function notifySyncEvent(type: string, payload: unknown) {
     window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type, payload } }));
     window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: payload }));
   } catch {}
+}
+
+export function getSyncNotifications(audience?: 'BUYER' | 'FARMER') {
+  if (typeof window === 'undefined') return [] as B2bNotification[];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
+    const all = raw ? JSON.parse(raw) as B2bNotification[] : [];
+    return audience ? all.filter((item) => item.audience === audience || item.audience === 'ALL') : all;
+  } catch {
+    return [] as B2bNotification[];
+  }
+}
+
+export function markSyncNotificationRead(id: string) {
+  if (typeof window === 'undefined') return;
+  const all = getSyncNotifications();
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(all.map((item) => item.id === id ? { ...item, read: true } : item)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated'));
+}
+
+export function markAllSyncNotificationsRead(audience: 'BUYER' | 'FARMER') {
+  if (typeof window === 'undefined') return;
+  const all = getSyncNotifications();
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(all.map((item) => item.audience === audience || item.audience === 'ALL' ? { ...item, read: true } : item)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated'));
+}
+
+export function subscribeB2bNotifications(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  const handler = () => callback();
+  window.addEventListener('b2b_notification_updated', handler);
+  return () => window.removeEventListener('b2b_notification_updated', handler);
 }
 
 // ---------------------- 1. RFQ MANAGEMENT ----------------------

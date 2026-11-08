@@ -104,7 +104,7 @@ export default function B2BNegotiationModal({
         deliveryLocation,
         shippingOption,
         notes,
-        status: 'PENDING',
+        status: 'WAITING_FARMER',
       });
     } catch (syncErr) {
       console.error('Lỗi lưu B2B Sync:', syncErr);

@@ -39,6 +39,7 @@ import {
 } from '@/services/b2bSyncService';
 import { getRfqStatusMeta, isRfqWaitingForBuyer, isRfqWaitingForFarmer, normalizeRfqStatus } from '@/utils/rfqStatus';
 import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
+import B2BNotificationBell from '@/components/B2BNotificationBell';
 import {
   Search,
   LayoutDashboard,
@@ -375,6 +376,7 @@ export default function BuyerPortalPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <B2BNotificationBell audience="BUYER" tone="light" />
             <span className="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 font-bold border border-sky-200">
               {syncRfqs.length} RFQ
             </span>

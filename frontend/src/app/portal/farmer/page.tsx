@@ -103,6 +103,7 @@ import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 import Pagination from '@/components/Pagination';
 import { getRfqStatusMeta, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
 import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
+import B2BNotificationBell from '@/components/B2BNotificationBell';
 
 const FARMER_LOTS_PAGE_SIZE = 10;
 
@@ -983,6 +984,7 @@ function FarmerPortalContent() {
         </div>
 
         <div className="flex items-center gap-3">
+          <B2BNotificationBell audience="FARMER" />
           <div className="hidden md:flex items-center gap-3 bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl text-xs">
             <Building2 className="w-4 h-4 text-emerald-300" />
             <div>
