@@ -1018,6 +1018,37 @@ export const confirmBuyerFinalPaymentApi = async (contractId: number) => {
   return data.result;
 };
 
+export interface B2bReview {
+  id: number;
+  contractId: number;
+  reviewerId?: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getBuyerReviewsApi = async (contractId: number): Promise<B2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/reviews`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<B2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitBuyerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<B2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/reviews`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<B2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
+};
+
 export const getBuyerInvoiceUrl = (contractId: number) => `${API_BASE_URL}/buyer/contracts/${contractId}/invoice`;
 
 export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {

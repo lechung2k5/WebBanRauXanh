@@ -22,6 +22,8 @@ import {
   getBuyerRfqHistoryApi,
   respondBuyerRfqApi,
   getBuyerInvoiceUrl,
+  getBuyerReviewsApi,
+  submitBuyerReviewApi,
 } from '@/services/api';
 import {
   getSyncRfqs,
@@ -67,6 +69,7 @@ import {
   Clock,
   ChevronRight,
   Sparkles,
+  Star,
 } from 'lucide-react';
 
 export default function BuyerPortalPage() {
@@ -101,6 +104,10 @@ export default function BuyerPortalPage() {
   const signatureRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [qcReports, setQcReports] = useState<Array<Record<string, unknown>>>([]);
+  const [reviewStars, setReviewStars] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
 
   // Telemetry IoT
   const [telemetry, setTelemetry] = useState({ temperature: 3.8, humidity: 82, updatedAt: '' });
@@ -211,6 +218,33 @@ export default function BuyerPortalPage() {
       }
     }
   }, [activeContract]);
+
+  useEffect(() => {
+    if (!activeContract?.id) return;
+    getBuyerReviewsApi(activeContract.id).then((reviews) => {
+      const mine = reviews.find((review) => review.reviewerRole === 'BUYER');
+      if (mine) {
+        setReviewStars(mine.rating);
+        setReviewComment(mine.comment || '');
+      }
+    }).catch(() => {
+      // Hợp đồng demo/local có thể chưa tồn tại trên backend.
+    });
+  }, [activeContract?.id]);
+
+  const handleSubmitBuyerReview = async () => {
+    if (!activeContract) return;
+    setReviewLoading(true);
+    setReviewMessage('');
+    try {
+      await submitBuyerReviewApi(activeContract.id, { rating: reviewStars, comment: reviewComment });
+      setReviewMessage('Đã lưu đánh giá giao dịch thành công. Bạn có thể cập nhật lại bất cứ lúc nào.');
+    } catch (error) {
+      setReviewMessage(error instanceof Error ? error.message : 'Không thể lưu đánh giá giao dịch.');
+    } finally {
+      setReviewLoading(false);
+    }
+  };
 
   // Load danh sách sản phẩm nông sản sỉ
   useEffect(() => {
@@ -565,6 +599,58 @@ export default function BuyerPortalPage() {
           {/* Nội dung chi tiết các Section */}
           <section className="flex-1 min-w-0 space-y-6">
             {activeSection === 'purchases' && <BuyerOrdersPanel mode="purchases" />}
+            {activeSection === 'purchases' && (
+              <div className="bg-white rounded-3xl border border-amber-100 shadow-sm p-6 space-y-4">
+                <div>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wider">POST-TRADE FEEDBACK</p>
+                  <h2 className="font-heading text-xl font-black text-[#0C4A6E] mt-1">Đánh giá giao dịch B2B</h2>
+                  <p className="text-sm text-slate-500 mt-1">Đánh giá sau khi hợp đồng đã giao hàng hoặc quyết toán. Đánh giá được lưu theo từng hợp đồng.</p>
+                </div>
+                {syncContracts.length === 0 ? (
+                  <p className="p-4 rounded-2xl bg-slate-50 text-sm text-slate-500">Chưa có hợp đồng B2B để đánh giá.</p>
+                ) : (
+                  <>
+                    <select
+                      value={activeContract?.id || ''}
+                      onChange={(event) => setSelectedContractId(Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"
+                    >
+                      {syncContracts.map((contract) => (
+                        <option key={contract.id} value={contract.id}>{contract.contractCode} · {contract.productName}</option>
+                      ))}
+                    </select>
+                    {activeContract && activeContract.fulfillmentStep < 6 && activeContract.finalPaidStatus !== 'PAID' ? (
+                      <p className="p-4 rounded-2xl bg-amber-50 border border-amber-100 text-sm text-amber-800">Hợp đồng này chưa hoàn tất. Bạn có thể đánh giá sau khi ký nhận và quyết toán.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button key={star} type="button" onClick={() => setReviewStars(star)} className="p-1 hover:scale-110 transition-transform" aria-label={`Chọn ${star} sao`}>
+                              <Star className={`w-7 h-7 ${star <= reviewStars ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                            </button>
+                          ))}
+                          <span className="text-sm font-bold text-slate-500 ml-2">{reviewStars}/5 sao</span>
+                        </div>
+                        <textarea
+                          value={reviewComment}
+                          onChange={(event) => setReviewComment(event.target.value)}
+                          maxLength={2000}
+                          rows={3}
+                          placeholder="Chia sẻ cảm nhận về chất lượng lô hàng và phối hợp giao nhận..."
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-amber-400"
+                        />
+                        <div className="flex items-center justify-between gap-3">
+                          <p className={`text-sm ${reviewMessage.includes('thành công') ? 'text-emerald-700' : 'text-slate-500'}`}>{reviewMessage}</p>
+                          <button type="button" onClick={handleSubmitBuyerReview} disabled={reviewLoading} className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm disabled:opacity-50">
+                            {reviewLoading ? 'Đang lưu...' : 'Lưu đánh giá'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             {activeSection === 'orders' && <BuyerOrdersPanel mode="tracking" />}
             {activeSection === 'profile' && <BuyerProfilePanel />}
             {activeSection === 'addresses' && <BuyerAddressesPanel />}

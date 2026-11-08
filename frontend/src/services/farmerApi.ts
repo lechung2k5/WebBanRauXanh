@@ -1251,6 +1251,36 @@ export const getContractPrintUrl = (contractId: number): string => {
   return `${API_BASE_URL}/farmer/contracts/${contractId}/print`;
 };
 
+export interface FarmerB2bReview {
+  id: number;
+  contractId: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getFarmerReviewsApi = async (contractId: number): Promise<FarmerB2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    cache: 'no-store', credentials: 'include', headers: getAuthHeaders(),
+  });
+  const data: ApiResponse<FarmerB2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitFarmerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<FarmerB2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    method: 'POST', cache: 'no-store', credentials: 'include',
+    headers: getAuthHeaders(), body: JSON.stringify(request),
+  });
+  const data: ApiResponse<FarmerB2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
+};
+
 
 // 12. Lấy Cây Phân Bổ Sản Lượng của Lô Hàng (Post-sale Allocation Tree)
 export const getLotAllocationApi = async (lotId: number): Promise<HarvestLotAllocation | null> => {

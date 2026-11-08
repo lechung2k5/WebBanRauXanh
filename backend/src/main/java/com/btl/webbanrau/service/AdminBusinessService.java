@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,10 +13,11 @@ import java.time.LocalDate;
 import java.util.*;
 
 /** All financial transitions lock the contract row and create balanced journal lines. */
-@Service @RequiredArgsConstructor
+@Service @RequiredArgsConstructor @Slf4j
 public class AdminBusinessService {
     private final JdbcTemplate db;
     private final UserRepository users;
+    private final MailService mail;
     public List<Map<String,Object>> lots(boolean publicOnly) {
         var rows=db.queryForList("select l.*,u.company_name farmer_name from harvest_lots l join users u on u.id=l.farmer_id "+(publicOnly?"where l.status='OPEN' and l.expiry_date>=CURRENT_DATE ":"")+"order by l.id desc limit 500");
         rows.forEach(row->row.put("tier_pricing_json",Objects.toString(row.get("tier_pricing_json"),"[]")));
@@ -108,6 +110,25 @@ public class AdminBusinessService {
             journal(id,"SETTLEMENT",ref,lines);db.update("update b2b_contracts set payout_ref=?,payout_amount=? where id=?",ref,payout,id);
         }
         db.update("update b2b_contracts set status=?,updated_at=CURRENT_TIMESTAMP where id=?",next,id);audit("CONTRACT_"+next,id);
+        notifyContractParties(c, next);
+    }
+
+    private void notifyContractParties(Map<String,Object> contract, String nextStatus) {
+        String contractCode = Objects.toString(contract.get("contract_code"), "");
+        String subject = "Cập nhật trạng thái hợp đồng " + contractCode;
+        String body = "Hợp đồng " + contractCode + " vừa chuyển sang trạng thái: " + nextStatus + ".\n"
+                + "Vui lòng đăng nhập HoNa Fresh để xem chi tiết tiến trình và thao tác tiếp theo.";
+        for (String column : List.of("buyer_id", "farmer_id")) {
+            try {
+                Long partyId = asLong(contract, column);
+                if (partyId == null) continue;
+                String email = db.queryForObject("select email from users where id=?", String.class, partyId);
+                if (email != null && !email.isBlank()) mail.send(email, subject, body);
+            } catch (Exception ex) {
+                // SMTP là kênh thông báo phụ; không rollback giao dịch nếu mail server lỗi/chưa cấu hình.
+                log.warn("Không gửi được email trạng thái hợp đồng {}: {}", contractCode, ex.getMessage());
+            }
+        }
     }
     public BigDecimal deliveredGoods(Map<String,Object> c) { var rows=db.queryForList("select delivered_weight_kg from shipments where contract_id=?",c.get("id"));return rows.isEmpty()||rows.getFirst().get("delivered_weight_kg")==null?decimal(c,"total_goods_amount"):money(decimal(rows.getFirst(),"delivered_weight_kg").multiply(decimal(c,"offered_price_per_kg"))); }
     @Transactional public long createAsset(JsonNode n) {

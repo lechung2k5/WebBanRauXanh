@@ -15,6 +15,8 @@ Phần Buyer đã được nối với luồng nghiệp vụ dùng chung của h
 - Ký ePOD.
 - Thanh toán phần còn lại giả lập.
 - Xem hóa đơn HTML.
+- Gửi/cập nhật đánh giá sau giao dịch B2B; đánh giá được lưu theo từng Buyer/Farmer và hợp đồng.
+- Nhận thông báo email khi trạng thái hợp đồng B2B thay đổi (SMTP lỗi không làm rollback giao dịch).
 
 ## 2. Backend đã sửa hoặc bổ sung
 
@@ -33,6 +35,7 @@ Phần Buyer đã được nối với luồng nghiệp vụ dùng chung của h
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerWarehouseRequest.java`
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerRfqActionRequest.java`
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerEpodRequest.java`
+- `backend/src/main/java/com/btl/webbanrau/dto/request/B2bReviewRequest.java`
 
 Các DTO này nhận dữ liệu cập nhật địa chỉ, thao tác đàm phán và ký ePOD.
 
@@ -55,12 +58,21 @@ Các DTO này nhận dữ liệu cập nhật địa chỉ, thao tác đàm phá
     - `/buyer/contracts/{id}/sign-epod`
     - API QR/xác nhận thanh toán cuối
     - `/buyer/contracts/{id}/invoice`
+    - `/buyer/contracts/{id}/reviews`
+- `backend/src/main/java/com/btl/webbanrau/controller/FarmerController.java`
+  - Bổ sung `GET/POST /farmer/contracts/{id}/reviews` để đánh giá hai chiều.
+- `backend/src/main/java/com/btl/webbanrau/service/B2bReviewService.java`
+  - Kiểm tra quyền sở hữu hợp đồng, trạng thái đã giao/quyết toán và upsert đánh giá.
+- `backend/src/main/java/com/btl/webbanrau/service/AdminBusinessService.java`
+  - Gửi email thông báo sau mỗi lần chuyển trạng thái hợp đồng; lỗi SMTP chỉ ghi log.
 
 ### Database
 
 - `backend/src/main/resources/db/migration/V6__buyer_workflow.sql`
   - Thêm `buyer_id`, `shipping_option`, `notes` cho bảng `rfq_negotiations`.
   - Thêm index phục vụ truy vấn RFQ theo Buyer.
+- `backend/src/main/resources/db/migration/V10__b2b_reviews.sql`
+  - Tạo bảng đánh giá B2B, giới hạn 1 đánh giá cho mỗi bên trên mỗi hợp đồng và kiểm tra điểm 1–5.
 
 ### Tài khoản demo
 
@@ -127,6 +139,7 @@ Mở `http://localhost:3000`, đăng nhập bằng `buyer / buyer123`, sau đó 
 6. Mở phần đặt cọc, lấy QR giả lập và xác nhận thanh toán.
 7. Ký ePOD với chữ ký, khối lượng và ảnh minh chứng.
 8. Thực hiện thanh toán cuối và mở hóa đơn.
+9. Với hợp đồng đã giao/quyết toán, vào `Đơn đã mua` để gửi đánh giá; đăng nhập Farmer để đánh giá lại Buyer.
 
 ## 5. Kết quả kiểm tra mã nguồn
 
@@ -141,6 +154,7 @@ Mở `http://localhost:3000`, đăng nhập bằng `buyer / buyer123`, sau đó 
 - Đàm phán hiện hỗ trợ trạng thái và phản hồi RFQ; chưa có chat realtime theo từng tin nhắn.
 - Hóa đơn hiện trả về HTML, chưa phát sinh PDF hóa đơn điện tử có giá trị pháp lý.
 - Cần chạy migration và kiểm thử API trên môi trường có PostgreSQL trước khi triển khai production.
+- Email trạng thái hợp đồng cần cấu hình SMTP hợp lệ để gửi thật; nếu chưa có SMTP, trạng thái giao dịch vẫn được lưu bình thường.
 
 ## 7. Bổ sung Buyer: mua hàng, theo dõi đơn và hồ sơ cá nhân
 

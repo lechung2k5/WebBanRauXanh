@@ -48,6 +48,7 @@ import {
   Eye,
   CreditCard,
   Landmark,
+  Star,
 } from 'lucide-react';
 
 import {
@@ -90,6 +91,8 @@ import {
   saveLocalContract,
   saveLocalRfqUpdate,
   FALLBACK_QC,
+  getFarmerReviewsApi,
+  submitFarmerReviewApi,
 } from '@/services/farmerApi';
 
 import { getStoredUser, loginApi, aiChatRagApi } from '@/services/api';
@@ -432,6 +435,11 @@ function FarmerPortalContent() {
     notes: 'Giữ nhiệt độ Pre-cooling 4.0°C khi chạy trên đường',
   });
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
+  const [reviewContractId, setReviewContractId] = useState<number | null>(null);
+  const [reviewStars, setReviewStars] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
 
   const handleOpenScheduleModal = (c: B2BContract) => {
     setScheduleModalContract(c);
@@ -456,6 +464,33 @@ function FarmerPortalContent() {
       alert('Lỗi khi cập nhật lịch giao trạm');
     } finally {
       setIsUpdatingSchedule(false);
+    }
+  };
+
+  const handleOpenFarmerReview = async (contractId: number) => {
+    setReviewContractId(contractId);
+    setReviewMessage('');
+    try {
+      const reviews = await getFarmerReviewsApi(contractId);
+      const mine = reviews.find((review) => review.reviewerRole === 'FARMER');
+      setReviewStars(mine?.rating || 5);
+      setReviewComment(mine?.comment || '');
+    } catch {
+      setReviewStars(5);
+      setReviewComment('');
+    }
+  };
+
+  const handleSubmitFarmerReview = async (contractId: number) => {
+    setReviewLoading(true);
+    setReviewMessage('');
+    try {
+      await submitFarmerReviewApi(contractId, { rating: reviewStars, comment: reviewComment });
+      setReviewMessage('Đã lưu đánh giá Buyer thành công.');
+    } catch (error) {
+      setReviewMessage(error instanceof Error ? error.message : 'Không thể lưu đánh giá Buyer.');
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -1620,8 +1655,36 @@ function FarmerPortalContent() {
                                 {isSettlingId === c.id ? 'Đang giải ngân...' : '⚡ Quyết Toán Ngay'}
                               </button>
                             )}
+                            {c.fulfillmentStatus === 'COMPLETED' && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFarmerReview(c.id)}
+                                className="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs transition flex items-center gap-1"
+                              >
+                                <Star className="w-3.5 h-3.5" /> Đánh giá Buyer
+                              </button>
+                            )}
                           </div>
                         </div>
+                        {reviewContractId === c.id && c.fulfillmentStatus === 'COMPLETED' && (
+                          <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-100 space-y-3">
+                            <div className="flex items-center gap-2">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button key={star} type="button" onClick={() => setReviewStars(star)} className="p-1 hover:scale-110 transition-transform" aria-label={`Chọn ${star} sao`}>
+                                  <Star className={`w-6 h-6 ${star <= reviewStars ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                                </button>
+                              ))}
+                              <span className="text-xs font-bold text-slate-500">{reviewStars}/5 sao</span>
+                            </div>
+                            <textarea value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} maxLength={2000} rows={2} placeholder="Chia sẻ về phối hợp và thanh toán của Buyer..." className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-xs text-emerald-700">{reviewMessage}</span>
+                              <button type="button" onClick={() => handleSubmitFarmerReview(c.id)} disabled={reviewLoading} className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs disabled:opacity-50">
+                                {reviewLoading ? 'Đang lưu...' : 'Lưu đánh giá'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

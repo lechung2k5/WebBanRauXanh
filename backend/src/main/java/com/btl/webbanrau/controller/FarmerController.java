@@ -5,8 +5,10 @@ import com.btl.webbanrau.dto.request.FarmerProfileRequest;
 import com.btl.webbanrau.dto.request.HarvestLotRequest;
 import com.btl.webbanrau.dto.request.PublicRfqDepositRequest;
 import com.btl.webbanrau.dto.request.RfqRespondRequest;
+import com.btl.webbanrau.dto.request.B2bReviewRequest;
 import com.btl.webbanrau.dto.response.*;
 import com.btl.webbanrau.service.FarmerService;
+import com.btl.webbanrau.service.B2bReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,6 +28,7 @@ import java.util.Map;
 public class FarmerController {
 
     private final FarmerService farmerService;
+    private final B2bReviewService reviewService;
     private final com.btl.webbanrau.service.GeminiService geminiService;
 
     // 1. Dashboard Stats
@@ -128,6 +131,18 @@ public class FarmerController {
     @Operation(summary = "Quyết toán giải ngân doanh thu hợp đồng về tài khoản ngân hàng (khấu trừ phí sàn 3%)")
     public ResponseEntity<ApiResponse<SettlementResponse>> settleContract(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Quyết toán và giải ngân về tài khoản ngân hàng thành công!", farmerService.settleContract(id)));
+    }
+
+    @GetMapping("/contracts/{id}/reviews")
+    @Operation(summary = "Xem đánh giá hai chiều của hợp đồng B2B")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getReviews(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(reviewService.list(id, "FARMER")));
+    }
+
+    @PostMapping("/contracts/{id}/reviews")
+    @Operation(summary = "Nhà vườn gửi hoặc cập nhật đánh giá giao dịch B2B")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> submitReview(@PathVariable Long id, @Valid @RequestBody B2bReviewRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã lưu đánh giá giao dịch", reviewService.submit(id, request, "FARMER")));
     }
 
     @GetMapping("/contracts/{id}/qc")
