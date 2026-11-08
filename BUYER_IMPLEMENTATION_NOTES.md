@@ -187,3 +187,42 @@ Ngoài ra, khi checkout trong lúc đã đăng nhập, backend tự gắn đơn 
 - `frontend/src/components/BuyerOrdersPanel.tsx`
 - `frontend/src/components/BuyerProfilePanel.tsx`
 
+## 8. Đồng bộ đơn hàng Buyer với Admin
+
+Đã cập nhật ngày 08/11/2026:
+
+- `backend/src/main/java/com/btl/webbanrau/util/DataInitializer.java`
+  - Tạo 3 đơn hàng mẫu cho mỗi tài khoản có `ROLE_BUYER`.
+  - Các đơn mẫu được gắn trực tiếp với Buyer qua `orders.user_id`.
+  - Bao gồm các trạng thái chờ xác nhận, đang giao và đã giao.
+  - Mã đơn mẫu có tính ổn định, không tạo trùng khi restart backend.
+  - Tồn kho được trừ khi tạo đơn mẫu để nghiệp vụ hủy đơn/hoàn kho vẫn chính xác.
+
+- `backend/src/main/java/com/btl/webbanrau/dto/response/OrderResponse.java`
+- `backend/src/main/java/com/btl/webbanrau/service/OrderService.java`
+  - Bổ sung `buyerUsername`, `buyerName` và `buyerCompany` trong dữ liệu đơn hàng trả về cho Admin.
+
+- `frontend/src/app/admin/orders/page.tsx`
+  - Hiển thị rõ tài khoản Buyer, tên Buyer và công ty trong danh sách/chi tiết đơn hàng.
+
+- `frontend/src/services/api.ts`
+  - Checkout gửi JWT để backend tự liên kết đơn mới với Buyer đang đăng nhập.
+  - API Admin tải danh sách và cập nhật trạng thái đơn gửi đúng JWT Admin.
+
+- `frontend/src/types/index.ts`
+  - Bổ sung kiểu dữ liệu các trường thông tin Buyer trong `OrderResponse`.
+
+### Tài khoản kiểm thử
+
+- Admin: `admin / Admin@123456`
+- Buyer: `buyer / buyer123`
+- Buyer Sài Gòn: `buyer_sg / Buyer@123456`
+
+Sau khi khởi động lại backend, đăng nhập Admin và mở `/admin/orders` để xem các đơn mẫu của Buyer. Đơn đặt mới từ Buyer đã đăng nhập cũng sẽ xuất hiện tại đây.
+
+### Kiểm tra
+
+- Backend: `gradlew.bat compileJava --no-daemon` thành công.
+- Frontend: `npx tsc --noEmit` thành công.
+- Frontend production build: `npm run build -- --webpack` thành công.
+
