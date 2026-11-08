@@ -836,6 +836,7 @@ export type BuyerRfq = {
   notes?: string;
   createdAt?: string;
   updatedAt?: string;
+  expiresAt?: string;
 };
 
 export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {

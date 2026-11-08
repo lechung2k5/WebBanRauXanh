@@ -189,6 +189,7 @@ export interface B2BRFQNegotiation {
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
+  expiresAt?: string;
   createdAt: string;
 }
 
@@ -347,6 +348,7 @@ export interface RfqItem {
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
+  expiresAt?: string;
   createdAt: string;
 }
 

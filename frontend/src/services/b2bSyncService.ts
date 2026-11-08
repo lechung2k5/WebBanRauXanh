@@ -23,6 +23,7 @@ export interface B2bSyncRfq {
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
 }
 
 export interface B2bNotification {
@@ -358,6 +359,7 @@ export function saveSyncRfq(rfq: Omit<B2bSyncRfq, 'id' | 'createdAt' | 'updatedA
     id: Date.now(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    expiresAt: rfq.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };
   const updated = [newRfq, ...current];
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(updated));

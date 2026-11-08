@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -166,6 +167,7 @@ public class BuyerWorkflowService {
                 .shippingOption(request.getShippingOption())
                 .notes(request.getNotes())
                 .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
                 .build();
         RfqNegotiation saved = rfqs.save(rfq);
         recordRfqEvent(saved, buyer.getId(), "BUYER", "CREATED", null, RfqStatus.WAITING_FARMER,
@@ -173,10 +175,13 @@ public class BuyerWorkflowService {
         return rfqView(saved);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Map<String, Object>> listRfqs() {
         User buyer = currentBuyer();
-        return rfqs.findByBuyerOrderByCreatedAtDesc(buyer).stream().map(this::rfqView).toList();
+        return rfqs.findByBuyerOrderByCreatedAtDesc(buyer).stream().map(rfq -> {
+            expireIfNeeded(rfq);
+            return rfqView(rfq);
+        }).toList();
     }
 
     @Transactional(readOnly = true)
@@ -198,6 +203,7 @@ public class BuyerWorkflowService {
         if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
             throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền với RFQ này.");
         }
+        expireIfNeeded(rfq);
         String action = request.getAction().trim().toUpperCase();
         String currentStatus = RfqStatus.normalize(rfq.getStatus());
         if ("COUNTER".equals(action)) {
@@ -437,6 +443,7 @@ public class BuyerWorkflowService {
         result.put("deliveryLocation", rfq.getHubLocation());
         result.put("shippingOption", rfq.getShippingOption());
         result.put("notes", rfq.getNotes());
+        result.put("expiresAt", rfq.getExpiresAt());
         result.put("createdAt", rfq.getCreatedAt());
         result.put("updatedAt", rfq.getUpdatedAt());
         return result;
@@ -452,6 +459,19 @@ public class BuyerWorkflowService {
                 """, rfq.getId(), actorId, actorRole, action,
                 statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
                 quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
     }
 
     private static BigDecimal decimal(Map<String, Object> map, String key) {

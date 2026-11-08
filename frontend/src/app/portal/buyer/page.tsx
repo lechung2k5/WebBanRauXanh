@@ -37,9 +37,10 @@ import {
   type B2bSyncRfq,
   type B2bSyncContract,
 } from '@/services/b2bSyncService';
-import { getRfqStatusMeta, isRfqWaitingForBuyer, isRfqWaitingForFarmer, normalizeRfqStatus } from '@/utils/rfqStatus';
+import { getRfqStatusMeta, isRfqExpiredAt, isRfqWaitingForBuyer, isRfqWaitingForFarmer, normalizeRfqStatus } from '@/utils/rfqStatus';
 import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
 import B2BNotificationBell from '@/components/B2BNotificationBell';
+import RfqCountdown from '@/components/RfqCountdown';
 import {
   Search,
   LayoutDashboard,
@@ -159,6 +160,7 @@ export default function BuyerPortalPage() {
         status: rfq.status as B2bSyncRfq['status'],
         createdAt: rfq.createdAt || new Date().toISOString(),
         updatedAt: rfq.updatedAt || rfq.createdAt || new Date().toISOString(),
+        expiresAt: rfq.expiresAt,
       })));
       refreshSyncData();
     }).catch(() => {});
@@ -180,6 +182,7 @@ export default function BuyerPortalPage() {
     return syncRfqs.find((r) => r.rfqCode === selectedRfqCode) || syncRfqs[0] || null;
   }, [syncRfqs, selectedRfqCode]);
   const currentRfqStatus = currentRfq ? normalizeRfqStatus(currentRfq.status) : '';
+  const currentRfqExpired = currentRfq ? isRfqExpiredAt(currentRfq.expiresAt, currentRfq.createdAt, currentRfqStatus) : false;
 
   useEffect(() => {
     if (!currentRfq?.id) {
@@ -687,7 +690,7 @@ export default function BuyerPortalPage() {
                     </p>
                     {syncRfqs.map((item) => {
                       const isSelected = (currentRfq?.rfqCode || '') === item.rfqCode;
-                      const statusMeta = getRfqStatusMeta(item.status, 'BUYER');
+                      const statusMeta = getRfqStatusMeta(isRfqExpiredAt(item.expiresAt, item.createdAt, item.status) ? 'EXPIRED' : item.status, 'BUYER');
                       return (
                         <button
                           type="button"
@@ -758,6 +761,7 @@ export default function BuyerPortalPage() {
                               đ/kg
                             </span>
                           </div>
+                          <div className="mt-2"><RfqCountdown expiresAt={currentRfq.expiresAt} createdAt={currentRfq.createdAt} /></div>
                         </div>
                       </div>
 
@@ -789,7 +793,7 @@ export default function BuyerPortalPage() {
                         </div>
 
                         {/* Phản hồi từ Farmer/HTX */}
-                        {isRfqWaitingForBuyer(currentRfqStatus) && (
+                        {isRfqWaitingForBuyer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex justify-start">
                             <div className="max-w-[80%] p-4 rounded-3xl rounded-tl-xs bg-orange-50 border border-orange-200 text-slate-800 shadow-sm space-y-2 text-sm">
                               <div className="flex items-center justify-between gap-3 text-[11px] font-bold text-orange-800 border-b border-orange-200 pb-1">
@@ -828,7 +832,7 @@ export default function BuyerPortalPage() {
                           </div>
                         )}
 
-                        {isRfqWaitingForFarmer(currentRfqStatus) && (
+                        {isRfqWaitingForFarmer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex justify-start">
                             <div className="max-w-[80%] p-4 rounded-3xl rounded-tl-xs bg-slate-100 text-slate-700 space-y-1 text-sm">
                               <p className="text-xs font-bold text-slate-500">Hệ Thống HoNa Fresh</p>
@@ -845,7 +849,7 @@ export default function BuyerPortalPage() {
 
                       {/* Footer hành động đàm phán */}
                       <div className="p-4 border-t border-slate-100 bg-slate-50/80">
-                        {isRfqWaitingForBuyer(currentRfqStatus) && (
+                        {isRfqWaitingForBuyer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex flex-col sm:flex-row items-center gap-3">
                             <button
                               type="button"
@@ -880,7 +884,7 @@ export default function BuyerPortalPage() {
                           </div>
                         )}
 
-                        {isRfqWaitingForFarmer(currentRfqStatus) && (
+                        {isRfqWaitingForFarmer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="text-xs text-slate-500 flex items-center gap-2">
                             <Clock className="w-4 h-4 text-amber-500 animate-spin" />
                             Đang chờ phản hồi từ Nông Trại. Dữ liệu sẽ tự động nhảy khi nông dân chấp nhận hoặc gửi counter-offer.

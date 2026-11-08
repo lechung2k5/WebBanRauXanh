@@ -30,5 +30,6 @@ public class RfqResponse {
     private String status;
     private String statusLabel;
     private String nextActor;
+    private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
 }

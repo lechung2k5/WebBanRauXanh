@@ -23,6 +23,16 @@ export function isRfqWaitingForBuyer(status?: string) {
   return normalizeRfqStatus(status) === 'WAITING_BUYER';
 }
 
+export function getRfqExpiresAt(expiresAt?: string, createdAt?: string) {
+  if (expiresAt) return new Date(expiresAt).getTime();
+  if (createdAt) return new Date(createdAt).getTime() + 24 * 60 * 60 * 1000;
+  return 0;
+}
+
+export function isRfqExpiredAt(expiresAt?: string, createdAt?: string, status?: string) {
+  return normalizeRfqStatus(status) === 'EXPIRED' || (getRfqExpiresAt(expiresAt, createdAt) > 0 && getRfqExpiresAt(expiresAt, createdAt) <= Date.now());
+}
+
 export function getRfqStatusMeta(status?: string, viewer?: 'BUYER' | 'FARMER') {
   const normalized = normalizeRfqStatus(status);
   const meta: Record<string, { label: string; className: string; nextActor?: 'BUYER' | 'FARMER' }> = {

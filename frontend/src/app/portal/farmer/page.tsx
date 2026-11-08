@@ -101,9 +101,10 @@ import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncServ
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 import Pagination from '@/components/Pagination';
-import { getRfqStatusMeta, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
+import { getRfqStatusMeta, isRfqExpiredAt, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
 import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
 import B2BNotificationBell from '@/components/B2BNotificationBell';
+import RfqCountdown from '@/components/RfqCountdown';
 
 const FARMER_LOTS_PAGE_SIZE = 10;
 
@@ -1388,8 +1389,8 @@ function FarmerPortalContent() {
                               </p>
                             </div>
                           </div>
-                          <span className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${getRfqStatusMeta(rfq.status, 'FARMER').className}`}>
-                            {getRfqStatusMeta(rfq.status, 'FARMER').label}
+                          <span className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').className}`}>
+                            {getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').label}
                           </span>
                         </div>
 
@@ -1444,7 +1445,7 @@ function FarmerPortalContent() {
 
                               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                                 <Calendar className="w-3 h-3 text-amber-600" />
-                                <span>Hạn chốt đàm phán: 18:00 ngày {rfq.deliveryDate}</span>
+                                <RfqCountdown expiresAt={rfq.expiresAt} createdAt={rfq.createdAt} />
                               </div>
                             </div>
                           );
@@ -1473,7 +1474,7 @@ function FarmerPortalContent() {
                         </div>
 
                         {/* Actions */}
-                        {isRfqWaitingForFarmer(rfq.status) && (
+                        {isRfqWaitingForFarmer(rfq.status) && !isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) && (
                           <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                             <button type="button"
                               onClick={() => setRejectModalRfq(rfq)}

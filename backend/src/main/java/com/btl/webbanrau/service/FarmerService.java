@@ -190,11 +190,14 @@ public class FarmerService {
     }
 
     // 4. RFQ Negotiations
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RfqResponse> getRfqs() {
         User farmer = getCurrentFarmer();
         return rfqNegotiationRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
-                .map(this::mapToRfqResponse)
+                .map(rfq -> {
+                    expireIfNeeded(rfq);
+                    return mapToRfqResponse(rfq);
+                })
                 .toList();
     }
 
@@ -221,6 +224,7 @@ public class FarmerService {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền phản hồi yêu cầu báo giá này!");
         }
 
+        expireIfNeeded(rfq);
         String action = request.getAction().toUpperCase();
         String currentStatus = RfqStatus.normalize(rfq.getStatus());
         if (!RfqStatus.isFarmerTurn(currentStatus)) {
@@ -745,6 +749,7 @@ public class FarmerService {
                 .deliveryDate(request.getDeliveryDate() != null ? request.getDeliveryDate() : LocalDate.now().plusDays(3))
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM")
                 .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
                 .build();
 
         boolean isDepositPaid = Boolean.TRUE.equals(request.getIsDepositPaid());
@@ -1124,6 +1129,7 @@ public class FarmerService {
                 .status(rfq.getStatus())
                 .statusLabel(RfqStatus.label(rfq.getStatus()))
                 .nextActor(RfqStatus.nextActor(rfq.getStatus()))
+                .expiresAt(rfq.getExpiresAt())
                 .createdAt(rfq.getCreatedAt())
                 .build();
     }
@@ -1138,6 +1144,19 @@ public class FarmerService {
                 """, rfq.getId(), actorId, actorRole, action,
                 statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
                 quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
     }
 
     private SettlementResponse mapToSettlementResponse(Settlement s) {
