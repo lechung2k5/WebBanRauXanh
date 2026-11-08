@@ -167,13 +167,27 @@ public class BuyerWorkflowService {
                 .notes(request.getNotes())
                 .status(RfqStatus.WAITING_FARMER)
                 .build();
-        return rfqView(rfqs.save(rfq));
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "CREATED", null, RfqStatus.WAITING_FARMER,
+                saved.getRequestedQuantity(), saved.getTargetPrice(), saved.getNotes());
+        return rfqView(saved);
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listRfqs() {
         User buyer = currentBuyer();
         return rfqs.findByBuyerOrderByCreatedAtDesc(buyer).stream().map(this::rfqView).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rfqHistory(Long id) {
+        User buyer = currentBuyer();
+        RfqNegotiation rfq = rfqs.findById(id)
+                .orElseThrow(() -> new AuthException(404, "RFQ_NOT_FOUND", "Không tìm thấy RFQ."));
+        if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
+            throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền xem RFQ này.");
+        }
+        return db.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
     }
 
     @Transactional
@@ -196,7 +210,11 @@ public class BuyerWorkflowService {
             rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
             rfq.setStatus(RfqStatus.WAITING_FARMER);
-            return rfqView(rfqs.save(rfq));
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, buyer.getId(), "BUYER", "COUNTER", currentStatus, saved.getStatus(),
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice(), "Người mua gửi đề xuất mới");
+            return rfqView(saved);
         }
         if ("REJECT".equals(action)) {
             if (!RfqStatus.isBuyerTurn(currentStatus)) {
@@ -204,7 +222,11 @@ public class BuyerWorkflowService {
             }
             rfq.setRejectReason(request.getRejectReason());
             rfq.setStatus(RfqStatus.REJECTED);
-            return rfqView(rfqs.save(rfq));
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, buyer.getId(), "BUYER", "REJECT", currentStatus, saved.getStatus(),
+                    saved.getRequestedQuantity(), saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    request.getRejectReason());
+            return rfqView(saved);
         }
         if (!"ACCEPT".equals(action)) throw new AuthException(400, "INVALID_RFQ_ACTION", "Chỉ hỗ trợ ACCEPT, COUNTER hoặc REJECT.");
         if (!RfqStatus.isBuyerTurn(currentStatus)) {
@@ -224,7 +246,11 @@ public class BuyerWorkflowService {
         db.update("UPDATE b2b_contracts SET rfq_id=? WHERE id=?", rfq.getId(), contractId);
         rfq.setStatus(RfqStatus.ACCEPTED);
         rfq.setTargetPrice(price);
-        return rfqView(rfqs.save(rfq));
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "ACCEPT", currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(), price,
+                "Người mua chấp nhận đề xuất và tạo hợp đồng");
+        return rfqView(saved);
     }
 
     @Transactional(readOnly = true)
@@ -414,6 +440,18 @@ public class BuyerWorkflowService {
         result.put("createdAt", rfq.getCreatedAt());
         result.put("updatedAt", rfq.getUpdatedAt());
         return result;
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        db.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
     }
 
     private static BigDecimal decimal(Map<String, Object> map, String key) {

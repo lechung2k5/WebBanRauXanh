@@ -845,6 +845,13 @@ export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {
   return data.result || [];
 };
 
+export const getBuyerRfqHistoryApi = async (id: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}/history`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
+  return data.result || [];
+};
+
 export const respondBuyerRfqApi = async (id: number, request: { action: 'ACCEPT' | 'COUNTER' | 'REJECT'; counterPrice?: number; counterQuantity?: number; rejectReason?: string }) => {
   const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}/respond`, {
     method: 'PATCH',

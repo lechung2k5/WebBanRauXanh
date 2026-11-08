@@ -77,6 +77,7 @@ import {
   getFarmerHarvestLotsApi,
   createHarvestLotApi,
   getFarmerRfqsApi,
+  getFarmerRfqHistoryApi,
   respondToRfqApi,
   getFarmerContractsApi,
   getContractQcApi,
@@ -101,6 +102,7 @@ import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 import Pagination from '@/components/Pagination';
 import { getRfqStatusMeta, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
+import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
 
 const FARMER_LOTS_PAGE_SIZE = 10;
 
@@ -117,6 +119,8 @@ function FarmerPortalContent() {
   const [profile, setProfile] = useState<FarmerProfile | null>(null);
   const [lots, setLots] = useState<HarvestLot[]>([]);
   const [rfqs, setRfqs] = useState<RfqItem[]>([]);
+  const [rfqHistories, setRfqHistories] = useState<Record<number, RfqHistoryEvent[]>>({});
+  const [expandedRfqHistory, setExpandedRfqHistory] = useState<number | null>(null);
   const [contracts, setContracts] = useState<B2BContract[]>([]);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [selectedContractQc, setSelectedContractQc] = useState<QcInspection | null>(null);
@@ -733,6 +737,18 @@ function FarmerPortalContent() {
       setRfqSubTab('contracts');
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Lỗi khi phản hồi RFQ');
+    }
+  };
+
+  const handleToggleRfqHistory = async (rfqId: number) => {
+    if (expandedRfqHistory === rfqId) {
+      setExpandedRfqHistory(null);
+      return;
+    }
+    setExpandedRfqHistory(rfqId);
+    if (!rfqHistories[rfqId]) {
+      const events = await getFarmerRfqHistoryApi(rfqId);
+      setRfqHistories((prev) => ({ ...prev, [rfqId]: events as unknown as RfqHistoryEvent[] }));
     }
   };
 
@@ -1438,6 +1454,21 @@ function FarmerPortalContent() {
                             <strong>Đề xuất thương lượng lại:</strong> {formatVnd(rfq.counterPrice)}/kg cho {rfq.counterQuantity?.toLocaleString()} kg.
                           </div>
                         )}
+
+                        <div className="border-t border-gray-100 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleRfqHistory(rfq.id)}
+                            className="text-xs font-bold text-sky-700 hover:text-sky-900"
+                          >
+                            {expandedRfqHistory === rfq.id ? 'Ẩn lịch sử đàm phán' : 'Xem lịch sử phiên bản giá'}
+                          </button>
+                          {expandedRfqHistory === rfq.id && (
+                            <div className="mt-3">
+                              <RfqHistoryTimeline events={rfqHistories[rfq.id] || []} />
+                            </div>
+                          )}
+                        </div>
 
                         {/* Actions */}
                         {isRfqWaitingForFarmer(rfq.status) && (

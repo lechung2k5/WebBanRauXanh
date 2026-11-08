@@ -791,6 +791,21 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   });
 };
 
+export const getFarmerRfqHistoryApi = async (id: number) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${id}/history`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    });
+    const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
+    return data.result || [];
+  } catch {
+    return [];
+  }
+};
+
 export const respondToRfqApi = async (
   rfqId: number,
   actionData: {

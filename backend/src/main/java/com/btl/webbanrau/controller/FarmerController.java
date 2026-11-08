@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/farmer")
@@ -72,6 +73,12 @@ public class FarmerController {
     @Operation(summary = "Lấy danh sách các yêu cầu báo giá sỉ (RFQ) từ thương lái")
     public ResponseEntity<ApiResponse<List<RfqResponse>>> getRfqs() {
         return ResponseEntity.ok(ApiResponse.success(farmerService.getRfqs()));
+    }
+
+    @GetMapping("/rfq/{id}/history")
+    @Operation(summary = "Xem lịch sử các phiên bản giá và phản hồi của RFQ")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> rfqHistory(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.rfqHistory(id)));
     }
 
     @PostMapping("/rfq/public-submit")

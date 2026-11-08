@@ -198,6 +198,18 @@ public class FarmerService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rfqHistory(Long id) {
+        User farmer = getCurrentFarmer();
+        RfqNegotiation rfq = rfqNegotiationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy RFQ ID: " + id));
+        if (rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null
+                || (!rfq.getHarvestLot().getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer))) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem lịch sử RFQ này!");
+        }
+        return jdbcTemplate.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
+    }
+
     @Transactional
     public RfqResponse respondToRfq(Long id, RfqRespondRequest request) {
         User farmer = getCurrentFarmer();
@@ -259,6 +271,10 @@ public class FarmerService {
         }
 
         RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(saved, farmer.getId(), "FARMER", action, currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                "ACCEPT".equals(action) ? "Người bán chấp nhận đề xuất" : saved.getRejectReason());
         return mapToRfqResponse(saved);
     }
 
@@ -737,6 +753,9 @@ public class FarmerService {
         }
 
         RfqNegotiation savedRfq = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(savedRfq, null, "BUYER", "CREATED", null, savedRfq.getStatus(),
+                savedRfq.getRequestedQuantity(), savedRfq.getTargetPrice(),
+                isDepositPaid ? "Tạo RFQ và đã đặt cọc" : "Tạo yêu cầu báo giá");
 
         // Nếu đã cọc 30% thì sinh ngay B2bContract với trạng thái DEPOSIT_PAID
         if (isDepositPaid) {
@@ -1107,6 +1126,18 @@ public class FarmerService {
                 .nextActor(RfqStatus.nextActor(rfq.getStatus()))
                 .createdAt(rfq.getCreatedAt())
                 .build();
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        jdbcTemplate.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
     }
 
     private SettlementResponse mapToSettlementResponse(Settlement s) {

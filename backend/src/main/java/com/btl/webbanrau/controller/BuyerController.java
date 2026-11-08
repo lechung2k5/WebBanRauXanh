@@ -64,6 +64,11 @@ public class BuyerController {
     @GetMapping("/rfq")
     public ApiResponse<List<Map<String, Object>>> getRfqs() { return ApiResponse.success(buyer.listRfqs()); }
 
+    @GetMapping("/rfq/{id}/history")
+    public ApiResponse<List<Map<String, Object>>> rfqHistory(@PathVariable Long id) {
+        return ApiResponse.success(buyer.rfqHistory(id));
+    }
+
     @PostMapping("/rfq")
     public ApiResponse<Map<String, Object>> createRfq(@Valid @RequestBody BuyerRfqRequest request) {
         return ApiResponse.success("Gửi RFQ thành công", buyer.createRfq(request));

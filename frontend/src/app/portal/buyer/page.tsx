@@ -19,6 +19,7 @@ import {
   getBuyerTelemetryApi,
   getBuyerQcReportApi,
   getBuyerRfqsApi,
+  getBuyerRfqHistoryApi,
   respondBuyerRfqApi,
   getBuyerInvoiceUrl,
 } from '@/services/api';
@@ -37,6 +38,7 @@ import {
   type B2bSyncContract,
 } from '@/services/b2bSyncService';
 import { getRfqStatusMeta, isRfqWaitingForBuyer, isRfqWaitingForFarmer, normalizeRfqStatus } from '@/utils/rfqStatus';
+import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
 import {
   Search,
   LayoutDashboard,
@@ -87,6 +89,7 @@ export default function BuyerPortalPage() {
   const [selectedRfqCode, setSelectedRfqCode] = useState<string>('');
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [rfqCount, setRfqCount] = useState(0);
+  const [rfqHistory, setRfqHistory] = useState<RfqHistoryEvent[]>([]);
 
   // State hỗ trợ nghiệp vụ
   const [workflowMessage, setWorkflowMessage] = useState('');
@@ -176,6 +179,16 @@ export default function BuyerPortalPage() {
     return syncRfqs.find((r) => r.rfqCode === selectedRfqCode) || syncRfqs[0] || null;
   }, [syncRfqs, selectedRfqCode]);
   const currentRfqStatus = currentRfq ? normalizeRfqStatus(currentRfq.status) : '';
+
+  useEffect(() => {
+    if (!currentRfq?.id) {
+      setRfqHistory([]);
+      return;
+    }
+    getBuyerRfqHistoryApi(currentRfq.id)
+      .then((events) => setRfqHistory(events as unknown as RfqHistoryEvent[]))
+      .catch(() => setRfqHistory([]));
+  }, [currentRfq?.id]);
 
   // Đồng bộ khối lượng thực nhận khi chuyển hợp đồng
   useEffect(() => {
@@ -745,6 +758,11 @@ export default function BuyerPortalPage() {
                           </div>
                         </div>
                       </div>
+
+                      <details className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-slate-50/60">
+                        <summary className="cursor-pointer px-4 py-3 text-xs font-bold text-slate-700">Xem lịch sử phiên bản giá và phản hồi</summary>
+                        <div className="px-4 pb-4"><RfqHistoryTimeline events={rfqHistory} /></div>
+                      </details>
 
                       {/* Khung tin nhắn đàm phán */}
                       <div className="flex-1 p-6 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/20 to-white">
