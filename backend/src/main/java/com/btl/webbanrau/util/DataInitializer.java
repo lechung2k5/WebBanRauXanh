@@ -621,7 +621,11 @@ public class DataInitializer implements CommandLineRunner {
         seedFarmerPortalData(roleFarmer);
 
         // Seed orders linked to Buyer accounts so Admin and Buyer read the same database records.
-        seedBuyerOrders();
+        try {
+            seedBuyerOrders();
+        } catch (Exception e) {
+            log.warn("Không thể seed đơn hàng mẫu cho Buyer: {}", e.getMessage());
+        }
     }
 
     private void seedBuyerOrders() {

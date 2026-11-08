@@ -26,9 +26,9 @@ UPDATE hub_inspections SET qc_note = 'Cà rốt loại 1 đều củ, màu cam �
 UPDATE hub_inspections SET qc_note = 'Su hào búp tròn non ngọt, không xơ, thu hoạch sáng sớm chuyển thẳng trạm lạnh.' WHERE inspection_code = 'QC-20261019-004';
 UPDATE hub_inspections SET qc_note = 'Xà lách Iceberg cuộn chặt tròn đều, nhiệt độ lõi 4°C trước khi lên xe lạnh vận chuyển.' WHERE inspection_code = 'QC-20261025-005';
 
-UPDATE shipments SET delivery_address = 'Kho Tổng Hợp Co.op Mart, Dĩ An, Bình Dương', receiver_name = 'Trần Thị Thương (Giám Đốc Thu Mua)' WHERE shipment_code = 'SHP-20261012-001';
-UPDATE shipments SET delivery_address = 'Kho Nông Sản WinMart Thủ Đức, TP.HCM', receiver_name = 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)' WHERE shipment_code = 'SHP-20261015-002';
-UPDATE shipments SET delivery_address = 'Kho Lạnh Lotte Mart Miền Nam, Quận 7, TP.HCM', receiver_name = 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)' WHERE shipment_code = 'SHP-20261018-003';
-UPDATE shipments SET delivery_address = 'Kho Tổng Hợp Big C An Phú, TP. Thủ Đức, TP.HCM', receiver_name = 'Kim Jin Woo (Logistics Lotte Mart)' WHERE shipment_code = 'SHP-20261021-004';
-UPDATE shipments SET delivery_address = 'Tổng Kho Central Retail Bình Dương', receiver_name = 'Trần Thị Thương (Giám Đốc Thu Mua)' WHERE shipment_code = 'SHP-20261025-005';
+UPDATE shipments SET epod_signature_name = 'Trần Thị Thương (Giám Đốc Thu Mua)' WHERE shipment_code = 'SHP-20261012-001';
+UPDATE shipments SET epod_signature_name = 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)' WHERE shipment_code = 'SHP-20261015-002';
+UPDATE shipments SET epod_signature_name = 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)' WHERE shipment_code = 'SHP-20261018-003';
+UPDATE shipments SET epod_signature_name = 'Kim Jin Woo (Logistics Lotte Mart)' WHERE shipment_code = 'SHP-20261021-004';
+UPDATE shipments SET epod_signature_name = 'Trần Thị Thương (Giám Đốc Thu Mua)' WHERE shipment_code = 'SHP-20261025-005';
 
