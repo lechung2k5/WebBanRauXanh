@@ -525,6 +525,42 @@ export function buyerPayFinalSettlement(contractId: number | string): B2bSyncCon
   return c;
 }
 
+/**
+ * Cơ chế Tự động Nghiệm Thu & Giải Ngân sau 48h:
+ * Khi đơn đã giao đến nơi (Mốc 4) mà bên Mua không khiếu nại trong 48h,
+ * hệ thống tự động hoàn tất Mốc 5 (Ký ePOD) và Mốc 6 (Tất toán & tiền về ví Nông Dân).
+ */
+export function autoCompleteContractAfterTimeout(contractId: number | string): B2bSyncContract {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) {
+    console.warn('autoCompleteContractAfterTimeout: Danh sách hợp đồng rỗng');
+    return INITIAL_CONTRACTS[0];
+  }
+
+  const c = { ...contracts[idx] };
+  if (!c.epodSignatureData) {
+    c.epodDeliveredWeightKg = c.quantityKg;
+    c.epodDamagedWeightKg = 0;
+    c.epodSignatureName = `${c.buyerName} (Hệ Thống Tự Động Ký ePOD Sau 48h)`;
+    c.epodSignatureData = 'AUTO_CONFIRMED_48H_TIMEOUT_SYSTEM';
+    c.epodSignedAt = new Date().toISOString();
+  }
+  c.fulfillmentStep = 6;
+  c.fulfillmentStatusName = 'Hoàn Tất Đơn & Đã Giải Ngân Escrow (Tự Động Sau 48h)';
+  c.finalPaidStatus = 'PAID';
+  c.finalPaidAt = new Date().toISOString();
+  c.settledAmount = c.settledAmount || (c.quantityKg * c.agreedPricePerKg);
+  c.settledToFarmerAt = new Date().toISOString();
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  notifySyncEvent('EPOD_SIGNED', c);
+  notifySyncEvent('FINAL_PAID', c);
+  notifySyncEvent('CONTRACT_AUTO_COMPLETED_48H', c);
+  return c;
+}
+
 // ---------------------- 3. EVENT LISTENER CHO REALTIME SYNC ----------------------
 
 export function subscribeB2bSyncEvents(

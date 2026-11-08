@@ -1,6 +1,6 @@
 'use client';
 
-import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, B2bSyncContract } from '@/services/b2bSyncService';
+import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, autoCompleteContractAfterTimeout, B2bSyncContract } from '@/services/b2bSyncService';
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -420,9 +420,10 @@ export default function FarmerPostSaleView({
     : null;
 
   // Filter allocations in tab 1
+  const isDepositPaid = (status?: string) => status === 'DEPOSIT_PAID' || status === 'PAID';
   const filteredAllocations =
     allocation?.allocations.filter((alloc) => {
-      if (allocationFilter === 'PAID') return alloc.depositStatus === 'PAID';
+      if (allocationFilter === 'PAID') return isDepositPaid(alloc.depositStatus);
       if (allocationFilter === 'TRANSIT') return alloc.shipmentStatus === 'IN_TRANSIT';
       if (allocationFilter === 'COMPLETED') return alloc.shipmentStatus === 'COMPLETED';
       return true;
@@ -758,7 +759,7 @@ export default function FarmerPostSaleView({
                 {(
                   [
                     { key: 'ALL', label: 'Tất cả' },
-                    { key: 'PAID', label: 'Đã Cọc 20%' },
+                    { key: 'PAID', label: 'Đã Cọc 30%' },
                     { key: 'TRANSIT', label: 'Đang Vận Chuyển' },
                     { key: 'COMPLETED', label: 'Đã Giao Xong' },
                   ] as const
@@ -819,24 +820,32 @@ export default function FarmerPostSaleView({
                         <td className="p-3 text-center">
                           <span
                             className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              alloc.depositStatus === 'PAID'
+                              alloc.depositStatus === 'DEPOSIT_PAID' || alloc.depositStatus === 'PAID'
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : 'bg-amber-100 text-amber-800'
                             }`}
                           >
-                            {alloc.depositStatus === 'PAID' ? '✓ Đã Đặt Cọc' : 'Chờ Đặt Cọc'}
+                            {alloc.depositStatus === 'DEPOSIT_PAID' || alloc.depositStatus === 'PAID' ? '✓ Đã Cọc 30%' : 'Chờ Đặt Cọc'}
                           </span>
                         </td>
                         <td className="p-3 text-center">
                           <span
                             className={`inline-block px-2.5 py-1 rounded-xl text-[10px] font-bold border ${
-                              alloc.shipmentStatus === 'COMPLETED'
+                              alloc.shipmentStatus === 'COMPLETED' || alloc.fulfillmentStatus === 'COMPLETED'
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                                : alloc.fulfillmentStatus === 'EPOD_SIGNED'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : alloc.fulfillmentStatus === 'HUB_DELIVERED'
+                                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
                             }`}
                           >
-                            {alloc.shipmentStatus === 'COMPLETED'
-                              ? '✓ Giao Thành Công'
+                            {alloc.shipmentStatus === 'COMPLETED' || alloc.fulfillmentStatus === 'COMPLETED'
+                              ? '✓ Giao Xong & Tất Toán'
+                              : alloc.fulfillmentStatus === 'EPOD_SIGNED'
+                              ? '✓ Đã Ký ePOD'
+                              : alloc.fulfillmentStatus === 'HUB_DELIVERED'
+                              ? '📍 Đã Đến Điểm Nhận'
                               : '🚚 Đang Vận Chuyển'}
                           </span>
                         </td>
@@ -1299,8 +1308,8 @@ export default function FarmerPostSaleView({
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 relative z-10">
                 {/* MỐC 1: ĐÃ TIẾP NHẬN */}
                 <div
-                  onClick={() => setFulfillmentStep(1)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-emerald-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 1"
                 >
                   <div
@@ -1325,8 +1334,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 2: ĐÃ ĐÓNG GÓI */}
                 <div
-                  onClick={() => setFulfillmentStep(2)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-emerald-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 2"
                 >
                   <div
@@ -1351,8 +1360,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 3: ĐẾN KHU VẬN CHUYỂN */}
                 <div
-                  onClick={() => setFulfillmentStep(3)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-emerald-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 3"
                 >
                   <div
@@ -1377,8 +1386,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 4: ĐÃ GIAO & THU TIỀN */}
                 <div
-                  onClick={() => setFulfillmentStep(4)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-amber-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 4 (Đã giao & thu tiền)"
                 >
                   <div
@@ -1403,8 +1412,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 5: KHÁCH XÁC NHẬN */}
                 <div
-                  onClick={() => setFulfillmentStep(5)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-blue-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 5 (Khách xác nhận)"
                 >
                   <div
@@ -1431,8 +1440,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 6: HOÀN TẤT ĐƠN */}
                 <div
-                  onClick={() => setFulfillmentStep(6)}
-                  className="flex flex-col items-center text-center gap-2 cursor-pointer group p-2 rounded-2xl hover:bg-emerald-50/50 transition"
+                  
+                  className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
                   title="Nhấn để xem trạng thái Bước 6 (Đơn Hoàn Tất)"
                 >
                   <div
@@ -1514,97 +1523,115 @@ export default function FarmerPostSaleView({
                   )}
                 </div>
 
-                                {/* CÁC NÚT ĐIỀU HƯỚNG MỐC NGHIỆP VỤ & TỰ ĐỘNG MÔ PHỎNG */}
+                                {/* CÁC NÚT ĐIỀU HƯỚNG MỐC NGHIỆP VỤ 1 CHIỀU (KHÔNG QUAY LUI, BƯỚC 5 TỰ ĐỘNG THEO BUYER & TỰ ĐỘNG 48H) */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold text-[#10542C] uppercase tracking-wider hidden md:inline">
-                    Cập nhật mốc:
-                  </span>
-
-                  {/* Nút lùi 1 mốc */}
-                  <button
-                    type="button"
-                    disabled={fulfillmentStep <= 1}
-                    onClick={() => {
-                      try {
-                        const prev = Math.max(1, fulfillmentStep - 1) as 1 | 2 | 3 | 4 | 5 | 6;
-                        setFulfillmentStep(prev);
-                        updateContractFulfillmentStep(selectedContractId, prev);
-                      } catch (err) {
-                        console.warn('Lỗi cập nhật mốc trước:', err);
-                      }
-                    }}
-                    className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition disabled:opacity-40"
-                    title="Lùi về mốc trước"
-                  >
-                    &larr; Mốc trước
-                  </button>
-
-                  {/* Nút tiến 1 mốc */}
-                  <button
-                    type="button"
-                    disabled={fulfillmentStep >= 6}
-                    onClick={() => {
-                      try {
-                        const next = Math.min(6, fulfillmentStep + 1) as 1 | 2 | 3 | 4 | 5 | 6;
-                        setFulfillmentStep(next);
-                        updateContractFulfillmentStep(selectedContractId, next);
-                      } catch (err) {
-                        console.warn('Lỗi cập nhật mốc tiếp theo:', err);
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs disabled:opacity-40"
-                  >
-                    <span>Mốc tiếp theo ({fulfillmentStep + 1}/6)</span>
-                    &rarr;
-                  </button>
-
-                  {/* Nút mô phỏng tự động */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      let cur = 1;
-                      setFulfillmentStep(1);
-                      try {
-                        updateContractFulfillmentStep(selectedContractId, 1);
-                      } catch (err) {
-                        console.warn('Lỗi mô phỏng:', err);
-                      }
-                      const timer = setInterval(() => {
-                        cur++;
-                        if (cur <= 6) {
-                          setFulfillmentStep(cur);
-                          try {
-                            updateContractFulfillmentStep(selectedContractId, cur as 1 | 2 | 3 | 4 | 5 | 6);
-                          } catch (err) {
-                            console.warn('Lỗi mô phỏng bước:', cur, err);
-                          }
-                        } else {
-                          clearInterval(timer);
+                  {fulfillmentStep === 1 && (
+                    <>
+                      {(() => {
+                        const syncContracts = getSyncContracts();
+                        const activeC = syncContracts.find((c: any) => c.id === selectedContractId) || syncContracts[0];
+                        const isPaid = (activeC?.depositStatus as string) === 'DEPOSIT_PAID' || (activeC?.depositStatus as string) === 'PAID';
+                        if (isPaid) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFulfillmentStep(2);
+                                updateContractFulfillmentStep(selectedContractId, 2);
+                              }}
+                              className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                            >
+                              <Sprout className="w-4 h-4" />
+                              <span>✓ Bắt Đầu Thu Hoạch & Đóng Gói (Tiến Mốc 2)</span>
+                            </button>
+                          );
                         }
-                      }, 2500);
-                    }}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs"
-                    title="Tự động nhảy từ mốc 1 đến mốc 6 sau mỗi 2.5 giây"
-                  >
-                    <span>▶ Mô Phỏng Tự Động</span>
-                  </button>
+                        return (
+                          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                            <span>Đang chờ Thương Lái nộp cọc 30% Escrow tại Cổng Buyer...</span>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFulfillmentStep(1);
-                      try {
-                        updateContractFulfillmentStep(selectedContractId, 1);
-                      } catch (err) {
-                        console.warn('Lỗi reset mốc:', err);
-                      }
-                      setHoursRemaining(48);
-                    }}
-                    className="p-1.5 bg-white hover:bg-gray-100 border border-gray-300 text-gray-600 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-95"
-                    title="Đặt lại về Bước 1 (Mới chốt đơn)"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
+                  {fulfillmentStep === 2 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFulfillmentStep(3);
+                        updateContractFulfillmentStep(selectedContractId, 3);
+                      }}
+                      className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>✓ Bàn Giao Xe Lạnh Chuyên Dụng (Tiến Mốc 3)</span>
+                    </button>
+                  )}
+
+                  {fulfillmentStep === 3 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFulfillmentStep(4);
+                        updateContractFulfillmentStep(selectedContractId, 4);
+                      }}
+                      className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                    >
+                      <MapPin className="w-4 h-4" />
+                      <span>✓ Xe Lạnh Đã Đến Kho Nhận Hàng (Tiến Mốc 4)</span>
+                    </button>
+                  )}
+
+                  {fulfillmentStep === 4 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                        <span>Chờ Buyer ký ePOD tại /portal/buyer (Tự động chuyển Mốc 5 khi ký)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          autoCompleteContractAfterTimeout(selectedContractId);
+                          setFulfillmentStep(6);
+                          setAutoCompleteType('AUTO_48H');
+                        }}
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                        title="Kích hoạt tự động hoàn tất sau 48h nếu Buyer không ký hoặc quên bấm"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>⚡ Quá Hạn 48h (Tự Động Ký ePOD & Giải Ngân)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {fulfillmentStep === 5 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Buyer đã ký nghiệm thu ePOD thành công! Chờ thanh toán 70% còn lại</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFulfillmentStep(6);
+                          updateContractFulfillmentStep(selectedContractId, 6);
+                        }}
+                        className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                      >
+                        <Award className="w-4 h-4" />
+                        <span>✓ Xác Nhận Quyết Toán Tiền Về Ví (Hoàn Tất Đơn Mốc 6)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {fulfillmentStep === 6 && (
+                    <div className="px-3.5 py-1.5 bg-emerald-100 border border-emerald-300 text-[#10542C] rounded-xl text-xs font-black flex items-center gap-1.5 shadow-2xs">
+                      <Award className="w-4 h-4 text-emerald-700" />
+                      <span>Đơn Hoàn Tất • Quyết Toán Thành Công (Tiền Đã Về STK)</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
