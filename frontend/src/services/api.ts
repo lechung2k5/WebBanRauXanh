@@ -817,15 +817,25 @@ export type BuyerRfq = {
   id: number;
   rfqCode: string;
   status: string;
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   productName?: string;
   harvestLotId?: number;
+  lotCode?: string;
+  buyerName?: string;
+  buyerPhone?: string;
+  buyerCompany?: string;
   quantityKg: number;
   requestedQuantityKg?: number;
   proposedPricePerKg: number;
   counterPricePerKg?: number | null;
+  counterQuantityKg?: number | null;
   deliveryDate: string;
   deliveryLocation?: string;
+  shippingOption?: string;
+  notes?: string;
   createdAt?: string;
+  updatedAt?: string;
 };
 
 export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {

@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 public class RfqRespondRequest {
 
     @NotBlank(message = "Hành động đàm phán không được để trống (ACCEPT, COUNTER, REJECT)")
-    private String action; // ACCEPT, COUNTER, REJECT
+    private String action; // ACCEPT, COUNTER, REJECT khi WAITING_FARMER
 
     private BigDecimal counterPrice; // Đơn giá nếu COUNTER
 

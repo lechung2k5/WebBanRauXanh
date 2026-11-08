@@ -173,7 +173,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 11500,
     deliveryDate: '2026-10-28',
     hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T07:15:00',
   },
   {
@@ -189,7 +189,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 18500,
     deliveryDate: '2026-10-29',
     hubLocation: 'Trạm Lạnh Đơn Dương',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T08:00:00',
   },
   {
@@ -606,7 +606,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
           item.deliveryLocation ||
           item.hubLocation ||
           'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-        status: item.status || 'PENDING',
+        status: item.status || 'WAITING_FARMER',
         createdAt: item.createdAt || new Date().toISOString(),
       });
     }
@@ -622,7 +622,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
 export interface RfqStatusOverride {
   id?: number;
   rfqCode?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   counterPrice?: number;
   counterQuantity?: number;
   rejectReason?: string;
@@ -641,7 +641,7 @@ export const getLocalRfqOverrides = (): Record<string, RfqStatusOverride> => {
 
 export const saveLocalRfqOverride = (
   rfqKey: string | number,
-  override: Partial<RfqStatusOverride> & { status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER' }
+  override: Partial<RfqStatusOverride> & { status: RfqStatusOverride['status'] }
 ) => {
   if (typeof window === 'undefined') return;
   try {
@@ -805,7 +805,7 @@ export const respondToRfqApi = async (
       ? 'ACCEPTED'
       : actionData.action === 'REJECT'
       ? 'REJECTED'
-      : 'PENDING';
+      : 'WAITING_BUYER';
 
   // Lưu trạng thái vào storage
   saveLocalRfqUpdate({

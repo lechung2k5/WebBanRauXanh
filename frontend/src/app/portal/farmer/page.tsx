@@ -100,6 +100,7 @@ import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncServ
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 import Pagination from '@/components/Pagination';
+import { getRfqStatusMeta, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
 
 const FARMER_LOTS_PAGE_SIZE = 10;
 
@@ -755,7 +756,7 @@ function FarmerPortalContent() {
       saveLocalRfqUpdate({
         id: counterModalRfq.id,
         rfqCode: counterModalRfq.rfqCode,
-        status: 'COUNTER_OFFER',
+        status: 'WAITING_BUYER',
         counterPrice: Number(counterPrice),
         counterQuantity: Number(counterQty),
       });
@@ -1043,7 +1044,7 @@ function FarmerPortalContent() {
               <MessageSquare className="w-4 h-4" />
               <span>Đàm Phán RFQ ({rfqs.length})</span>
             </div>
-            {rfqs.filter((r) => r.status === 'PENDING').length > 0 && (
+            {rfqs.filter((r) => isRfqWaitingForFarmer(r.status)).length > 0 && (
               <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
                 Mới
               </span>
@@ -1369,28 +1370,8 @@ function FarmerPortalContent() {
                               </p>
                             </div>
                           </div>
-                          <span
-                            className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${
-                              rfq.status === 'ACCEPTED'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : rfq.status === 'PENDING'
-                                ? 'bg-amber-100 text-amber-800 animate-pulse'
-                                : rfq.status === 'COUNTER_OFFER'
-                                ? 'bg-sky-100 text-sky-800'
-                                : rfq.status === 'REJECTED'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {rfq.status === 'ACCEPTED'
-                              ? '✓ ĐÃ CHẤP THUẬN (HỢP ĐỒNG KHỞI TẠO)'
-                              : rfq.status === 'PENDING'
-                              ? 'ĐANG CHỜ BÀ CON PHẢN HỒI'
-                              : rfq.status === 'COUNTER_OFFER'
-                              ? 'ĐÃ GỬI ĐỀ XUẤT GIÁ MỚI (CHỜ BUYER)'
-                              : rfq.status === 'REJECTED'
-                              ? 'ĐÃ TỪ CHỐI'
-                              : rfq.status}
+                          <span className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${getRfqStatusMeta(rfq.status, 'FARMER').className}`}>
+                            {getRfqStatusMeta(rfq.status, 'FARMER').label}
                           </span>
                         </div>
 
@@ -1459,7 +1440,7 @@ function FarmerPortalContent() {
                         )}
 
                         {/* Actions */}
-                        {rfq.status === 'PENDING' && (
+                        {isRfqWaitingForFarmer(rfq.status) && (
                           <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                             <button type="button"
                               onClick={() => setRejectModalRfq(rfq)}

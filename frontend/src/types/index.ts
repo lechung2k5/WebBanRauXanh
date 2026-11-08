@@ -186,7 +186,9 @@ export interface B2BRFQNegotiation {
   deliveryDate: string;
   shippingOption: 'farm_pickup' | 'farm_delivery' | 'cold_storage_truck';
   notes?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   createdAt: string;
 }
 
@@ -342,7 +344,9 @@ export interface RfqItem {
   rejectReason?: string;
   deliveryDate: string;
   hubLocation: string;
-  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   createdAt: string;
 }
 

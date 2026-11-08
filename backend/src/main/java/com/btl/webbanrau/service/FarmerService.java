@@ -60,7 +60,7 @@ public class FarmerService {
         BigDecimal escrowHolding = b2bContractRepository.sumEscrowDepositHolding(farmer);
         long openLotsCount = harvestLotRepository.countByFarmerAndStatus(farmer, "OPEN");
         long runningContracts = b2bContractRepository.countActiveContractsByFarmer(farmer);
-        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, "PENDING");
+        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, RfqStatus.WAITING_FARMER);
 
         return FarmerStatsResponse.builder()
                 .totalRevenue(totalRevenue != null ? totalRevenue : BigDecimal.ZERO)
@@ -210,8 +210,12 @@ public class FarmerService {
         }
 
         String action = request.getAction().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
+        if (!RfqStatus.isFarmerTurn(currentStatus)) {
+            throw new IllegalArgumentException("RFQ hiện chưa đến lượt người bán phản hồi.");
+        }
         if ("ACCEPT".equals(action)) {
-            rfq.setStatus("ACCEPTED");
+            rfq.setStatus(RfqStatus.ACCEPTED);
             HarvestLot lot = rfq.getHarvestLot();
             lot.setStatus("NEGOTIATING");
             harvestLotRepository.save(lot);
@@ -244,11 +248,11 @@ public class FarmerService {
             log.info("Auto created B2B Contract: {} for RFQ: {}", contractCode, rfq.getRfqCode());
 
         } else if ("COUNTER".equals(action)) {
-            rfq.setStatus("COUNTER_OFFER");
+            rfq.setStatus(RfqStatus.WAITING_BUYER);
             if (request.getCounterPrice() != null) rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
         } else if ("REJECT".equals(action)) {
-            rfq.setStatus("REJECTED");
+            rfq.setStatus(RfqStatus.REJECTED);
             if (request.getRejectReason() != null) rfq.setRejectReason(request.getRejectReason());
         } else {
             throw new IllegalArgumentException("Hành động không hợp lệ: " + action);
@@ -724,7 +728,7 @@ public class FarmerService {
                 .targetPrice(request.getTargetPrice())
                 .deliveryDate(request.getDeliveryDate() != null ? request.getDeliveryDate() : LocalDate.now().plusDays(3))
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM")
-                .status("PENDING")
+                .status(RfqStatus.WAITING_FARMER)
                 .build();
 
         boolean isDepositPaid = Boolean.TRUE.equals(request.getIsDepositPaid());
@@ -1099,6 +1103,8 @@ public class FarmerService {
                 .deliveryDate(rfq.getDeliveryDate())
                 .hubLocation(rfq.getHubLocation())
                 .status(rfq.getStatus())
+                .statusLabel(RfqStatus.label(rfq.getStatus()))
+                .nextActor(RfqStatus.nextActor(rfq.getStatus()))
                 .createdAt(rfq.getCreatedAt())
                 .build();
     }

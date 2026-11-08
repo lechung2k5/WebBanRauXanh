@@ -14,6 +14,7 @@ import com.btl.webbanrau.model.BuyerProfile;
 import com.btl.webbanrau.model.BuyerWarehouse;
 import com.btl.webbanrau.model.HarvestLot;
 import com.btl.webbanrau.model.RfqNegotiation;
+import com.btl.webbanrau.model.RfqStatus;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.BuyerProfileRepository;
 import com.btl.webbanrau.repository.BuyerWarehouseRepository;
@@ -164,7 +165,7 @@ public class BuyerWorkflowService {
                 .hubLocation(request.getDeliveryLocation().trim())
                 .shippingOption(request.getShippingOption())
                 .notes(request.getNotes())
-                .status("PENDING")
+                .status(RfqStatus.WAITING_FARMER)
                 .build();
         return rfqView(rfqs.save(rfq));
     }
@@ -184,23 +185,30 @@ public class BuyerWorkflowService {
             throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền với RFQ này.");
         }
         String action = request.getAction().trim().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
         if ("COUNTER".equals(action)) {
+            if (!RfqStatus.isBuyerTurn(currentStatus)) {
+                throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua phản hồi.");
+            }
             if (request.getCounterPrice() == null || request.getCounterPrice().signum() <= 0) {
                 throw new AuthException(400, "COUNTER_PRICE_REQUIRED", "Counter-offer phải có giá hợp lệ.");
             }
             rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
-            rfq.setStatus("COUNTER_OFFER");
+            rfq.setStatus(RfqStatus.WAITING_FARMER);
             return rfqView(rfqs.save(rfq));
         }
         if ("REJECT".equals(action)) {
+            if (!RfqStatus.isBuyerTurn(currentStatus)) {
+                throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua phản hồi.");
+            }
             rfq.setRejectReason(request.getRejectReason());
-            rfq.setStatus("REJECTED");
+            rfq.setStatus(RfqStatus.REJECTED);
             return rfqView(rfqs.save(rfq));
         }
         if (!"ACCEPT".equals(action)) throw new AuthException(400, "INVALID_RFQ_ACTION", "Chỉ hỗ trợ ACCEPT, COUNTER hoặc REJECT.");
-        if (!"PENDING".equals(rfq.getStatus()) && !"COUNTER_OFFER".equals(rfq.getStatus())) {
-            throw new AuthException(400, "RFQ_NOT_ACTIONABLE", "RFQ hiện không còn chờ xử lý.");
+        if (!RfqStatus.isBuyerTurn(currentStatus)) {
+            throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua chấp nhận.");
         }
 
         BigDecimal price = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
@@ -214,7 +222,7 @@ public class BuyerWorkflowService {
         ObjectNode transition = objectMapper.createObjectNode().put("status", "AGREED");
         business.transition(contractId, transition);
         db.update("UPDATE b2b_contracts SET rfq_id=? WHERE id=?", rfq.getId(), contractId);
-        rfq.setStatus("ACCEPTED");
+        rfq.setStatus(RfqStatus.ACCEPTED);
         rfq.setTargetPrice(price);
         return rfqView(rfqs.save(rfq));
     }
@@ -386,16 +394,25 @@ public class BuyerWorkflowService {
         result.put("id", rfq.getId());
         result.put("rfqCode", rfq.getRfqCode());
         result.put("status", rfq.getStatus());
+        result.put("statusLabel", RfqStatus.label(rfq.getStatus()));
+        result.put("nextActor", RfqStatus.nextActor(rfq.getStatus()));
         result.put("productName", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getProductName());
         result.put("harvestLotId", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getId());
+        result.put("lotCode", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getLotCode());
+        result.put("buyerName", rfq.getBuyerName());
+        result.put("buyerPhone", rfq.getBuyerPhone());
         result.put("buyerCompany", rfq.getBuyerCompany());
         result.put("quantityKg", rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity());
         result.put("requestedQuantityKg", rfq.getRequestedQuantity());
         result.put("proposedPricePerKg", rfq.getTargetPrice());
         result.put("counterPricePerKg", rfq.getCounterPrice());
+        result.put("counterQuantityKg", rfq.getCounterQuantity());
         result.put("deliveryDate", rfq.getDeliveryDate());
         result.put("deliveryLocation", rfq.getHubLocation());
+        result.put("shippingOption", rfq.getShippingOption());
+        result.put("notes", rfq.getNotes());
         result.put("createdAt", rfq.getCreatedAt());
+        result.put("updatedAt", rfq.getUpdatedAt());
         return result;
     }
 
