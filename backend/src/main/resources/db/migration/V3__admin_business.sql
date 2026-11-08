@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS shipments (
 CREATE TABLE IF NOT EXISTS iot_sensor_logs (
  id BIGSERIAL PRIMARY KEY, asset_id BIGINT NOT NULL REFERENCES cold_assets(id), temperature NUMERIC(5,2) NOT NULL, humidity NUMERIC(5,2) NOT NULL,
  is_alert BOOLEAN NOT NULL DEFAULT FALSE, alert_message TEXT, simulated BOOLEAN NOT NULL DEFAULT TRUE, recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);
+-- Compatible with databases created by the earlier farmer portal schema.
+-- Keep the old contract_id/alert columns and add the admin-business columns when missing.
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS asset_id BIGINT;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS is_alert BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS alert_message TEXT;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS simulated BOOLEAN NOT NULL DEFAULT TRUE;
+UPDATE iot_sensor_logs SET is_alert = alert WHERE alert IS NOT NULL AND is_alert = FALSE;
 CREATE INDEX IF NOT EXISTS iot_asset_recorded ON iot_sensor_logs(asset_id,recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS spoilage_claims (

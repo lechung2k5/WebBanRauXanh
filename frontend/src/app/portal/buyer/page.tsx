@@ -8,28 +8,41 @@ import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import BuyerAddressesPanel from '@/components/BuyerAddressesPanel';
+import BuyerProfilePanel from '@/components/BuyerProfilePanel';
+import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import {
   getProducts,
   getStoredUser,
-  getBuyerContractsApi,
+  getBuyerB2bContractsApi,
   getBuyerTelemetryApi,
   getBuyerQcReportApi,
   getBuyerRfqsApi,
+  getBuyerRfqHistoryApi,
+  respondBuyerRfqApi,
   getBuyerInvoiceUrl,
+  getBuyerReviewsApi,
+  submitBuyerReviewApi,
 } from '@/services/api';
 import {
   getSyncRfqs,
   getSyncContracts,
   buyerAcceptCounterRfq,
+  buyerCounterRfq,
   buyerPayDeposit,
   updateContractFulfillmentStep,
   buyerSignEpod,
   buyerPayFinalSettlement,
+  replaceSyncContracts,
+  mergeSyncRfqs,
   subscribeB2bSyncEvents,
   type B2bSyncRfq,
   type B2bSyncContract,
 } from '@/services/b2bSyncService';
+import { getRfqStatusMeta, isRfqExpiredAt, isRfqWaitingForBuyer, isRfqWaitingForFarmer, normalizeRfqStatus } from '@/utils/rfqStatus';
+import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
+import B2BNotificationBell from '@/components/B2BNotificationBell';
+import RfqCountdown from '@/components/RfqCountdown';
 import {
   Search,
   LayoutDashboard,
@@ -46,6 +59,7 @@ import {
   Upload,
   Download,
   MessageSquareQuote,
+  UserRound,
   Send,
   Check,
   MapPin,
@@ -54,6 +68,7 @@ import {
   Clock,
   ChevronRight,
   Sparkles,
+  Star,
 } from 'lucide-react';
 
 export default function BuyerPortalPage() {
@@ -62,11 +77,14 @@ export default function BuyerPortalPage() {
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('ALL');
   const [loading, setLoading] = useState(true);
+  const [lotsPage, setLotsPage] = useState(1);
+  const [lotsTotal, setLotsTotal] = useState(0);
+  const [lotsTotalPages, setLotsTotalPages] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // Tab điều hướng
   const [activeSection, setActiveSection] = useState<
-    'lots' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
+    'lots' | 'reviews' | 'profile' | 'addresses' | 'negotiation' | 'escrow' | 'telemetry' | 'qc' | 'epod' | 'invoices'
   >('lots');
 
   // Dữ liệu đồng bộ Realtime B2B
@@ -75,6 +93,7 @@ export default function BuyerPortalPage() {
   const [selectedRfqCode, setSelectedRfqCode] = useState<string>('');
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [rfqCount, setRfqCount] = useState(0);
+  const [rfqHistory, setRfqHistory] = useState<RfqHistoryEvent[]>([]);
 
   // State hỗ trợ nghiệp vụ
   const [workflowMessage, setWorkflowMessage] = useState('');
@@ -84,6 +103,10 @@ export default function BuyerPortalPage() {
   const signatureRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [qcReports, setQcReports] = useState<Array<Record<string, unknown>>>([]);
+  const [reviewStars, setReviewStars] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
 
   // Telemetry IoT
   const [telemetry, setTelemetry] = useState({ temperature: 3.8, humidity: 82, updatedAt: '' });
@@ -120,11 +143,88 @@ export default function BuyerPortalPage() {
       refreshSyncData();
     });
 
-    // Thử fetch API backend song song (nếu backend đang chạy)
-    getBuyerRfqsApi().catch(() => {});
-    getBuyerContractsApi().catch(() => {});
+    // Đồng bộ RFQ thật từ backend vào lớp đồng bộ hai chiều.
+    let active = true;
+    getBuyerRfqsApi().then((serverRfqs) => {
+      if (!active || serverRfqs.length === 0) return;
+      mergeSyncRfqs(serverRfqs.map((rfq) => ({
+        id: rfq.id,
+        rfqCode: rfq.rfqCode,
+        harvestLotId: rfq.harvestLotId || 0,
+        lotCode: rfq.lotCode || `LOT-${rfq.harvestLotId || rfq.id}`,
+        productName: rfq.productName || 'Nông sản',
+        buyerName: rfq.buyerName || user.fullName,
+        buyerPhone: rfq.buyerPhone || user.phone || '',
+        buyerCompany: rfq.buyerCompany || user.companyName || '',
+        requestedQuantityKg: rfq.requestedQuantityKg || rfq.quantityKg || 0,
+        targetPricePerKg: rfq.proposedPricePerKg || 0,
+        counterPricePerKg: rfq.counterPricePerKg || undefined,
+        desiredDeliveryDate: rfq.deliveryDate,
+        deliveryLocation: rfq.deliveryLocation || '',
+        shippingOption: rfq.shippingOption || 'cold_storage_truck',
+        notes: rfq.notes,
+        status: rfq.status as B2bSyncRfq['status'],
+        createdAt: rfq.createdAt || new Date().toISOString(),
+        updatedAt: rfq.updatedAt || rfq.createdAt || new Date().toISOString(),
+        expiresAt: rfq.expiresAt,
+        contractId: rfq.contractId,
+        contractCode: rfq.contractCode,
+        depositStatus: rfq.depositStatus,
+        depositAmount: rfq.depositAmount,
+      })));
+      refreshSyncData();
+    }).catch(() => {});
+    getBuyerB2bContractsApi().then((serverContracts) => {
+      const syncedContracts = serverContracts.map((contract): B2bSyncContract => {
+        const fulfillmentStep: B2bSyncContract['fulfillmentStep'] =
+          contract.fulfillmentStatus === 'WAITING_HARVEST' ? 1 :
+          contract.fulfillmentStatus === 'HARVESTING' ? 2 :
+          contract.fulfillmentStatus === 'HUB_DELIVERED' ? 3 :
+          contract.fulfillmentStatus === 'IN_TRANSIT' ? 4 : 6;
+        return {
+          id: contract.id,
+          contractCode: contract.contractCode,
+          rfqCode: contract.rfqCode,
+          lotId: contract.harvestLotId,
+          lotCode: contract.lotCode,
+          productName: contract.productName,
+          buyerName: contract.buyerName,
+          buyerPhone: contract.buyerPhone,
+          buyerCompany: user.companyName || '',
+          farmerName: contract.farmName || '',
+          farmerPhone: contract.farmerPhone || '',
+          farmerCompany: '',
+          quantityKg: contract.quantity,
+          agreedPricePerKg: contract.unitPrice,
+          totalAmount: contract.totalAmount,
+          depositAmount: contract.depositAmount,
+          remainingAmount: contract.remainingAmount || Math.max(0, contract.totalAmount - contract.depositAmount),
+          depositStatus: contract.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+          depositPaidAt: undefined,
+          fulfillmentStep,
+          fulfillmentStatusName: contract.fulfillmentStatus,
+          truckLicensePlate: '',
+          truckDriverName: '',
+          truckDriverPhone: '',
+          truckTempCurrent: 4,
+          deliveryAddress: contract.hubName,
+          deliveryTimeSlot: '',
+          finalPaidStatus: fulfillmentStep === 6 ? 'PAID' : 'UNPAID',
+          createdAt: contract.createdAt,
+        };
+      });
+      replaceSyncContracts(syncedContracts);
+      if (active) refreshSyncData();
+    }).catch(() => {
+      // Không dùng dữ liệu mẫu để giả lập Buyer khi API không truy cập được.
+      if (active) {
+        replaceSyncContracts([]);
+        refreshSyncData();
+      }
+    });
 
     return () => {
+      active = false;
       unsubscribe();
     };
   }, [router]);
@@ -138,6 +238,18 @@ export default function BuyerPortalPage() {
   const currentRfq = useMemo(() => {
     return syncRfqs.find((r) => r.rfqCode === selectedRfqCode) || syncRfqs[0] || null;
   }, [syncRfqs, selectedRfqCode]);
+  const currentRfqStatus = currentRfq ? normalizeRfqStatus(currentRfq.status) : '';
+  const currentRfqExpired = currentRfq ? isRfqExpiredAt(currentRfq.expiresAt, currentRfq.createdAt, currentRfqStatus) : false;
+
+  useEffect(() => {
+    if (!currentRfq?.id) {
+      setRfqHistory([]);
+      return;
+    }
+    getBuyerRfqHistoryApi(currentRfq.id)
+      .then((events) => setRfqHistory(events as unknown as RfqHistoryEvent[]))
+      .catch(() => setRfqHistory([]));
+  }, [currentRfq?.id]);
 
   // Đồng bộ khối lượng thực nhận khi chuyển hợp đồng
   useEffect(() => {
@@ -153,6 +265,33 @@ export default function BuyerPortalPage() {
     }
   }, [activeContract]);
 
+  useEffect(() => {
+    if (!activeContract?.id) return;
+    getBuyerReviewsApi(activeContract.id).then((reviews) => {
+      const mine = reviews.find((review) => review.reviewerRole === 'BUYER');
+      if (mine) {
+        setReviewStars(mine.rating);
+        setReviewComment(mine.comment || '');
+      }
+    }).catch(() => {
+      // Hợp đồng demo/local có thể chưa tồn tại trên backend.
+    });
+  }, [activeContract?.id]);
+
+  const handleSubmitBuyerReview = async () => {
+    if (!activeContract) return;
+    setReviewLoading(true);
+    setReviewMessage('');
+    try {
+      await submitBuyerReviewApi(activeContract.id, { rating: reviewStars, comment: reviewComment });
+      setReviewMessage('Đã lưu đánh giá giao dịch thành công. Bạn có thể cập nhật lại bất cứ lúc nào.');
+    } catch (error) {
+      setReviewMessage(error instanceof Error ? error.message : 'Không thể lưu đánh giá giao dịch.');
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   // Load danh sách sản phẩm nông sản sỉ
   useEffect(() => {
     const loadLots = async () => {
@@ -162,9 +301,12 @@ export default function BuyerPortalPage() {
           keyword: keyword || undefined,
           categorySlug: category === 'ALL' ? undefined : category,
           status: 'OPEN',
-          size: 24,
+          page: lotsPage,
+          size: 10,
         });
         setProducts(result.products || []);
+        setLotsTotal(result.totalElements || 0);
+        setLotsTotalPages(Math.max(1, result.totalPages || 1));
       } catch {
         setProducts([]);
       } finally {
@@ -172,7 +314,7 @@ export default function BuyerPortalPage() {
       }
     };
     loadLots();
-  }, [keyword, category]);
+  }, [keyword, category, lotsPage]);
 
   // Cập nhật telemetry giả lập định kỳ
   useEffect(() => {
@@ -210,6 +352,7 @@ export default function BuyerPortalPage() {
   // 1. Nghiệp vụ: Chấp nhận giá phản hồi từ Nông Dân
   const handleBuyerAcceptRfq = (rfq: B2bSyncRfq) => {
     try {
+      void respondBuyerRfqApi(rfq.id, { action: 'ACCEPT' }).catch(() => {});
       const { newContract } = buyerAcceptCounterRfq(rfq.id);
       setSelectedContractId(newContract.id);
       refreshSyncData();
@@ -219,6 +362,24 @@ export default function BuyerPortalPage() {
       setActiveSection('escrow');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Lỗi khi chấp nhận đề xuất');
+    }
+  };
+
+  const handleBuyerCounterRfq = async (rfq: B2bSyncRfq) => {
+    const suggestedPrice = rfq.counterPricePerKg || rfq.targetPricePerKg;
+    const newOffer = prompt('Nhập giá đề xuất mới gửi lại người bán (đ/kg):', String(suggestedPrice));
+    if (!newOffer || Number(newOffer) <= 0) return;
+    try {
+      await respondBuyerRfqApi(rfq.id, { action: 'COUNTER', counterPrice: Number(newOffer) });
+    } catch (_) {
+      // Dữ liệu demo/local vẫn được đồng bộ nếu backend chưa có RFQ tương ứng.
+    }
+    try {
+      buyerCounterRfq(rfq.id, Number(newOffer));
+      refreshSyncData();
+      setNegotiationMessage('Đã gửi đề xuất mới. Hiện đang chờ người bán phản hồi.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể gửi đề xuất mới');
     }
   };
 
@@ -302,6 +463,7 @@ export default function BuyerPortalPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <B2BNotificationBell audience="BUYER" tone="light" />
             <span className="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 font-bold border border-sky-200">
               {syncRfqs.length} RFQ
             </span>
@@ -364,6 +526,24 @@ export default function BuyerPortalPage() {
                 }`}
               >
                 <MapPin className="w-4 h-4 text-sky-300" /> Địa chỉ nhận hàng
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSection('reviews')}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
+                  activeSection === 'reviews' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                }`}
+              >
+                <Star className="w-4 h-4 text-amber-300" /> Đánh giá giao dịch B2B
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSection('profile')}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-medium transition-all ${
+                  activeSection === 'profile' ? 'bg-white/20 font-bold text-white shadow-xs' : 'text-blue-100 hover:bg-white/10'
+                }`}
+              >
+                <UserRound className="w-4 h-4 text-violet-300" /> Trang cá nhân
               </button>
               <button
                 type="button"
@@ -455,6 +635,59 @@ export default function BuyerPortalPage() {
 
           {/* Nội dung chi tiết các Section */}
           <section className="flex-1 min-w-0 space-y-6">
+            {activeSection === 'reviews' && (
+              <div className="bg-white rounded-3xl border border-amber-100 shadow-sm p-6 space-y-4">
+                <div>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wider">POST-TRADE FEEDBACK</p>
+                  <h2 className="font-heading text-xl font-black text-[#0C4A6E] mt-1">Đánh giá giao dịch B2B</h2>
+                  <p className="text-sm text-slate-500 mt-1">Đánh giá sau khi hợp đồng đã giao hàng hoặc quyết toán. Đánh giá được lưu theo từng hợp đồng.</p>
+                </div>
+                {syncContracts.length === 0 ? (
+                  <p className="p-4 rounded-2xl bg-slate-50 text-sm text-slate-500">Chưa có hợp đồng B2B để đánh giá.</p>
+                ) : (
+                  <>
+                    <select
+                      value={activeContract?.id || ''}
+                      onChange={(event) => setSelectedContractId(Number(event.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"
+                    >
+                      {syncContracts.map((contract) => (
+                        <option key={contract.id} value={contract.id}>{contract.contractCode} · {contract.productName}</option>
+                      ))}
+                    </select>
+                    {activeContract && activeContract.fulfillmentStep < 6 && activeContract.finalPaidStatus !== 'PAID' ? (
+                      <p className="p-4 rounded-2xl bg-amber-50 border border-amber-100 text-sm text-amber-800">Hợp đồng này chưa hoàn tất. Bạn có thể đánh giá sau khi ký nhận và quyết toán.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button key={star} type="button" onClick={() => setReviewStars(star)} className="p-1 hover:scale-110 transition-transform" aria-label={`Chọn ${star} sao`}>
+                              <Star className={`w-7 h-7 ${star <= reviewStars ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                            </button>
+                          ))}
+                          <span className="text-sm font-bold text-slate-500 ml-2">{reviewStars}/5 sao</span>
+                        </div>
+                        <textarea
+                          value={reviewComment}
+                          onChange={(event) => setReviewComment(event.target.value)}
+                          maxLength={2000}
+                          rows={3}
+                          placeholder="Chia sẻ cảm nhận về chất lượng lô hàng và phối hợp giao nhận..."
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-amber-400"
+                        />
+                        <div className="flex items-center justify-between gap-3">
+                          <p className={`text-sm ${reviewMessage.includes('thành công') ? 'text-emerald-700' : 'text-slate-500'}`}>{reviewMessage}</p>
+                          <button type="button" onClick={handleSubmitBuyerReview} disabled={reviewLoading} className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm disabled:opacity-50">
+                            {reviewLoading ? 'Đang lưu...' : 'Lưu đánh giá'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {activeSection === 'profile' && <BuyerProfilePanel />}
             {activeSection === 'addresses' && <BuyerAddressesPanel />}
 
             {/* Header Tổng Quan */}
@@ -498,14 +731,14 @@ export default function BuyerPortalPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       value={keyword}
-                      onChange={(e) => setKeyword(e.target.value)}
+                      onChange={(e) => { setKeyword(e.target.value); setLotsPage(1); }}
                       placeholder="Tìm tên nông sản, HTX, mã lô VietGAP..."
                       className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-sky-500"
                     />
                   </div>
                   <select
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => { setCategory(e.target.value); setLotsPage(1); }}
                     className="sm:w-44 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700"
                   >
                     <option value="ALL">Tất cả ngành hàng</option>
@@ -518,6 +751,7 @@ export default function BuyerPortalPage() {
                     onClick={() => {
                       setKeyword('');
                       setCategory('ALL');
+                      setLotsPage(1);
                     }}
                     className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-colors"
                   >
@@ -535,13 +769,16 @@ export default function BuyerPortalPage() {
                     Không tìm thấy lô nông sản phù hợp với tiêu chí tìm kiếm.
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {products.map((product) => (
-                      <div key={product.id} className="relative">
-                        <ProductCard product={product} onNegotiate={setSelectedProduct} />
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="grid lg:grid-cols-2 gap-5" id="buyer-lots-grid">
+                      {products.map((product) => (
+                        <div key={product.id} className="relative">
+                          <ProductCard product={product} layout="grid" onNegotiate={setSelectedProduct} />
+                        </div>
+                      ))}
+                    </div>
+                    <Pagination currentPage={lotsPage} totalPages={lotsTotalPages} totalItems={lotsTotal} pageSize={10} onPageChange={setLotsPage} scrollTargetId="buyer-lots-grid" />
+                  </>
                 )}
               </div>
             )}
@@ -578,6 +815,7 @@ export default function BuyerPortalPage() {
                     </p>
                     {syncRfqs.map((item) => {
                       const isSelected = (currentRfq?.rfqCode || '') === item.rfqCode;
+                      const statusMeta = getRfqStatusMeta(isRfqExpiredAt(item.expiresAt, item.createdAt, item.status) ? 'EXPIRED' : item.status, 'BUYER');
                       return (
                         <button
                           type="button"
@@ -601,23 +839,9 @@ export default function BuyerPortalPage() {
                           <p className="text-[11px] text-slate-500 mt-0.5">Lô: {item.lotCode}</p>
                           <div className="mt-2.5 flex items-center justify-between gap-2">
                             <span
-                              className={`text-[10px] px-2.5 py-1 rounded-full font-bold ${
-                                item.status === 'COUNTER_OFFER'
-                                  ? 'bg-amber-100 text-amber-800 animate-pulse'
-                                  : item.status === 'ACCEPTED'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : item.status === 'REJECTED'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
+                              className={`text-[10px] px-2.5 py-1 rounded-full font-bold ${statusMeta.className} ${statusMeta.nextActor ? 'animate-pulse' : ''}`}
                             >
-                              {item.status === 'COUNTER_OFFER'
-                                ? 'HTX phản hồi giá'
-                                : item.status === 'ACCEPTED'
-                                ? 'Đã tạo HĐ B2B'
-                                : item.status === 'REJECTED'
-                                ? 'Bị từ chối'
-                                : 'Chờ HTX xem xét'}
+                              {statusMeta.label}
                             </span>
                             <span className="text-[11px] font-black text-slate-700">
                               {item.requestedQuantityKg.toLocaleString('vi-VN')} kg
@@ -662,8 +886,14 @@ export default function BuyerPortalPage() {
                               đ/kg
                             </span>
                           </div>
+                          <div className="mt-2"><RfqCountdown expiresAt={currentRfq.expiresAt} createdAt={currentRfq.createdAt} /></div>
                         </div>
                       </div>
+
+                      <details className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-slate-50/60">
+                        <summary className="cursor-pointer px-4 py-3 text-xs font-bold text-slate-700">Xem lịch sử phiên bản giá và phản hồi</summary>
+                        <div className="px-4 pb-4"><RfqHistoryTimeline events={rfqHistory} /></div>
+                      </details>
 
                       {/* Khung tin nhắn đàm phán */}
                       <div className="flex-1 p-6 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/20 to-white">
@@ -688,7 +918,7 @@ export default function BuyerPortalPage() {
                         </div>
 
                         {/* Phản hồi từ Farmer/HTX */}
-                        {currentRfq.status === 'COUNTER_OFFER' && (
+                        {isRfqWaitingForBuyer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex justify-start">
                             <div className="max-w-[80%] p-4 rounded-3xl rounded-tl-xs bg-orange-50 border border-orange-200 text-slate-800 shadow-sm space-y-2 text-sm">
                               <div className="flex items-center justify-between gap-3 text-[11px] font-bold text-orange-800 border-b border-orange-200 pb-1">
@@ -712,7 +942,7 @@ export default function BuyerPortalPage() {
                           </div>
                         )}
 
-                        {currentRfq.status === 'ACCEPTED' && (
+                        {currentRfqStatus === 'ACCEPTED' && (
                           <div className="flex justify-center my-4">
                             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center max-w-md shadow-xs">
                               <CheckCircle2 className="w-7 h-7 text-emerald-600 mx-auto mb-1.5" />
@@ -721,13 +951,13 @@ export default function BuyerPortalPage() {
                               </h4>
                               <p className="text-xs text-emerald-700 mt-1">
                                 Hai bên đã thống nhất giá {(currentRfq.counterPricePerKg || currentRfq.targetPricePerKg).toLocaleString('vi-VN')} đ/kg.
-                                Vui lòng tiến hành Ký Quỹ VietQR 30% để tiến hành thu hoạch.
+                                {currentRfq.contractCode ? ` Hợp đồng ${currentRfq.contractCode} đã được tạo.` : ''} Vui lòng tiến hành Ký Quỹ VietQR 30% để tiến hành thu hoạch.
                               </p>
                             </div>
                           </div>
                         )}
 
-                        {currentRfq.status === 'PENDING' && (
+                        {isRfqWaitingForFarmer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex justify-start">
                             <div className="max-w-[80%] p-4 rounded-3xl rounded-tl-xs bg-slate-100 text-slate-700 space-y-1 text-sm">
                               <p className="text-xs font-bold text-slate-500">Hệ Thống HoNa Fresh</p>
@@ -744,7 +974,7 @@ export default function BuyerPortalPage() {
 
                       {/* Footer hành động đàm phán */}
                       <div className="p-4 border-t border-slate-100 bg-slate-50/80">
-                        {currentRfq.status === 'COUNTER_OFFER' && (
+                        {isRfqWaitingForBuyer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="flex flex-col sm:flex-row items-center gap-3">
                             <button
                               type="button"
@@ -756,15 +986,7 @@ export default function BuyerPortalPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                const newOffer = prompt(
-                                  'Nhập giá đề xuất mới gửi lại nông dân (đ/kg):',
-                                  String(currentRfq.counterPricePerKg ? currentRfq.counterPricePerKg - 200 : currentRfq.targetPricePerKg)
-                                );
-                                if (newOffer && Number(newOffer) > 0) {
-                                  alert(`Đã gửi đề xuất mới: ${Number(newOffer).toLocaleString('vi-VN')} đ/kg!`);
-                                }
-                              }}
+                              onClick={() => void handleBuyerCounterRfq(currentRfq)}
                               className="w-full sm:w-auto py-3 px-4 rounded-xl border border-sky-300 bg-white text-sky-800 hover:bg-sky-50 font-bold text-xs transition-colors"
                             >
                               Gửi Counter-Offer Mới
@@ -772,7 +994,7 @@ export default function BuyerPortalPage() {
                           </div>
                         )}
 
-                        {currentRfq.status === 'ACCEPTED' && (
+                        {currentRfqStatus === 'ACCEPTED' && (
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-slate-600 font-medium">
                               Hợp đồng B2B đã tạo. Chuyển sang bước Ký Quỹ Escrow:
@@ -787,7 +1009,7 @@ export default function BuyerPortalPage() {
                           </div>
                         )}
 
-                        {currentRfq.status === 'PENDING' && (
+                        {isRfqWaitingForFarmer(currentRfqStatus) && !currentRfqExpired && (
                           <div className="text-xs text-slate-500 flex items-center gap-2">
                             <Clock className="w-4 h-4 text-amber-500 animate-spin" />
                             Đang chờ phản hồi từ Nông Trại. Dữ liệu sẽ tự động nhảy khi nông dân chấp nhận hoặc gửi counter-offer.

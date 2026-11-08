@@ -1,4 +1,4 @@
-import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest } from '@/types';
+import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest, B2BContract } from '@/types';
 
 import { api, authHeaders } from './auth';
 export { api } from './auth';
@@ -462,8 +462,9 @@ export const getProducts = async (
       products = products.filter(p => p.isOrganic === params.isOrganic);
     }
 
+    const start = page * size;
     return {
-      products,
+      products: products.slice(start, start + size),
       totalElements: products.length,
       totalPages: Math.ceil(products.length / size) || 1,
     };
@@ -529,7 +530,8 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
   try {
     const res = await fetch(`${API_BASE_URL}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-HoNa-Request': '1' },
+      headers: authHeaders({ 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }),
+      credentials: 'include',
       body: JSON.stringify(orderReq),
     });
     const data: ApiResponse<OrderResponse> = await res.json();
@@ -564,6 +566,17 @@ export const getUserOrdersApi = async (userId: number, page = 0, size = 20): Pro
   }
 };
 
+export const getBuyerOrdersApi = async (page = 0, size = 20): Promise<PageResponse<OrderResponse>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/orders?page=${page}&size=${size}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải sản phẩm đã mua');
+  return data.result;
+};
+
 export const getOrderByCode = async (orderCode: string): Promise<OrderResponse | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/orders/code/${encodeURIComponent(orderCode)}`, { cache: 'no-store' });
@@ -576,9 +589,19 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
 };
 
 export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
-  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Access Denied');
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json().catch(() => ({}) as any);
+    throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  }
   const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
   return data.result;
 };
 
@@ -606,21 +629,44 @@ export type BuyerRfq = {
   id: number;
   rfqCode: string;
   status: string;
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
   productName?: string;
   harvestLotId?: number;
+  lotCode?: string;
+  buyerName?: string;
+  buyerPhone?: string;
+  buyerCompany?: string;
   quantityKg: number;
   requestedQuantityKg?: number;
   proposedPricePerKg: number;
   counterPricePerKg?: number | null;
+  counterQuantityKg?: number | null;
   deliveryDate: string;
   deliveryLocation?: string;
+  shippingOption?: string;
+  notes?: string;
   createdAt?: string;
+  updatedAt?: string;
+  expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
 };
 
 export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {
   const res = await fetch(`${API_BASE_URL}/buyer/rfq`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
   const data: ApiResponse<BuyerRfq[]> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách RFQ');
+  return data.result || [];
+};
+
+export const getBuyerRfqHistoryApi = async (id: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}/history`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
   return data.result || [];
 };
 
@@ -637,6 +683,52 @@ export const respondBuyerRfqApi = async (id: number, request: { action: 'ACCEPT'
 };
 
 export type BuyerAddress = { id: number; name: string; address: string; phone?: string; defaultWarehouse: boolean };
+
+export type BuyerProfile = {
+  userId: number;
+  username: string;
+  email: string;
+  fullName: string;
+  phone?: string;
+  address?: string;
+  companyName?: string;
+  taxCode?: string;
+  contactName?: string;
+  contactPhone?: string;
+  warehouseAddress?: string;
+  kycStatus?: string;
+  emailVerified?: boolean;
+};
+
+export type BuyerProfileUpdate = {
+  companyName: string;
+  fullName: string;
+  taxCode?: string;
+  contactName?: string;
+  phone?: string;
+  address?: string;
+  warehouseAddress?: string;
+  contactPhone?: string;
+};
+
+export const getBuyerProfileApi = async (): Promise<BuyerProfile> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/profile`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<BuyerProfile> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải hồ sơ Buyer');
+  return data.result;
+};
+
+export const updateBuyerProfileApi = async (request: BuyerProfileUpdate): Promise<BuyerProfile> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<BuyerProfile> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật hồ sơ Buyer');
+  return data.result;
+};
 
 export const getBuyerAddressesApi = async (): Promise<BuyerAddress[]> => {
   const res = await fetch(`${API_BASE_URL}/buyer/addresses`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
@@ -675,6 +767,53 @@ export const getBuyerContractsApi = async (): Promise<Array<{ id: number; contra
     status: String(item.status || ''),
     depositStatus: String(item.depositStatus || item.deposit_status || ''),
   }));
+};
+
+/** Hợp đồng B2B đầy đủ của Buyer, dùng cho màn hình theo dõi tiến trình. */
+export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải hợp đồng B2B của Buyer');
+
+  return (data.result || []).map((item) => {
+    const status = String(item.status || '');
+    const fulfillmentStatus: B2BContract['fulfillmentStatus'] =
+      status === 'AT_HUB_QC' ? 'HUB_DELIVERED' :
+      status === 'IN_TRANSIT' ? 'IN_TRANSIT' :
+      status === 'DELIVERED' || status === 'SETTLED' ? 'COMPLETED' :
+      'WAITING_HARVEST';
+    const createdAt = String(item.created_at || item.createdAt || new Date().toISOString());
+    const depositAmount = Number(item.deposit_30_amount ?? item.depositAmount ?? 0);
+    const depositReceived = Number(item.deposit_received ?? 0);
+
+    return {
+      id: Number(item.id),
+      contractCode: String(item.contract_code || item.contractCode || ''),
+      rfqId: Number(item.rfq_id || item.rfqId || 0),
+      rfqCode: String(item.rfq_code || item.rfqCode || ''),
+      harvestLotId: Number(item.lot_id || item.harvestLotId || 0),
+      lotCode: String(item.lot_code || item.lotCode || ''),
+      productName: String(item.product_name || item.productName || 'Nông sản'),
+      imageUrl: String(item.image_url || item.imageUrl || ''),
+      buyerName: String(item.buyer_name || item.buyerName || ''),
+      buyerPhone: String(item.buyer_phone || item.buyerPhone || ''),
+      quantity: Number(item.offered_weight_kg ?? item.quantity ?? 0),
+      unitPrice: Number(item.offered_price_per_kg ?? item.unitPrice ?? 0),
+      totalAmount: Number(item.total_goods_amount ?? item.totalAmount ?? 0),
+      depositAmount,
+      remainingAmount: Math.max(0, Number(item.total_goods_amount ?? item.totalAmount ?? 0) - depositAmount),
+      depositStatus: depositReceived > 0 ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
+      fulfillmentStatus,
+      hubDeliveryDate: createdAt.slice(0, 10),
+      hubName: String(item.delivery_address || item.deliveryAddress || 'Chưa cập nhật trạm nhận'),
+      createdAt,
+      hasQc: status === 'AT_HUB_QC' || status === 'IN_TRANSIT' || status === 'DELIVERED' || status === 'SETTLED',
+      pucCode: String(item.puc_code || ''),
+      farmName: String(item.farmer_name || ''),
+      farmerPhone: String(item.farmer_phone || ''),
+      farmerAddress: '',
+    };
+  });
 };
 
 export const getBuyerTelemetryApi = async (contractId: number): Promise<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> => {
@@ -738,11 +877,49 @@ export const confirmBuyerFinalPaymentApi = async (contractId: number) => {
   return data.result;
 };
 
+export interface B2bReview {
+  id: number;
+  contractId: number;
+  reviewerId?: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getBuyerReviewsApi = async (contractId: number): Promise<B2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/reviews`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<B2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitBuyerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<B2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/reviews`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<B2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
+};
+
 export const getBuyerInvoiceUrl = (contractId: number) => `${API_BASE_URL}/buyer/contracts/${contractId}/invoice`;
 
-
-export const updateOrderStatusApi = async (_orderId: number, _status: string): Promise<OrderResponse> => {
-  throw new Error('Đơn hàng đã được chuyển đổi hoàn toàn sang Hợp đồng B2B.');
+export const updateOrderStatusApi = async (orderId: number, status: string): Promise<OrderResponse> => {
+  const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status?status=${encodeURIComponent(status)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json', 'X-HoNa-Request': '1' }),
+    body: '{}',
+    credentials: 'include',
+  });
+  const data: ApiResponse<OrderResponse> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái đơn hàng');
+  return data.result;
 };
 
 // // -------------------------------- AI & PGVECTOR APIS // --------------------------------

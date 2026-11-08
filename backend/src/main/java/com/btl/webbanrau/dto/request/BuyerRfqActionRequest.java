@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 public class BuyerRfqActionRequest {
-    @NotBlank private String action;
+    @NotBlank private String action; // ACCEPT, COUNTER hoặc REJECT khi WAITING_BUYER
     private BigDecimal counterPrice;
     private Double counterQuantity;
     private String rejectReason;

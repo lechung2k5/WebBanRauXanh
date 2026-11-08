@@ -173,7 +173,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 11500,
     deliveryDate: '2026-10-28',
     hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T07:15:00',
   },
   {
@@ -189,7 +189,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 18500,
     deliveryDate: '2026-10-29',
     hubLocation: 'Trạm Lạnh Đơn Dương',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T08:00:00',
   },
   {
@@ -606,7 +606,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
           item.deliveryLocation ||
           item.hubLocation ||
           'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-        status: item.status || 'PENDING',
+        status: item.status || 'WAITING_FARMER',
         createdAt: item.createdAt || new Date().toISOString(),
       });
     }
@@ -622,7 +622,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
 export interface RfqStatusOverride {
   id?: number;
   rfqCode?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   counterPrice?: number;
   counterQuantity?: number;
   rejectReason?: string;
@@ -641,7 +641,7 @@ export const getLocalRfqOverrides = (): Record<string, RfqStatusOverride> => {
 
 export const saveLocalRfqOverride = (
   rfqKey: string | number,
-  override: Partial<RfqStatusOverride> & { status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER' }
+  override: Partial<RfqStatusOverride> & { status: RfqStatusOverride['status'] }
 ) => {
   if (typeof window === 'undefined') return;
   try {
@@ -791,6 +791,21 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   });
 };
 
+export const getFarmerRfqHistoryApi = async (id: number) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${id}/history`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    });
+    const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
+    return data.result || [];
+  } catch {
+    return [];
+  }
+};
+
 export const respondToRfqApi = async (
   rfqId: number,
   actionData: {
@@ -805,7 +820,7 @@ export const respondToRfqApi = async (
       ? 'ACCEPTED'
       : actionData.action === 'REJECT'
       ? 'REJECTED'
-      : 'PENDING';
+      : 'WAITING_BUYER';
 
   // Lưu trạng thái vào storage
   saveLocalRfqUpdate({
@@ -1234,6 +1249,36 @@ export const updateDeliveryScheduleApi = async (
 // 11. Helper lấy URL in Hợp Đồng B2B Điện Tử
 export const getContractPrintUrl = (contractId: number): string => {
   return `${API_BASE_URL}/farmer/contracts/${contractId}/print`;
+};
+
+export interface FarmerB2bReview {
+  id: number;
+  contractId: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getFarmerReviewsApi = async (contractId: number): Promise<FarmerB2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    cache: 'no-store', credentials: 'include', headers: getAuthHeaders(),
+  });
+  const data: ApiResponse<FarmerB2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitFarmerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<FarmerB2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    method: 'POST', cache: 'no-store', credentials: 'include',
+    headers: getAuthHeaders(), body: JSON.stringify(request),
+  });
+  const data: ApiResponse<FarmerB2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
 };
 
 

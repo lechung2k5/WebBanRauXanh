@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "rfq_negotiations")
@@ -70,5 +71,8 @@ public class RfqNegotiation extends BaseEntity {
 
     @Column(nullable = false, length = 30)
     @Builder.Default
-    private String status = "PENDING"; // PENDING (Chờ phản hồi), ACCEPTED (Đồng ý), COUNTER_OFFER (Thương lượng lại), REJECTED (Từ chối)
+    private String status = RfqStatus.WAITING_FARMER;
+
+    @Column(name = "expires_at", nullable = false)
+    private LocalDateTime expiresAt;
 }

@@ -60,7 +60,7 @@ public class FarmerService {
         BigDecimal escrowHolding = b2bContractRepository.sumEscrowDepositHolding(farmer);
         long openLotsCount = harvestLotRepository.countByFarmerAndStatus(farmer, "OPEN");
         long runningContracts = b2bContractRepository.countActiveContractsByFarmer(farmer);
-        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, "PENDING");
+        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, RfqStatus.WAITING_FARMER);
 
         return FarmerStatsResponse.builder()
                 .totalRevenue(totalRevenue != null ? totalRevenue : BigDecimal.ZERO)
@@ -190,12 +190,27 @@ public class FarmerService {
     }
 
     // 4. RFQ Negotiations
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RfqResponse> getRfqs() {
         User farmer = getCurrentFarmer();
         return rfqNegotiationRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
-                .map(this::mapToRfqResponse)
+                .map(rfq -> {
+                    expireIfNeeded(rfq);
+                    return mapToRfqResponse(rfq);
+                })
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rfqHistory(Long id) {
+        User farmer = getCurrentFarmer();
+        RfqNegotiation rfq = rfqNegotiationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy RFQ ID: " + id));
+        if (rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null
+                || (!rfq.getHarvestLot().getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer))) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem lịch sử RFQ này!");
+        }
+        return jdbcTemplate.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
     }
 
     @Transactional
@@ -209,17 +224,27 @@ public class FarmerService {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền phản hồi yêu cầu báo giá này!");
         }
 
+        expireIfNeeded(rfq);
         String action = request.getAction().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
+        if (!RfqStatus.isFarmerTurn(currentStatus)) {
+            throw new IllegalArgumentException("RFQ hiện chưa đến lượt người bán phản hồi.");
+        }
         if ("ACCEPT".equals(action)) {
-            rfq.setStatus("ACCEPTED");
+            rfq.setStatus(RfqStatus.ACCEPTED);
             HarvestLot lot = rfq.getHarvestLot();
             lot.setStatus("NEGOTIATING");
             harvestLotRepository.save(lot);
 
             // Tự động sinh Hợp Đồng B2B điện tử kèm mã duy nhất
             String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
-            BigDecimal unitPrice = rfq.getTargetPrice();
-            Double quantity = rfq.getRequestedQuantity();
+            BigDecimal unitPrice = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
+            Double quantity = rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity();
+            if (lot.getAvailableWeightKg() == null || lot.getAvailableWeightKg().compareTo(BigDecimal.valueOf(quantity)) < 0) {
+                throw new IllegalArgumentException("Lô không còn đủ sản lượng để chốt hợp đồng.");
+            }
+            lot.setAvailableWeightKg(lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)));
+            harvestLotRepository.save(lot);
             BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
             BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3)); // Cọc 30%
 
@@ -228,12 +253,16 @@ public class FarmerService {
                     .rfq(rfq)
                     .harvestLot(lot)
                     .farmer(lot.getFarmer())
+                    .buyer(rfq.getBuyer())
                     .buyerName(rfq.getBuyerName())
                     .buyerPhone(rfq.getBuyerPhone())
                     .quantity(quantity)
+                    .quantityKg(BigDecimal.valueOf(quantity))
                     .unitPrice(unitPrice)
+                    .agreedPricePerKg(unitPrice)
                     .totalAmount(totalAmount)
                     .depositAmount(depositAmount)
+                    .status("AGREED")
                     .depositStatus("PENDING_DEPOSIT")
                     .fulfillmentStatus("WAITING_HARVEST")
                     .hubDeliveryDate(rfq.getDeliveryDate())
@@ -244,17 +273,21 @@ public class FarmerService {
             log.info("Auto created B2B Contract: {} for RFQ: {}", contractCode, rfq.getRfqCode());
 
         } else if ("COUNTER".equals(action)) {
-            rfq.setStatus("COUNTER_OFFER");
+            rfq.setStatus(RfqStatus.WAITING_BUYER);
             if (request.getCounterPrice() != null) rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
         } else if ("REJECT".equals(action)) {
-            rfq.setStatus("REJECTED");
+            rfq.setStatus(RfqStatus.REJECTED);
             if (request.getRejectReason() != null) rfq.setRejectReason(request.getRejectReason());
         } else {
             throw new IllegalArgumentException("Hành động không hợp lệ: " + action);
         }
 
         RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(saved, farmer.getId(), "FARMER", action, currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                "ACCEPT".equals(action) ? "Người bán chấp nhận đề xuất" : saved.getRejectReason());
         return mapToRfqResponse(saved);
     }
 
@@ -724,7 +757,8 @@ public class FarmerService {
                 .targetPrice(request.getTargetPrice())
                 .deliveryDate(request.getDeliveryDate() != null ? request.getDeliveryDate() : LocalDate.now().plusDays(3))
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM")
-                .status("PENDING")
+                .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
                 .build();
 
         boolean isDepositPaid = Boolean.TRUE.equals(request.getIsDepositPaid());
@@ -733,6 +767,9 @@ public class FarmerService {
         }
 
         RfqNegotiation savedRfq = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(savedRfq, null, "BUYER", "CREATED", null, savedRfq.getStatus(),
+                savedRfq.getRequestedQuantity(), savedRfq.getTargetPrice(),
+                isDepositPaid ? "Tạo RFQ và đã đặt cọc" : "Tạo yêu cầu báo giá");
 
         // Nếu đã cọc 30% thì sinh ngay B2bContract với trạng thái DEPOSIT_PAID
         if (isDepositPaid) {
@@ -1099,8 +1136,41 @@ public class FarmerService {
                 .deliveryDate(rfq.getDeliveryDate())
                 .hubLocation(rfq.getHubLocation())
                 .status(rfq.getStatus())
+                .statusLabel(RfqStatus.label(rfq.getStatus()))
+                .nextActor(RfqStatus.nextActor(rfq.getStatus()))
+                .expiresAt(rfq.getExpiresAt())
+                .contractId(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getId).orElse(null))
+                .contractCode(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getContractCode).orElse(null))
+                .contractStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getStatus).orElse(null))
+                .depositStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositStatus).orElse(null))
+                .depositAmount(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositAmount).orElse(null))
                 .createdAt(rfq.getCreatedAt())
                 .build();
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        jdbcTemplate.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
     }
 
     private SettlementResponse mapToSettlementResponse(Settlement s) {

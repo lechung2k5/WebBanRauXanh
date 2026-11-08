@@ -20,6 +20,7 @@ interface ProductCardProps {
   onAddToCart?: (product: Product, quantity?: number) => void;
   onViewDetail?: (product: Product) => void;
   onNegotiate?: (product: Product) => void;
+  layout?: 'horizontal' | 'grid';
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -27,6 +28,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onAddToCart,
   onViewDetail,
   onNegotiate,
+  layout = 'horizontal',
 }) => {
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -64,11 +66,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       : 'bg-blue-50 text-blue-800 border-blue-200';
 
   return (
-    <div className="group bg-white rounded-2xl border border-[#EAECE8] shadow-xs hover:shadow-lg hover:border-[#10542C]/40 transition-all duration-300 flex flex-col md:flex-row items-stretch overflow-hidden">
+    <div className={`group bg-white rounded-2xl border border-[#EAECE8] shadow-xs hover:shadow-lg hover:border-[#10542C]/40 transition-all duration-300 flex items-stretch overflow-hidden ${layout === 'grid' ? 'flex-col' : 'flex-col md:flex-row'}`}>
       {/* CỘT 1: Ảnh sản phẩm sạch sẽ - Không để badge đè lên che khuất ảnh */}
       <div
         onClick={() => onViewDetail && onViewDetail(product)}
-        className="relative w-full md:w-64 lg:w-72 shrink-0 aspect-16/10 md:aspect-auto overflow-hidden bg-[#F9F9F5] cursor-pointer"
+        className={`relative shrink-0 overflow-hidden bg-[#F9F9F5] cursor-pointer ${layout === 'grid' ? 'w-full aspect-[16/9]' : 'w-full md:w-64 lg:w-72 aspect-16/10 md:aspect-auto'}`}
       >
         <img
           src={product.imageUrl}
@@ -183,7 +185,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* CỘT 3: Bảng giá sỉ & Cụm nút hành động B2B */}
-      <div className="w-full md:w-64 lg:w-72 bg-[#FAFBF9] p-4 sm:p-5 border-t md:border-t-0 md:border-l border-[#EAECE8] flex flex-col justify-between shrink-0 space-y-3">
+      <div className={`w-full bg-[#FAFBF9] p-4 sm:p-5 border-[#EAECE8] flex flex-col justify-between shrink-0 space-y-3 ${layout === 'grid' ? 'border-t' : 'md:w-64 lg:w-72 border-t md:border-t-0 md:border-l'}`}>
         <div>
           <span className="text-[11px] text-[#6B7280] block font-medium">Giá sỉ xuất vườn:</span>
           <div className="flex items-baseline gap-1 mt-0.5">

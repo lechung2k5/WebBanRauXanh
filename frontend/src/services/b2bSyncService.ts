@@ -20,9 +20,25 @@ export interface B2bSyncRfq {
   deliveryLocation: string;
   shippingOption: string;
   notes?: string;
-  status: 'PENDING' | 'COUNTER_OFFER' | 'ACCEPTED' | 'REJECTED';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  depositStatus?: string;
+  depositAmount?: number;
+}
+
+export interface B2bNotification {
+  id: string;
+  audience: 'BUYER' | 'FARMER' | 'ALL';
+  type: string;
+  title: string;
+  message: string;
+  rfqCode?: string;
+  read: boolean;
+  createdAt: string;
 }
 
 export interface B2bSyncContract {
@@ -68,6 +84,7 @@ export interface B2bSyncContract {
 
 const STORAGE_KEY_RFQS = 'hona_b2b_sync_rfqs_v2';
 const STORAGE_KEY_CONTRACTS = 'hona_b2b_sync_contracts_v2';
+const STORAGE_KEY_NOTIFICATIONS = 'hona_b2b_notifications_v1';
 const CHANNEL_NAME = 'hona_b2b_sync_channel';
 
 // Dữ liệu mẫu khởi tạo đồng bộ ban đầu
@@ -88,7 +105,7 @@ const INITIAL_RFQS: B2bSyncRfq[] = [
     deliveryLocation: 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
     shippingOption: 'cold_storage_truck',
     notes: 'Yêu cầu kiểm định độ tươi brix >= 5.0, xe lạnh duy trì 2-5°C.',
-    status: 'COUNTER_OFFER',
+    status: 'WAITING_BUYER',
     createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
   },
@@ -108,7 +125,7 @@ const INITIAL_RFQS: B2bSyncRfq[] = [
     deliveryLocation: 'Bếp Ăn Công Nghiệp KCN Tân Bình, TP.HCM',
     shippingOption: 'cold_storage_truck',
     notes: 'Cần phân loại độ chín đồng đều 85-90%.',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
   },
@@ -228,8 +245,48 @@ function getChannel(): BroadcastChannel | null {
   return broadcastChannel;
 }
 
+function addNotification(notification: Omit<B2bNotification, 'id' | 'read' | 'createdAt'>) {
+  if (typeof window === 'undefined') return;
+  const current = getSyncNotifications();
+  const next: B2bNotification = {
+    ...notification,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    read: false,
+    createdAt: new Date().toISOString(),
+  };
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify([next, ...current].slice(0, 80)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated', { detail: next }));
+}
+
+function createNotificationForEvent(type: string, payload: any) {
+  if (type === 'RFQ_SERVER_SYNCED') return;
+  const rfq = payload?.rfq || payload;
+  const rfqCode = rfq?.rfqCode;
+  const productName = rfq?.productName || 'lô nông sản';
+  if (type === 'RFQ_CREATED') {
+    addNotification({ audience: 'FARMER', type, title: 'Có RFQ mới', message: `Buyer vừa gửi yêu cầu báo giá cho ${productName}.`, rfqCode });
+  } else if (type === 'RFQ_UPDATED') {
+    const status = rfq?.status;
+    const message = status === 'WAITING_BUYER'
+      ? `Người bán đã gửi đề xuất mới cho ${productName}.`
+      : status === 'ACCEPTED'
+      ? `Đề xuất cho ${productName} đã được chấp nhận.`
+      : status === 'REJECTED'
+      ? `Đề xuất cho ${productName} đã bị từ chối.`
+      : `RFQ ${rfqCode || ''} vừa được cập nhật.`;
+    addNotification({ audience: 'BUYER', type, title: 'RFQ được cập nhật', message, rfqCode });
+  } else if (type === 'RFQ_COUNTERED_BY_BUYER') {
+    addNotification({ audience: 'FARMER', type, title: 'Buyer gửi counter-offer', message: `Buyer đã gửi mức giá mới cho ${productName}.`, rfqCode });
+  } else if (type === 'RFQ_ACCEPTED_BY_BUYER') {
+    addNotification({ audience: 'FARMER', type, title: 'Buyer đã chấp nhận giá', message: `Buyer đã chấp nhận đề xuất của ${productName} và tạo hợp đồng.`, rfqCode });
+  } else if (type === 'CONTRACT_CREATED') {
+    addNotification({ audience: 'BUYER', type, title: 'Hợp đồng B2B đã tạo', message: `Hợp đồng cho ${productName} đã sẵn sàng để đặt cọc.`, rfqCode });
+  }
+}
+
 function notifySyncEvent(type: string, payload: unknown) {
   if (typeof window === 'undefined') return;
+  createNotificationForEvent(type, payload);
   const channel = getChannel();
   if (channel) {
     channel.postMessage({ type, payload, timestamp: Date.now() });
@@ -239,6 +296,38 @@ function notifySyncEvent(type: string, payload: unknown) {
     window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type, payload } }));
     window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: payload }));
   } catch {}
+}
+
+export function getSyncNotifications(audience?: 'BUYER' | 'FARMER') {
+  if (typeof window === 'undefined') return [] as B2bNotification[];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
+    const all = raw ? JSON.parse(raw) as B2bNotification[] : [];
+    return audience ? all.filter((item) => item.audience === audience || item.audience === 'ALL') : all;
+  } catch {
+    return [] as B2bNotification[];
+  }
+}
+
+export function markSyncNotificationRead(id: string) {
+  if (typeof window === 'undefined') return;
+  const all = getSyncNotifications();
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(all.map((item) => item.id === id ? { ...item, read: true } : item)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated'));
+}
+
+export function markAllSyncNotificationsRead(audience: 'BUYER' | 'FARMER') {
+  if (typeof window === 'undefined') return;
+  const all = getSyncNotifications();
+  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(all.map((item) => item.audience === audience || item.audience === 'ALL' ? { ...item, read: true } : item)));
+  window.dispatchEvent(new CustomEvent('b2b_notification_updated'));
+}
+
+export function subscribeB2bNotifications(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  const handler = () => callback();
+  window.addEventListener('b2b_notification_updated', handler);
+  return () => window.removeEventListener('b2b_notification_updated', handler);
 }
 
 // ---------------------- 1. RFQ MANAGEMENT ----------------------
@@ -257,6 +346,16 @@ export function getSyncRfqs(): B2bSyncRfq[] {
   }
 }
 
+export function mergeSyncRfqs(incoming: B2bSyncRfq[]) {
+  const current = getSyncRfqs();
+  const merged = new Map(current.map((rfq) => [rfq.rfqCode, rfq]));
+  incoming.forEach((rfq) => merged.set(rfq.rfqCode, rfq));
+  const updated = Array.from(merged.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(updated));
+  notifySyncEvent('RFQ_SERVER_SYNCED', updated);
+  return updated;
+}
+
 export function saveSyncRfq(rfq: Omit<B2bSyncRfq, 'id' | 'createdAt' | 'updatedAt'>): B2bSyncRfq {
   const current = getSyncRfqs();
   const newRfq: B2bSyncRfq = {
@@ -264,6 +363,7 @@ export function saveSyncRfq(rfq: Omit<B2bSyncRfq, 'id' | 'createdAt' | 'updatedA
     id: Date.now(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    expiresAt: rfq.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };
   const updated = [newRfq, ...current];
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(updated));
@@ -290,16 +390,25 @@ export function farmerRespondRfq(
   let newContract: B2bSyncContract | undefined;
 
   if (action === 'ACCEPT') {
+    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
+      throw new Error('RFQ chưa đến lượt người bán phản hồi');
+    }
     rfq.status = 'ACCEPTED';
     rfq.updatedAt = new Date().toISOString();
     // Tự động sinh hợp đồng B2B
     newContract = createContractFromRfq(rfq, rfq.targetPricePerKg);
   } else if (action === 'COUNTER') {
+    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
+      throw new Error('RFQ chưa đến lượt người bán phản hồi');
+    }
     if (!counterPrice || counterPrice <= 0) throw new Error('Giá phản hồi không hợp lệ');
-    rfq.status = 'COUNTER_OFFER';
+    rfq.status = 'WAITING_BUYER';
     rfq.counterPricePerKg = counterPrice;
     rfq.updatedAt = new Date().toISOString();
   } else if (action === 'REJECT') {
+    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
+      throw new Error('RFQ chưa đến lượt người bán phản hồi');
+    }
     rfq.status = 'REJECTED';
     rfq.notes = (rfq.notes ? rfq.notes + ' | ' : '') + (rejectReason || 'Nông dân từ chối');
     rfq.updatedAt = new Date().toISOString();
@@ -319,17 +428,46 @@ export function buyerAcceptCounterRfq(rfqIdOrCode: number | string): { rfq: B2bS
   if (idx === -1) throw new Error('Không tìm thấy RFQ');
 
   const rfq = { ...current[idx] };
+  if (!['WAITING_BUYER', 'COUNTER_OFFER'].includes(rfq.status)) {
+    throw new Error('RFQ chưa đến lượt người mua phản hồi');
+  }
   const finalPrice = rfq.counterPricePerKg || rfq.targetPricePerKg;
   rfq.status = 'ACCEPTED';
   rfq.targetPricePerKg = finalPrice;
   rfq.updatedAt = new Date().toISOString();
 
+  const newContract = createContractFromRfq(rfq, finalPrice);
+  rfq.contractId = newContract.id;
+  rfq.contractCode = newContract.contractCode;
+  rfq.depositStatus = newContract.depositStatus;
+  rfq.depositAmount = newContract.depositAmount;
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
-
-  const newContract = createContractFromRfq(rfq, finalPrice);
   notifySyncEvent('RFQ_ACCEPTED_BY_BUYER', { rfq, newContract });
   return { rfq, newContract };
+}
+
+export function buyerCounterRfq(
+  rfqIdOrCode: number | string,
+  counterPrice: number,
+  counterQuantity?: number,
+): B2bSyncRfq {
+  if (!counterPrice || counterPrice <= 0) throw new Error('Giá phản hồi không hợp lệ');
+  const current = getSyncRfqs();
+  const idx = current.findIndex((r) => r.id === Number(rfqIdOrCode) || r.rfqCode === String(rfqIdOrCode));
+  if (idx === -1) throw new Error('Không tìm thấy RFQ');
+  const rfq = { ...current[idx] };
+  if (!['WAITING_BUYER', 'COUNTER_OFFER'].includes(rfq.status)) {
+    throw new Error('RFQ chưa đến lượt người mua phản hồi');
+  }
+  rfq.status = 'WAITING_FARMER';
+  rfq.counterPricePerKg = counterPrice;
+  if (counterQuantity) rfq.requestedQuantityKg = counterQuantity;
+  rfq.updatedAt = new Date().toISOString();
+  current[idx] = rfq;
+  localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  notifySyncEvent('RFQ_COUNTERED_BY_BUYER', rfq);
+  return rfq;
 }
 
 // ---------------------- 2. CONTRACT & ORDER MANAGEMENT ----------------------
@@ -366,6 +504,14 @@ export function getSyncContracts(): B2bSyncContract[] {
   } catch {
     return INITIAL_CONTRACTS;
   }
+}
+
+/** Đồng bộ danh sách hợp đồng Buyer từ backend, loại bỏ dữ liệu mẫu cũ trong localStorage. */
+export function replaceSyncContracts(contracts: B2bSyncContract[]): B2bSyncContract[] {
+  if (typeof window === 'undefined') return contracts;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  notifySyncEvent('CONTRACTS_SYNCED', { contracts });
+  return contracts;
 }
 
 function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncContract {
