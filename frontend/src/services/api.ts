@@ -658,8 +658,9 @@ export const getProducts = async (
       products = products.filter(p => p.isOrganic === params.isOrganic);
     }
 
+    const start = page * size;
     return {
-      products,
+      products: products.slice(start, start + size),
       totalElements: products.length,
       totalPages: Math.ceil(products.length / size) || 1,
     };

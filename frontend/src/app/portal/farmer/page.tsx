@@ -99,6 +99,9 @@ import FarmerOrderManagementView from './components/FarmerOrderManagementView';
 import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
+import Pagination from '@/components/Pagination';
+
+const FARMER_LOTS_PAGE_SIZE = 10;
 
 function FarmerPortalContent() {
   const [activeTab, setActiveTab] = useState<
@@ -118,6 +121,17 @@ function FarmerPortalContent() {
   const [selectedContractQc, setSelectedContractQc] = useState<QcInspection | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [isQcDropdownOpen, setIsQcDropdownOpen] = useState(false);
+  const [farmerLotsPage, setFarmerLotsPage] = useState(1);
+
+  const farmerLotsTotalPages = Math.max(1, Math.ceil(lots.length / FARMER_LOTS_PAGE_SIZE));
+  const visibleFarmerLots = lots.slice(
+    (farmerLotsPage - 1) * FARMER_LOTS_PAGE_SIZE,
+    farmerLotsPage * FARMER_LOTS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setFarmerLotsPage((current) => Math.min(current, farmerLotsTotalPages));
+  }, [farmerLotsTotalPages]);
 
   // Subtab in RFQ
   const [rfqSubTab, setRfqSubTab] = useState<'inbox' | 'contracts'>('inbox');
@@ -1165,8 +1179,8 @@ function FarmerPortalContent() {
               </div>
 
               {/* LOTS GRID */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {lots.map((lot) => (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" id="farmer-lots-grid">
+                {visibleFarmerLots.map((lot) => (
                   <div
                     key={lot.id}
                     className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs overflow-hidden flex flex-col justify-between hover:shadow-md transition"
@@ -1256,6 +1270,7 @@ function FarmerPortalContent() {
                   </div>
                 ))}
               </div>
+              <Pagination currentPage={farmerLotsPage} totalPages={farmerLotsTotalPages} totalItems={lots.length} pageSize={FARMER_LOTS_PAGE_SIZE} onPageChange={setFarmerLotsPage} scrollTargetId="farmer-lots-grid" />
             </div>
           )}
 

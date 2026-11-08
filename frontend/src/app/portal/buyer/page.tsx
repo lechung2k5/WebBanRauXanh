@@ -10,6 +10,7 @@ import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import BuyerAddressesPanel from '@/components/BuyerAddressesPanel';
 import BuyerOrdersPanel from '@/components/BuyerOrdersPanel';
 import BuyerProfilePanel from '@/components/BuyerProfilePanel';
+import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import {
   getProducts,
@@ -66,6 +67,9 @@ export default function BuyerPortalPage() {
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('ALL');
   const [loading, setLoading] = useState(true);
+  const [lotsPage, setLotsPage] = useState(1);
+  const [lotsTotal, setLotsTotal] = useState(0);
+  const [lotsTotalPages, setLotsTotalPages] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // Tab điều hướng
@@ -166,9 +170,12 @@ export default function BuyerPortalPage() {
           keyword: keyword || undefined,
           categorySlug: category === 'ALL' ? undefined : category,
           status: 'OPEN',
-          size: 24,
+          page: lotsPage,
+          size: 10,
         });
         setProducts(result.products || []);
+        setLotsTotal(result.totalElements || 0);
+        setLotsTotalPages(Math.max(1, result.totalPages || 1));
       } catch {
         setProducts([]);
       } finally {
@@ -176,7 +183,7 @@ export default function BuyerPortalPage() {
       }
     };
     loadLots();
-  }, [keyword, category]);
+  }, [keyword, category, lotsPage]);
 
   // Cập nhật telemetry giả lập định kỳ
   useEffect(() => {
@@ -532,14 +539,14 @@ export default function BuyerPortalPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       value={keyword}
-                      onChange={(e) => setKeyword(e.target.value)}
+                      onChange={(e) => { setKeyword(e.target.value); setLotsPage(1); }}
                       placeholder="Tìm tên nông sản, HTX, mã lô VietGAP..."
                       className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-sky-500"
                     />
                   </div>
                   <select
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => { setCategory(e.target.value); setLotsPage(1); }}
                     className="sm:w-44 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700"
                   >
                     <option value="ALL">Tất cả ngành hàng</option>
@@ -552,6 +559,7 @@ export default function BuyerPortalPage() {
                     onClick={() => {
                       setKeyword('');
                       setCategory('ALL');
+                      setLotsPage(1);
                     }}
                     className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-colors"
                   >
@@ -569,13 +577,16 @@ export default function BuyerPortalPage() {
                     Không tìm thấy lô nông sản phù hợp với tiêu chí tìm kiếm.
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {products.map((product) => (
-                      <div key={product.id} className="relative">
-                        <ProductCard product={product} onNegotiate={setSelectedProduct} />
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="grid lg:grid-cols-2 gap-5" id="buyer-lots-grid">
+                      {products.map((product) => (
+                        <div key={product.id} className="relative">
+                          <ProductCard product={product} layout="grid" onNegotiate={setSelectedProduct} />
+                        </div>
+                      ))}
+                    </div>
+                    <Pagination currentPage={lotsPage} totalPages={lotsTotalPages} totalItems={lotsTotal} pageSize={10} onPageChange={setLotsPage} scrollTargetId="buyer-lots-grid" />
+                  </>
                 )}
               </div>
             )}
