@@ -1,6 +1,7 @@
 package com.btl.webbanrau.repository;
 
 import com.btl.webbanrau.model.HarvestLot;
+import com.btl.webbanrau.model.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,14 @@ public interface HarvestLotRepository extends JpaRepository<HarvestLot, Long> {
     boolean existsByLotCode(String lotCode);
 
     List<HarvestLot> findByStatus(String status);
+
+    List<HarvestLot> findByStatusOrderByCreatedAtDesc(String status);
+
+    List<HarvestLot> findByFarmerOrderByCreatedAtDesc(User farmer);
+
+    List<HarvestLot> findByFarmerIdOrderByCreatedAtDesc(Long farmerId);
+
+    long countByFarmerAndStatus(User farmer, String status);
 
     @Query("SELECT l FROM HarvestLot l WHERE " +
            "(CAST(:keyword AS string) IS NULL OR " +

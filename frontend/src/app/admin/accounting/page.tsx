@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
 import { Receipt, Settings, FileDown, Printer, AlertCircle, RefreshCw, Loader2, BookOpen } from 'lucide-react';
-import { DataTable, FormDialog, Row, Field } from '@/components/admin/AdminConsole';
-
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+import { DataTable, FormDialog, Row, Field, str } from '@/components/admin/AdminConsole';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 
 export default function AdminAccountingPage() {
@@ -135,21 +133,30 @@ export default function AdminAccountingPage() {
       </div>
 
       {/* Bảng Kê Quyết Toán Nội Bộ (Mẫu 01/TNDN & Hóa đơn) */}
-      <div className="space-y-3">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center justify-between">
-          <span>Bảng Kê Quyết Toán Chứng Từ Thuế Nông Sản ({documents.length})</span>
-          <span className="text-xs font-normal text-[#6B7280]">Chuẩn mực VAS & Mẫu 01/TNDN</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-[#10542C]" />
+              <span>Bảng Kê Quyết Toán Chứng Từ Thuế Nông Sản</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Chuẩn mực kế toán VAS & Bảng kê thu mua nông sản 01/TNDN</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            Hiển thị <strong className="text-[#10542C] font-semibold">{documents.length}</strong> chứng từ
+          </span>
+        </div>
 
         {loading ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8] flex flex-col items-center gap-2">
+          <div className="py-16 text-center text-xs text-[#6B7280] flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 text-[#10542C] animate-spin" />
             <span>Đang tải bảng kê kế toán...</span>
           </div>
         ) : documents.length === 0 ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có chứng từ kế toán trong cơ sở dữ liệu.</p>
-            <p className="mt-1">Khi các hợp đồng B2B hoàn tất thanh toán hoặc quyết toán, bảng kê chứng từ sẽ tự động xuất tại đây.</p>
+            <p className="text-gray-500">Khi các hợp đồng B2B hoàn tất thanh toán hoặc quyết toán, bảng kê chứng từ sẽ tự động xuất tại đây.</p>
           </div>
         ) : (
           <DataTable
@@ -166,7 +173,7 @@ export default function AdminAccountingPage() {
               <button
                 type="button"
                 onClick={() => setDetail(row)}
-                className="px-2.5 py-1 text-xs font-bold text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] rounded-lg transition-colors cursor-pointer"
+                className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] border border-[#CDE5CB] rounded-lg transition-colors cursor-pointer"
               >
                 Chi tiết
               </button>
@@ -176,19 +183,28 @@ export default function AdminAccountingPage() {
       </div>
 
       {/* Sổ Nhật Ký Chung & Bút Toán Kế Toán */}
-      <div className="space-y-4 pt-4 border-t border-[#EAECE8]">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-[#10542C]" />
-          <span>Sổ Nhật Ký Chung Hệ Thống ({entries.length} Nghiệp vụ · {lines.length} Bút toán)</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-[#10542C]" />
+              <span>Sổ Nhật Ký Chung & Bút Toán Định Khoản Nợ / Có</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Theo dõi hạch toán kế toán kép theo các sự kiện nghiệp vụ sàn</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            <strong className="text-[#10542C] font-semibold">{entries.length}</strong> nghiệp vụ · <strong className="text-[#10542C] font-semibold">{lines.length}</strong> bút toán
+          </span>
+        </div>
 
         {entries.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có bút toán ghi nhận trong sổ nhật ký chung.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] space-y-2">
+            <div className="bg-[#F9F9F5] rounded-2xl p-4 border border-[#EAECE8] space-y-3">
               <p className="text-xs font-bold text-[#2C3E2E]">Sổ Nhật Ký Chung (Entries)</p>
               <DataTable
                 rows={entries}
@@ -202,7 +218,7 @@ export default function AdminAccountingPage() {
               />
             </div>
 
-            <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] space-y-2">
+            <div className="bg-[#F9F9F5] rounded-2xl p-4 border border-[#EAECE8] space-y-3">
               <p className="text-xs font-bold text-[#2C3E2E]">Định Khoản Nợ / Có (Accounting Lines)</p>
               <DataTable
                 rows={lines}

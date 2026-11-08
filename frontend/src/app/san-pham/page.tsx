@@ -154,7 +154,11 @@ function ProductListContent() {
               Sàn Giao Dịch Lô Nông Sản Số Lượng Lớn
             </h1>
             <p className="text-xs text-[#6B7280] mt-1">
-              Tìm thấy <strong className="text-[#10542C]">{products.length}</strong> lô nông sản tận vườn từ các Hợp tác xã đạt chuẩn VietGAP & GlobalGAP
+              {appliedKeyword && products.length === 0 ? (
+                <>Không có lô nông sản nào khớp với từ khóa: <strong className="text-[#E53935]">&ldquo;{appliedKeyword}&rdquo;</strong></>
+              ) : (
+                <>Tìm thấy <strong className="text-[#10542C]">{products.length}</strong> lô nông sản tận vườn từ các Hợp tác xã đạt chuẩn VietGAP & GlobalGAP</>
+              )}
             </p>
           </div>
 
@@ -371,17 +375,25 @@ function ProductListContent() {
                 ))}
               </div>
             ) : paginatedProducts.length === 0 ? (
-              <div className="bg-white rounded-2xl p-12 text-center border border-[#EAECE8]">
-                <Leaf className="w-12 h-12 text-[#6B7280]/40 mx-auto mb-3" />
+              <div className="bg-white rounded-2xl p-12 text-center border border-[#EAECE8] space-y-3">
+                <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 mx-auto">
+                  <Leaf className="w-7 h-7 opacity-70" />
+                </div>
                 <h3 className="font-heading font-bold text-base text-[#2C3E2E]">Không tìm thấy lô hàng phù hợp</h3>
-                <p className="text-xs text-[#6B7280] mt-1">Hãy thử xóa bớt bộ lọc hoặc tìm với từ khóa khác</p>
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="mt-4 px-4 py-2 bg-[#10542C] text-white rounded-xl text-xs font-bold hover:bg-[#0C3E20] transition-colors"
-                >
-                  Xóa bộ lọc
-                </button>
+                <p className="text-xs text-[#6B7280] max-w-md mx-auto">
+                  {appliedKeyword
+                    ? `Không tìm thấy lô nông sản nào khớp với từ khóa "${appliedKeyword}". Bạn vui lòng thử tìm với tên rau củ, vùng trồng hoặc món ăn (ví dụ: bắp cải, cà chua, nấm tươi, Đà Lạt, canh chua...).`
+                    : 'Hãy thử xóa bớt bộ lọc hoặc tìm với từ khóa khác.'}
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="px-5 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                  >
+                    Xem tất cả lô hàng
+                  </button>
+                </div>
               </div>
             ) : (
               <>

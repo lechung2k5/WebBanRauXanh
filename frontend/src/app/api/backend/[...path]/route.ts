@@ -35,16 +35,20 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
   const origin = process.env.APP_ORIGIN || request.nextUrl.origin;
   const reqOrigin = request.headers.get('origin');
   const validOrigin = !reqOrigin || reqOrigin === origin || reqOrigin === request.nextUrl.origin;
-  if (mutating && (!validOrigin || request.headers.get('x-hona-request') !== '1' || !request.headers.get('content-type')?.startsWith('application/json'))) {
+  const contentType = request.headers.get('content-type') || '';
+  const isMultipart = contentType.startsWith('multipart/form-data');
+  const isJson = contentType.startsWith('application/json');
+  if (mutating && (!validOrigin || request.headers.get('x-hona-request') !== '1' || (!isJson && !isMultipart))) {
     return NextResponse.json({ code: 403, message: 'Yêu cầu không cùng nguồn hoặc thiếu CSRF header' }, { status: 403 });
   }
   let access = request.cookies.get(ACCESS)?.value;
   const refresh = request.cookies.get(REFRESH)?.value;
   let session: Session | null = null;
   try {
-    if (Number(request.headers.get('content-length') || 0) > 4_000_000) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
-    let body = mutating ? await request.text() : undefined;
-    if (body && body.length > 4_000_000) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
+    const maxBytes = isMultipart ? 7_000_000 : 4_000_000;
+    if (Number(request.headers.get('content-length') || 0) > maxBytes) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
+    let body: any = mutating ? (isMultipart ? await request.arrayBuffer() : await request.text()) : undefined;
+    if (body && (typeof body === 'string' ? body.length : body.byteLength) > maxBytes) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
     if (route === 'auth/refresh-token' || route === 'auth/logout') {
       if (!refresh) {
         const response = NextResponse.json({ code: route.endsWith('logout') ? 200 : 401, message: 'Không có phiên' }, { status: route.endsWith('logout') ? 200 : 401 }); clear(response); return response;
@@ -57,10 +61,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       }
       body = JSON.stringify({ refreshToken: refresh }); access = undefined;
     }
-    const publicAuth = route.startsWith('auth/') && !['auth/me', 'auth/profile', 'auth/logout-all', 'auth/google-link'].includes(route);
+    const publicAuth = (route.startsWith('auth/') && !['auth/me', 'auth/profile', 'auth/logout-all', 'auth/google-link'].includes(route)) || route === 'uploads/images';
     if (!access && refresh && !publicAuth) { session = await rotate(refresh); access = session?.accessToken; }
     const url = `${BACKEND}/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
-    const upstream = () => fetch(url, { method: request.method, headers: { 'Content-Type': 'application/json', ...(access ? { Authorization: `Bearer ${access}` } : {}) }, body, cache: 'no-store', signal: AbortSignal.timeout(route.endsWith('iot/events') ? 65000 : 20000) });
+    const upstreamHeaders: Record<string, string> = { ...(access ? { Authorization: `Bearer ${access}` } : {}) };
+    if (isMultipart) {
+      upstreamHeaders['Content-Type'] = contentType;
+    } else {
+      upstreamHeaders['Content-Type'] = 'application/json';
+    }
+    const upstream = () => fetch(url, { method: request.method, headers: upstreamHeaders, body, cache: 'no-store', signal: AbortSignal.timeout(route.endsWith('iot/events') ? 65000 : 30000) });
     let result = await upstream();
     if (result.status === 401 && refresh && !publicAuth && !session) { session = await rotate(refresh); if (session) { access = session.accessToken; result = await upstream(); } }
     if (result.ok && result.headers.get('content-type')?.includes('text/event-stream')) {

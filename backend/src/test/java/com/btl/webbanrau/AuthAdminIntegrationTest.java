@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
 @SpringBootTest(properties={"app.jwt.secret=test-secret-with-more-than-thirty-two-bytes", "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.show-sql=false"})
-@ActiveProfiles("test") @AutoConfigureMockMvc @Testcontainers
+@ActiveProfiles("test") @AutoConfigureMockMvc @Testcontainers(disabledWithoutDocker = true)
 class AuthAdminIntegrationTest {
     @Container static PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>(DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"));
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r){r.add("spring.datasource.url",postgres::getJdbcUrl);r.add("spring.datasource.username",postgres::getUsername);r.add("spring.datasource.password",postgres::getPassword);}

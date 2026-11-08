@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
 import { Truck, Plus, AlertCircle, RefreshCw, Loader2, FileCheck2, Wrench } from 'lucide-react';
-import { DataTable, FormDialog, Row, Field, epodFields } from '@/components/admin/AdminConsole';
-
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+import { DataTable, FormDialog, Row, Field, epodFields, str } from '@/components/admin/AdminConsole';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
 
@@ -113,21 +111,30 @@ export default function AdminShipmentsPage() {
       </div>
 
       {/* Danh Sách Đội Xe Lạnh */}
-      <div className="space-y-3">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
-          <Truck className="w-4 h-4 text-[#10542C]" />
-          <span>Đội Xe Tải Lạnh Chuyên Dụng ({trucks.length})</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <Truck className="w-4 h-4 text-[#10542C]" />
+              <span>Đội Xe Tải Lạnh Chuyên Dụng</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Phương tiện vận tải lạnh chuyên tuyến nông sản</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            Hiển thị <strong className="text-[#10542C] font-semibold">{trucks.length}</strong> phương tiện
+          </span>
+        </div>
 
         {loading ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8] flex flex-col items-center gap-2">
+          <div className="py-16 text-center text-xs text-[#6B7280] flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 text-[#10542C] animate-spin" />
             <span>Đang tải danh sách đội xe...</span>
           </div>
         ) : trucks.length === 0 ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có phương tiện xe tải lạnh nào trong cơ sở dữ liệu.</p>
-            <p className="mt-1">Bấm &quot;Thêm Xe Tải Lạnh&quot; để bổ sung phương tiện vào đội xe vận tải TMS.</p>
+            <p className="text-gray-500">Bấm &quot;Thêm Xe Tải Lạnh&quot; để bổ sung phương tiện vào đội xe vận tải TMS.</p>
           </div>
         ) : (
           <DataTable
@@ -152,10 +159,10 @@ export default function AdminShipmentsPage() {
                     { status: row.status === 'MAINTENANCE' ? 'NORMAL' : 'MAINTENANCE' }
                   )
                 }
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer flex items-center gap-1 border ${
                   row.status === 'MAINTENANCE'
-                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                    : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                    : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
                 }`}
               >
                 <Wrench className="w-3 h-3" />
@@ -167,14 +174,23 @@ export default function AdminShipmentsPage() {
       </div>
 
       {/* Danh Sách Chuyến Hàng & Biên Bản Giao Nhận ePOD */}
-      <div className="space-y-3 pt-4 border-t border-[#EAECE8]">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
-          <FileCheck2 className="w-4 h-4 text-[#10542C]" />
-          <span>Lịch Trình Vận Chuyển & Biên Bản Giao Nhận ePOD ({shipments.length})</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <FileCheck2 className="w-4 h-4 text-[#10542C]" />
+              <span>Lịch Trình Vận Chuyển & Biên Bản Giao Nhận ePOD</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Theo dõi hành trình xe lạnh và biên bản ký nhận số của bên mua</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            Hiển thị <strong className="text-[#10542C] font-semibold">{shipments.length}</strong> chuyến hàng
+          </span>
+        </div>
 
         {shipments.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có chuyến vận chuyển nào trong cơ sở dữ liệu.</p>
           </div>
         ) : (
@@ -195,7 +211,7 @@ export default function AdminShipmentsPage() {
                 <button
                   type="button"
                   onClick={() => setDetail(row)}
-                  className="px-2.5 py-1 text-xs font-bold text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] rounded-lg transition-colors cursor-pointer"
+                  className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] border border-[#CDE5CB] rounded-lg transition-colors cursor-pointer"
                 >
                   Hồ sơ ePOD
                 </button>
@@ -209,7 +225,7 @@ export default function AdminShipmentsPage() {
                         epodFields
                       )
                     }
-                    className="px-2.5 py-1 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-lg transition-colors cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-semibold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-lg transition-colors cursor-pointer"
                   >
                     Ghi nhận ePOD
                   </button>

@@ -50,15 +50,31 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
+                        // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
                         .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/harvest-lots/**", "/cold-assets/public-status").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
+                        .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/cold-assets/public-status").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/orders").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
 
-                        // 2. Portal Nông Trại: Chỉ dành cho FARMER
-                        .requestMatchers("/farmer/**", "/harvest-lots/my-lots/**", "/contracts/farmer/**").hasRole("FARMER")
+                        // 2. Chức năng Nông dân & Hợp tác xã (Công khai endpoint gửi RFQ/cọc, tra cứu HĐ B2B, xem QC, chứng từ và phân hệ farmer)
+                        // 2. Chức năng Nông dân & Hợp tác xã (Chuẩn hóa bảo mật Zero-Trust theo master plan v2.0)
+                        .requestMatchers(
+                                "/farmer/ai-chat",
+                                "/farmer/rfq/public-submit",
+                                "/farmer/contracts/track/**",
+                                "/farmer/trace/**",
+                                "/farmer/contracts/*/print",
+                                "/farmer/settlements/*/pdf-01-tndn",
+                                "/farmer/settlements/*/invoice-kct",
+                                "/ai/**"
+                        ).permitAll()
+                        .requestMatchers("/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
+                        .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
 
                         // 3. Portal Thương Lái: Chỉ dành cho BUYER
                         .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasRole("BUYER")

@@ -32,6 +32,9 @@ public class Category extends BaseEntity {
     @Column(length = 500)
     private String imageUrl;
 
+    @Column(name = "image_public_id", length = 255)
+    private String imagePublicId;
+
     @Column(name = "display_order")
     @Builder.Default
     private Integer displayOrder = 0;

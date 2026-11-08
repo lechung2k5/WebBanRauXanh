@@ -58,7 +58,7 @@ public class TokenService {
             .claim("userId",user.getId()).claim("username",user.getUsername()).claim("email",user.getEmail())
             .claim("roles",user.getRoles().stream().map(Role::getName).toList()).claim("fullName",user.getFullName())
             .claim("companyName",Objects.toString(user.getCompanyName(),"")).claim("kycStatus",user.getKycStatus()).claim("version",user.getTokenVersion()).build();
-        AuthResponse result=view(user);
+        AuthResponse result=viewUser(user);
         result.setAccessToken(encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),claims)).getTokenValue());
         result.setRefreshToken(raw); result.setExpiresInSeconds(accessSeconds);
         result.setRefreshExpiresInSeconds(Math.max(0,Duration.between(now,refresh.getExpiresAt()).toSeconds()));
@@ -91,7 +91,19 @@ public class TokenService {
             (buyer ? present(u.getWarehouseAddress()) : (u.isHouseholdFarmer() || present(u.getTaxCode())));
     }
     private static boolean present(String s) { return s!=null&&!s.isBlank(); }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CloudinaryService cloudinaryService;
+
+    public AuthResponse viewUser(User u) {
+        return view(u, cloudinaryService);
+    }
+
     public static AuthResponse view(User u) {
+        return view(u, null);
+    }
+
+    public static AuthResponse view(User u, CloudinaryService cloudinary) {
         String fullName = u.getFullName();
         String address = u.getAddress();
         if ("buyer_coop".equals(u.getUsername()) || (fullName != null && fullName.contains("?"))) {
@@ -106,10 +118,17 @@ public class TokenService {
                 address = "469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP.HCM";
             }
         }
+        String certUrl = u.getCertificationUrl();
+        if (cloudinary != null && cloudinary.isConfigured() && u.getCertificationPublicId() != null && !u.getCertificationPublicId().isBlank()) {
+            String signed = cloudinary.generateSignedUrl(u.getCertificationPublicId(), "authenticated");
+            if (signed != null) {
+                certUrl = signed;
+            }
+        }
         return AuthResponse.builder().id(u.getId()).username(u.getUsername()).fullName(fullName).email(u.getEmail())
             .phone(u.getPhone()).address(address).roles(u.getRoles().stream().map(Role::getName).toList()).enabled(u.isEnabled())
             .emailVerified(u.isEmailVerified()).companyName(u.getCompanyName()).taxCode(u.getTaxCode()).warehouseAddress(u.getWarehouseAddress())
             .bankAccountNo(u.getBankAccountNo()).bankName(u.getBankName()).householdFarmer(u.isHouseholdFarmer()).individualBuyer(u.isIndividualBuyer()).pucCode(u.getPucCode())
-            .certification(u.getCertification()).certificationUrl(u.getCertificationUrl()).kycStatus(u.getKycStatus()).kycNote(u.getKycNote()).profileComplete(profileComplete(u)).build();
+            .certification(u.getCertification()).certificationUrl(certUrl).kycStatus(u.getKycStatus()).kycNote(u.getKycNote()).profileComplete(profileComplete(u)).build();
     }
 }

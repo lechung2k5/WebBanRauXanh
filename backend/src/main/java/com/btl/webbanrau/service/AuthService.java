@@ -21,6 +21,8 @@ public class AuthService {
     private final OtpService otp;
     private final TokenService tokens;
     private final AuthAuditRepository audit;
+    private final UploadedAssetRepository uploadedAssets;
+    private final CloudinaryService cloudinaryService;
     @Value("${app.google.client-id:}") private String googleClientId;
     // Lazy JWK retrieval: startup must work without internet or Google configuration.
     private final JwtDecoder googleDecoder=NimbusJwtDecoder.withJwkSetUri("https://www.googleapis.com/oauth2/v3/certs").build();
@@ -47,9 +49,33 @@ public class AuthService {
             .individualBuyer(r.isIndividualBuyer())
             .bankAccountNo(r.getBankAccountNo()).bankName(r.getBankName()).warehouseAddress(r.getWarehouseAddress()).pucCode(r.getPucCode()).certification(r.getCertification())
             .roles(new HashSet<>(Set.of(roles.findByName("ROLE_"+r.getRegisterRole()).orElseThrow()))).build();
-        u.setCertificationUrl(r.getCertificationUrl());
+        String certUrl = r.getCertificationUrl();
+        String certPublicId = null;
+        UploadedAsset pendingAsset = null;
+        if (certUrl != null && !certUrl.isBlank()) {
+            var opt = uploadedAssets.findBySecureUrl(certUrl);
+            if (opt.isEmpty()) {
+                opt = uploadedAssets.findAll().stream().filter(a -> certUrl.contains(a.getPublicId())).findFirst();
+            }
+            if (opt.isPresent()) {
+                var asset = opt.get();
+                if (asset.getUserId() != null) {
+                    throw new AuthException(403, "ASSET_FORBIDDEN", "Tài nguyên ảnh này đã thuộc về tài khoản khác");
+                }
+                certPublicId = asset.getPublicId();
+                pendingAsset = asset;
+            }
+        }
+        u.setCertificationUrl(certUrl);
+        u.setCertificationPublicId(certPublicId);
         if(!TokenService.profileComplete(u)) throw new AuthException(400,"INCOMPLETE_PROFILE","Thiếu thông tin hồ sơ B2B bắt buộc theo vai trò");
-        users.saveAndFlush(u); otp.send(email,"REGISTER_VERIFICATION"); return challenge(email,"REGISTER_VERIFICATION");
+        users.saveAndFlush(u);
+        if (pendingAsset != null) {
+            pendingAsset.setUserId(u.getId());
+            pendingAsset.setLinked(true);
+            uploadedAssets.save(pendingAsset);
+        }
+        otp.send(email,"REGISTER_VERIFICATION"); return challenge(email,"REGISTER_VERIFICATION");
     }
     @Transactional(noRollbackFor=AuthException.class)
     public Object login(LoginRequest r) {
@@ -120,9 +146,44 @@ public class AuthService {
         u.setCompanyName(r.companyName()); u.setTaxCode(r.taxCode()); u.setHouseholdFarmer(r.isHouseholdFarmer()); u.setBankAccountNo(r.bankAccountNo());
         u.setBankName(r.bankName()); u.setWarehouseAddress(r.warehouseAddress()); u.setPhone(r.phone()); u.setAddress(r.address()); u.setPucCode(r.pucCode()); u.setCertification(r.certification());
         if(!TokenService.profileComplete(u)) throw new AuthException(400,"INCOMPLETE_PROFILE","Thiếu thông tin hồ sơ B2B bắt buộc theo vai trò");
-        u.setCertificationUrl(r.certificationUrl());u.setKycStatus("PENDING"); u.setKycNote(null); users.save(u); return TokenService.view(u);
+        String oldPublicId = u.getCertificationPublicId();
+        String newCertUrl = r.certificationUrl();
+        String newPublicId = oldPublicId;
+        UploadedAsset newAsset = null;
+        if (newCertUrl != null && !newCertUrl.isBlank()) {
+            var opt = uploadedAssets.findBySecureUrl(newCertUrl);
+            if (opt.isEmpty()) {
+                opt = uploadedAssets.findAll().stream().filter(a -> newCertUrl.contains(a.getPublicId())).findFirst();
+            }
+            if (opt.isPresent()) {
+                var asset = opt.get();
+                if (asset.getUserId() != null && !asset.getUserId().equals(u.getId()) && !has(u, "ADMIN")) {
+                    throw new AuthException(403, "ASSET_FORBIDDEN", "Tài nguyên ảnh này không thuộc quyền sở hữu của bạn");
+                }
+                newAsset = asset;
+                newPublicId = asset.getPublicId();
+            }
+        }
+        u.setCertificationUrl(newCertUrl);
+        u.setCertificationPublicId(newPublicId);
+        u.setKycStatus("PENDING");
+        u.setKycNote(null);
+        users.save(u);
+
+        if (newAsset != null) {
+            newAsset.setUserId(u.getId());
+            newAsset.setLinked(true);
+            uploadedAssets.save(newAsset);
+        }
+
+        // Dọn ảnh cũ trên Cloudinary sau khi lưu thành công
+        if (oldPublicId != null && !oldPublicId.equals(newPublicId)) {
+            cloudinaryService.deleteImage(oldPublicId, "authenticated");
+        }
+
+        return tokens.viewUser(u);
     }
-    public AuthResponse getCurrentUser() { return TokenService.view(current()); }
+    public AuthResponse getCurrentUser() { return tokens.viewUser(current()); }
     private static void enabled(User u) { if(!u.isEnabled()) throw new AuthException(403,"ACCOUNT_DISABLED","Tài khoản đã bị khóa"); }
     private static void checkPassword(String s) { if(s.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72||s.length()<10) throw new AuthException(400,"WEAK_PASSWORD","Mật khẩu phải từ 10 ký tự và tối đa 72 bytes"); }
     public static Map<String,Object> challenge(String email,String type) { return Map.of("email",email,"requireOtp",true,"otpType",type,"otpExpirySeconds",300,"resendAfterSeconds",60); }

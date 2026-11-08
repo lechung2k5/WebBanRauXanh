@@ -1,6 +1,6 @@
 import { ApiResponse, AuthResponse, Category, OrderRequest, OrderResponse, PageResponse, Product, User, SemanticSearchResponse, AiChatResponse, AiStatusResponse, HybridSearchResponse, HarvestLot, HarvestLotRequest, HarvestLotStatusUpdateRequest } from '@/types';
 
-import { api } from './auth';
+import { api, authHeaders } from './auth';
 export { api } from './auth';
 
 const API_BASE_URL = '/api/backend';
@@ -64,23 +64,11 @@ export const getCurrentUserApi = async (): Promise<AuthResponse> => {
 export const getUsersApi = async (): Promise<User[]> => {
   try {
     const res = await fetch(`${API_BASE_URL}/users`, { cache: 'no-store', credentials: 'include' });
+    if (!res.ok && (res.status === 401 || res.status === 403)) {
+      throw new Error('Access Denied');
+    }
     const data: ApiResponse<User[]> = await res.json();
-    const list = data.result || [];
-    return list.map((u) => {
-      let fullName = u.fullName;
-      let address = u.address;
-      if (u.username === 'buyer_coop' || (fullName && fullName.includes('?') && fullName.toLowerCase().includes('h'))) {
-        fullName = 'Nguyễn Thị Minh Hạnh';
-        address = '199-205 Nguyễn Thái Học, Quận 1, TP.HCM';
-      } else if (u.username === 'buyer_winmart' || (fullName && fullName.includes('?') && fullName.toLowerCase().includes('nam'))) {
-        fullName = 'Phạm Hoàng Nam';
-        address = 'Tòa nhà Mplaza Saigon, 39 Lê Duẩn, Bến Nghé, Quận 1, TP.HCM';
-      } else if (u.username === 'buyer_lotte' || (fullName && fullName.includes('?') && (fullName.toLowerCase().includes('t') || fullName.toLowerCase().includes('l')))) {
-        fullName = 'Lê Trọng Đạt';
-        address = '469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP.HCM';
-      }
-      return { ...u, fullName, address };
-    });
+    return data.result || [];
   } catch {
     return [];
   }
@@ -546,9 +534,33 @@ export const createOrder = async (orderReq: OrderRequest): Promise<OrderResponse
     });
     const data: ApiResponse<OrderResponse> = await res.json();
     if (!res.ok) throw new Error(data.message || 'Lỗi khi đặt hàng');
+    if (typeof window !== 'undefined' && data.result) {
+      try {
+        const list = JSON.parse(localStorage.getItem('hona_my_orders') || '[]');
+        const filtered = list.filter((o: OrderResponse) => o.id !== data.result.id && o.orderCode !== data.result.orderCode);
+        filtered.unshift(data.result);
+        localStorage.setItem('hona_my_orders', JSON.stringify(filtered));
+      } catch {}
+    }
     return data.result;
   } catch (err: unknown) {
     throw err;
+  }
+};
+
+export const getUserOrdersApi = async (userId: number, page = 0, size = 20): Promise<PageResponse<OrderResponse>> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/orders/user/${userId}?page=${page}&size=${size}`, {
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      return { data: [], totalElements: 0, totalPages: 0, pageSize: size, currentPage: page };
+    }
+    const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+    return data.result;
+  } catch {
+    return { data: [], totalElements: 0, totalPages: 0, pageSize: size, currentPage: page };
   }
 };
 
@@ -563,32 +575,177 @@ export const getOrderByCode = async (orderCode: string): Promise<OrderResponse |
   }
 };
 
-export const getAdminContractsApi = async (): Promise<any[]> => {
-  try {
-    const res = await fetch(`${API_BASE_URL}/admin/contracts`, { cache: 'no-store', credentials: 'include' });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.result || [];
-  } catch {
-    return [];
-  }
+export const getAdminOrdersApi = async (page = 0, size = 50): Promise<PageResponse<OrderResponse>> => {
+  const res = await fetch(`${API_BASE_URL}/orders?page=${page}&size=${size}`, { cache: 'no-store', credentials: 'include' });
+  const data: ApiResponse<PageResponse<OrderResponse>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách đơn hàng');
+  return data.result;
 };
 
-export const getAdminOrdersApi = async (_page = 0, _size = 50): Promise<PageResponse<OrderResponse>> => {
-  return {
-    currentPage: 0,
-    totalPages: 0,
-    pageSize: 0,
-    totalElements: 0,
-    data: [],
-  };
+export const createBuyerRfqApi = async (request: {
+  harvestLotId: number;
+  quantityKg: number;
+  proposedPricePerKg: number;
+  desiredDeliveryDate: string;
+  deliveryLocation: string;
+  shippingOption?: string;
+  notes?: string;
+}) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<unknown> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể gửi RFQ');
+  return data.result;
 };
+
+export type BuyerRfq = {
+  id: number;
+  rfqCode: string;
+  status: string;
+  productName?: string;
+  harvestLotId?: number;
+  quantityKg: number;
+  requestedQuantityKg?: number;
+  proposedPricePerKg: number;
+  counterPricePerKg?: number | null;
+  deliveryDate: string;
+  deliveryLocation?: string;
+  createdAt?: string;
+};
+
+export const getBuyerRfqsApi = async (): Promise<BuyerRfq[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<BuyerRfq[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách RFQ');
+  return data.result || [];
+};
+
+export const respondBuyerRfqApi = async (id: number, request: { action: 'ACCEPT' | 'COUNTER' | 'REJECT'; counterPrice?: number; counterQuantity?: number; rejectReason?: string }) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}/respond`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<BuyerRfq> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật phiên đàm phán');
+  return data.result;
+};
+
+export type BuyerAddress = { id: number; name: string; address: string; phone?: string; defaultWarehouse: boolean };
+
+export const getBuyerAddressesApi = async (): Promise<BuyerAddress[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/addresses`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<BuyerAddress[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải địa chỉ nhận hàng');
+  return data.result || [];
+};
+
+export const saveBuyerAddressApi = async (request: Omit<BuyerAddress, 'id'>, id?: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/addresses${id ? `/${id}` : ''}`, {
+    method: id ? 'PUT' : 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<BuyerAddress> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu địa chỉ');
+  return data.result;
+};
+
+export const deleteBuyerAddressApi = async (id: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/addresses/${id}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<null> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể xóa địa chỉ');
+};
+
+export const getBuyerContractsApi = async (): Promise<Array<{ id: number; contractCode: string; totalAmount: number; depositAmount: number; status: string; depositStatus: string }>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách hợp đồng');
+  return (data.result || []).map((item) => ({
+    id: Number(item.id),
+    contractCode: String(item.contractCode || item.contract_code || ''),
+    totalAmount: Number(item.totalAmount ?? item.total_goods_amount ?? 0),
+    depositAmount: Number(item.depositAmount ?? item.deposit_30_amount ?? 0),
+    status: String(item.status || ''),
+    depositStatus: String(item.depositStatus || item.deposit_status || ''),
+  }));
+};
+
+export const getBuyerTelemetryApi = async (contractId: number): Promise<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/telemetry`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải dữ liệu IoT');
+  return data.result || [];
+};
+
+export const getBuyerQcReportApi = async (contractId: number): Promise<Array<Record<string, unknown>>> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/qc-report`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải báo cáo QC');
+  return data.result || [];
+};
+
+export const getBuyerDepositQrApi = async (contractId: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/qr-deposit`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tạo QR đặt cọc');
+  return data.result;
+};
+
+export const confirmBuyerDepositApi = async (contractId: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/deposit/confirm`, { method: 'POST', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể xác nhận đặt cọc');
+  return data.result;
+};
+
+export const signBuyerEpodApi = async (contractId: number, request: { deliveredWeightKg: number; damagedWeightKg: number; signatureName: string; signatureData: string; photoUrl: string }) => {
+  let photoUrl = request.photoUrl;
+  if (photoUrl.startsWith('blob:')) {
+    const blob = await fetch(photoUrl).then((response) => response.blob());
+    photoUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/sign-epod`, {
+    method: 'POST', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...request, photoUrl }),
+  });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể ký ePOD');
+  return data.result;
+};
+
+export const getBuyerFinalPaymentQrApi = async (contractId: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/qr-final-payment`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tạo QR thanh toán cuối');
+  return data.result;
+};
+
+export const confirmBuyerFinalPaymentApi = async (contractId: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/final-payment/confirm`, { method: 'POST', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể xác nhận thanh toán cuối');
+  return data.result;
+};
+
+export const getBuyerInvoiceUrl = (contractId: number) => `${API_BASE_URL}/buyer/contracts/${contractId}/invoice`;
+
 
 export const updateOrderStatusApi = async (_orderId: number, _status: string): Promise<OrderResponse> => {
   throw new Error('Đơn hàng đã được chuyển đổi hoàn toàn sang Hợp đồng B2B.');
 };
 
-// ======================= AI & PGVECTOR APIS =======================
+// // -------------------------------- AI & PGVECTOR APIS // --------------------------------
 
 export const semanticSearchApi = async (query: string, limit: number = 6): Promise<SemanticSearchResponse> => {
   const res = await fetch(`${API_BASE_URL}/ai/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
@@ -684,7 +841,10 @@ export const getSimilarProductsApi = async (idOrSlug: string | number, limit: nu
   }));
 };
 
-// ======================= MODULE 2: CATEGORIES CRUD APIS =======================
+
+//
+
+// -------------------------------- MODULE 2: CATEGORIES CRUD APIS // --------------------------------
 
 export const createCategoryApi = async (categoryData: Partial<Category>): Promise<Category> => {
   const res = await fetch(`${API_BASE_URL}/categories`, {
@@ -736,7 +896,7 @@ export const deleteCategoryApi = async (id: number): Promise<void> => {
   }
 };
 
-// ======================= MODULE 2: HARVEST LOTS APIS =======================
+// // -------------------------------- MODULE 2: HARVEST LOTS APIS // --------------------------------
 
 const CUSTOM_LOTS_STORAGE_KEY = 'xanhfarm_custom_harvest_lots';
 
@@ -968,4 +1128,17 @@ export const deleteHarvestLotApi = async (id: number): Promise<void> => {
   if (!res.ok || data.code !== 200) {
     throw new Error(data.message || 'Lỗi khi xóa lô nông sản');
   }
+};
+
+export const farmerAiChatApi = async (message: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/ai-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const data: ApiResponse<{ answer: string }> = await res.json();
+  if (!res.ok || data.code !== 200) {
+    throw new Error(data.message || 'Lỗi khi kết nối với Trợ Lý Nông Dân AI');
+  }
+  return data.result?.answer || '';
 };

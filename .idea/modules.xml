@@ -3,7 +3,9 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/BTL_WebBanRau.iml" filepath="$PROJECT_DIR$/.idea/BTL_WebBanRau.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/webbanrau-backend.iml" filepath="$PROJECT_DIR$/.idea/modules/webbanrau-backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/webbanrau-backend.main.iml" filepath="$PROJECT_DIR$/.idea/modules/webbanrau-backend.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/webbanrau-backend.test.iml" filepath="$PROJECT_DIR$/.idea/modules/webbanrau-backend.test.iml" />
     </modules>
   </component>
 </project>

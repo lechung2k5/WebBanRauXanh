@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
 import { Warehouse, Plus, AlertCircle, RefreshCw, Loader2, Snowflake, CheckCircle2, Clock } from 'lucide-react';
-import { DataTable, FormDialog, Row, Field } from '@/components/admin/AdminConsole';
-
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+import { DataTable, FormDialog, Row, Field, str } from '@/components/admin/AdminConsole';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
 
@@ -116,21 +114,30 @@ export default function AdminQcPage() {
       </div>
 
       {/* Danh Sách Buồng Lạnh Tại Trạm */}
-      <div className="space-y-3">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
-          <Snowflake className="w-4 h-4 text-[#10542C]" />
-          <span>Danh Sách Buồng Lạnh Bảo Quản ({coldRooms.length})</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <Snowflake className="w-4 h-4 text-[#10542C]" />
+              <span>Danh Sách Buồng Lạnh Bảo Quản</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Cơ sở hạ tầng kho trạm trung chuyển chuỗi lạnh</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            Hiển thị <strong className="text-[#10542C] font-semibold">{coldRooms.length}</strong> buồng lạnh
+          </span>
+        </div>
 
         {loading ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8] flex flex-col items-center gap-2">
+          <div className="py-16 text-center text-xs text-[#6B7280] flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 text-[#10542C] animate-spin" />
             <span>Đang tải danh sách buồng lạnh...</span>
           </div>
         ) : coldRooms.length === 0 ? (
-          <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có buồng lạnh nào trong cơ sở dữ liệu.</p>
-            <p className="mt-1">Bấm &quot;Thêm Buồng Lạnh&quot; để khai báo cơ sở hạ tầng kho trạm trung chuyển.</p>
+            <p className="text-gray-500">Bấm &quot;Thêm Buồng Lạnh&quot; để khai báo cơ sở hạ tầng kho trạm trung chuyển.</p>
           </div>
         ) : (
           <DataTable
@@ -149,14 +156,23 @@ export default function AdminQcPage() {
       </div>
 
       {/* Bảng Ưu Tiên Xuất Kho FEFO */}
-      <div className="space-y-3 pt-4 border-t border-[#EAECE8]">
-        <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
-          <Clock className="w-4 h-4 text-amber-600" />
-          <span>Thuật Toán Ưu Tiên Xuất Kho FEFO (First Expired, First Out) ({inspections.length})</span>
-        </h3>
+      <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+          <div>
+            <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span>Thuật Toán Ưu Tiên Xuất Kho FEFO (First Expired, First Out)</span>
+            </h3>
+            <p className="text-xs text-[#6B7280] mt-0.5">Tự động ưu tiên xuất các lô hàng gần hạn sử dụng trước</p>
+          </div>
+          <span className="text-xs text-[#6B7280]">
+            Hiển thị <strong className="text-[#10542C] font-semibold">{inspections.length}</strong> phiếu kiểm định
+          </span>
+        </div>
 
         {inspections.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
+          <div className="py-12 text-center text-xs text-[#6B7280] space-y-2">
+            <AlertCircle className="w-8 h-8 text-[#9CA3AF] mx-auto" />
             <p className="font-bold text-[#2C3E2E]">Chưa có phiếu kiểm định QC nào trong cơ sở dữ liệu.</p>
           </div>
         ) : (
@@ -174,14 +190,14 @@ export default function AdminQcPage() {
             actions={(row) => (
               <div className="flex items-center gap-2">
                 {Number(row.fefo_priority_score) < 2 && (
-                  <span className="text-red-700 font-bold text-xs bg-red-50 px-2 py-0.5 rounded-md">
+                  <span className="text-rose-700 font-semibold text-xs bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
                     Ưu tiên xuất ngay
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={() => setDetail(row)}
-                  className="px-2.5 py-1 text-xs font-bold text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] rounded-lg transition-colors cursor-pointer"
+                  className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] border border-[#CDE5CB] rounded-lg transition-colors cursor-pointer"
                 >
                   Xem biên bản
                 </button>

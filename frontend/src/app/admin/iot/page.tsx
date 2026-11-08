@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
 import { Thermometer, AlertTriangle, AlertCircle, RefreshCw, Loader2, Volume2, VolumeX, ShieldAlert, Activity } from 'lucide-react';
-import { DataTable, FormDialog, Row, Field } from '@/components/admin/AdminConsole';
-
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+import { DataTable, FormDialog, Row, Field, str, cleanVietnamese } from '@/components/admin/AdminConsole';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
 
@@ -147,7 +145,7 @@ export default function AdminIotPage() {
             <option value={0}>-- Chọn buồng / xe để xem telemetry --</option>
             {assets.map((a) => (
               <option key={str(a.id)} value={Number(a.id)}>
-                {str(a.asset_code)} · {str(a.asset_name)} ({str(a.asset_type)})
+                {str(a.asset_code)} · {cleanVietnamese(String(a.asset_name || ''), String(a.asset_code || ''))} ({str(a.asset_type)})
               </option>
             ))}
           </select>
@@ -206,7 +204,7 @@ export default function AdminIotPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-bold text-sm text-[#2C3E2E]">{str(row.asset_name)}</p>
+                      <p className="font-bold text-sm text-[#2C3E2E]">{cleanVietnamese(String(row.asset_name || ''), String(row.asset_code || ''))}</p>
                       <p className="text-[11px] font-mono text-[#6B7280]">{str(row.asset_code)} · {str(row.asset_type)}</p>
                     </div>
                     {isWarning && (
@@ -293,9 +291,18 @@ export default function AdminIotPage() {
       {/* Đồ Thị Nhiệt Độ & Lịch Sử Telemetry */}
       {assetId > 0 && (
         <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
-          <h3 className="font-heading font-black text-sm text-[#2C3E2E]">
-            Biểu Đồ Nhiệt Độ Thời Gian Thực (Thiết bị ID: {assetId})
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
+            <div>
+              <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
+                <Activity className="w-4 h-4 text-[#10542C]" />
+                <span>Nhật Ký Dữ Liệu Cảm Biến Telemetry (Thiết bị ID: {assetId})</span>
+              </h3>
+              <p className="text-xs text-[#6B7280] mt-0.5">Dữ liệu ghi nhận thông số nhiệt độ và độ ẩm thời gian thực</p>
+            </div>
+            <span className="text-xs text-[#6B7280]">
+              Hiển thị <strong className="text-[#10542C] font-semibold">{Math.min(10, telemetry.length)}</strong> bản ghi gần nhất
+            </span>
+          </div>
 
           {telemetry.length > 1 && (
             <div className="bg-[#F9F9F5] p-4 rounded-2xl border border-[#EAECE8]">

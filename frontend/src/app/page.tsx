@@ -10,6 +10,7 @@ import { Category, Product, OrderResponse, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import B2BDepositModal from '@/components/B2BDepositModal';
 import CreateProcurementModal from '@/components/CreateProcurementModal';
 import ProcurementBoardSection from '@/components/ProcurementBoardSection';
 import FarmCooperativesSection from '@/components/FarmCooperativesSection';
@@ -68,6 +69,7 @@ export default function HomePage() {
 
   // B2B Modals State
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [depositingProduct, setDepositingProduct] = useState<Product | null>(null);
   const [isProcurementModalOpen, setIsProcurementModalOpen] = useState(false);
 
   // Pagination for Home Catalog
@@ -82,7 +84,7 @@ export default function HomePage() {
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // User Auth State
-  const { currentUser, setCurrentUser, logout, cartCount } = useApp();
+  const { currentUser, setCurrentUser, logout, cartCount, addToCart, setIsCartOpen } = useApp();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
 
@@ -387,7 +389,7 @@ export default function HomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNegotiatingProduct(featuredHarvestLot)}
+                  onClick={() => setDepositingProduct(featuredHarvestLot)}
                   className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
                 >
                   <HeartHandshake className="w-3.5 h-3.5 text-[#8BC34A]" />
@@ -891,9 +893,11 @@ export default function HomePage() {
         isOpen={selectedProductForDetail !== null}
         onClose={() => setSelectedProductForDetail(null)}
         onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
+        onSelectProduct={(p: Product) => setSelectedProductForDetail(p)}
       />
 
       {/* B2B RFQ Negotiation Modal */}
+      <B2BDepositModal product={depositingProduct} isOpen={!!depositingProduct} onClose={() => setDepositingProduct(null)} />
       <B2BNegotiationModal
         product={negotiatingProduct}
         isOpen={!!negotiatingProduct}
@@ -912,6 +916,26 @@ export default function HomePage() {
       <OrderTrackingModal
         isOpen={isTrackingOpen}
         onClose={() => setIsTrackingOpen(false)}
+        onReorder={(items) => {
+          items.forEach((it) => {
+            const prod = products.find((p) => p.id === it.productId) || {
+              id: typeof it.productId === 'number' ? it.productId : 1,
+              name: it.productName,
+              slug: it.productName.toLowerCase().replace(/ /g, '-'),
+              price: it.unitPrice,
+              stockQuantity: 100,
+              unit: it.unit,
+              categoryName: 'Rau Sạch',
+              categorySlug: 'rau-sach',
+              origin: 'Đà Lạt',
+              description: it.productName,
+              imageUrl: it.productImageUrl,
+              isFeatured: true,
+            };
+            addToCart(prod as any, it.quantity);
+          });
+          setIsCartOpen(true);
+        }}
       />
 
       <AuthModal
