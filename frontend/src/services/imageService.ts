@@ -57,6 +57,24 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
     label: 'Nấm linh chi nâu',
   },
   {
+    regex: /\b(linh chi do|linh chi|reishi)\b/,
+    primary: 'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=600&auto=format&fit=crop&q=80'],
+    label: 'Nấm linh chi đỏ',
+  },
+  {
+    regex: /\b(hoang kim|golden oyster)\b/,
+    primary: 'https://images.unsplash.com/photo-1597701655287-2ea251d9c447?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1597701655287-2ea251d9c447?w=600&auto=format&fit=crop&q=80'],
+    label: 'Nấm hoàng kim',
+  },
+  {
+    regex: /\b(bao ngu xam|nam bao ngu)\b/,
+    primary: 'https://images.unsplash.com/photo-1622352348086-d622137af3b0?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1622352348086-d622137af3b0?w=600&auto=format&fit=crop&q=80'],
+    label: 'Nấm bào ngư xám',
+  },
+  {
     regex: /\b(loc nhung|pioppino)\b/,
     primary: 'https://images.unsplash.com/photo-1622352348086-d622137af3b0?w=600&auto=format&fit=crop&q=80',
     gallery: ['https://images.unsplash.com/photo-1622352348086-d622137af3b0?w=600&auto=format&fit=crop&q=80'],
@@ -102,6 +120,12 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
 
   // 4. Bắp cải & đậu bắp (đặt trước bắp mỹ)
   {
+    regex: /\b(bap cai tim|cai bap tim|purple cabbage|red cabbage)\b/,
+    primary: 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop&q=80'],
+    label: 'Bắp cải tím',
+  },
+  {
     regex: /\b(bap cai|cabbage)\b/,
     primary: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
     gallery: ['https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80'],
@@ -145,6 +169,12 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
     gallery: ['https://images.unsplash.com/photo-1689082697563-a90beab7104b?w=600&auto=format&fit=crop&q=80'],
     label: 'Củ cải trắng',
   },
+  {
+    regex: /\b(su hao|kohlrabi)\b/,
+    primary: 'https://images.unsplash.com/photo-1546793665-c74683f339c1?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1546793665-c74683f339c1?w=600&auto=format&fit=crop&q=80'],
+    label: 'Su hào',
+  },
 
   // 6. Cà chua
   {
@@ -182,6 +212,12 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
     label: 'Bí nụ',
   },
   {
+    regex: /\b(bi ngoi|zucchini)\b/,
+    primary: 'https://images.unsplash.com/photo-1563865436874-9aef32095fad?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1563865436874-9aef32095fad?w=600&auto=format&fit=crop&q=80'],
+    label: 'Bí ngòi',
+  },
+  {
     regex: /\b(bi do|bi do ho lo|pumpkin)\b/,
     primary: 'https://images.unsplash.com/photo-1570586437263-ab629fccc818?w=600&auto=format&fit=crop&q=80',
     gallery: ['https://images.unsplash.com/photo-1570586437263-ab629fccc818?w=600&auto=format&fit=crop&q=80'],
@@ -202,7 +238,7 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
     label: 'Khoai mỡ',
   },
 
-  // 10. Ớt & Hành & Tỏi
+  // 10. Ớt & Hành & Tỏi & Thảo Mộc
   {
     regex: /\b(ot chuong|bell pepper)\b/,
     primary: 'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=600&auto=format&fit=crop&q=80',
@@ -226,6 +262,42 @@ export const VEGETABLE_IMAGE_RULES: ProductImageRule[] = [
     primary: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600&auto=format&fit=crop&q=80',
     gallery: ['https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600&auto=format&fit=crop&q=80'],
     label: 'Tỏi',
+  },
+  {
+    regex: /\b(hanh la|scallion|spring onion)\b/,
+    primary: 'https://images.unsplash.com/photo-1608686207856-001b95cf60ca?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1608686207856-001b95cf60ca?w=600&auto=format&fit=crop&q=80'],
+    label: 'Hành lá',
+  },
+  {
+    regex: /\b(sa cay|sa tuoi|lemongrass)\b/,
+    primary: 'https://images.unsplash.com/photo-1596704017254-9b121068fb31?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1596704017254-9b121068fb31?w=600&auto=format&fit=crop&q=80'],
+    label: 'Sả cây',
+  },
+  {
+    regex: /\b(gung|ginger)\b/,
+    primary: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop&q=80'],
+    label: 'Gừng',
+  },
+  {
+    regex: /\b(hung que|basil)\b/,
+    primary: 'https://images.unsplash.com/photo-1618164435735-413d3b066c9a?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1618164435735-413d3b066c9a?w=600&auto=format&fit=crop&q=80'],
+    label: 'Húng quế',
+  },
+  {
+    regex: /\b(tia to|shiso|perilla)\b/,
+    primary: 'https://images.unsplash.com/photo-1580910365203-91ea9115a319?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1580910365203-91ea9115a319?w=600&auto=format&fit=crop&q=80'],
+    label: 'Tía tô',
+  },
+  {
+    regex: /\b(he la|chives)\b/,
+    primary: 'https://images.unsplash.com/photo-1608686207856-001b95cf60ca?w=600&auto=format&fit=crop&q=80',
+    gallery: ['https://images.unsplash.com/photo-1608686207856-001b95cf60ca?w=600&auto=format&fit=crop&q=80'],
+    label: 'Hẹ lá',
   },
 
   // 11. Rau ăn lá

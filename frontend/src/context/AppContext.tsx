@@ -34,7 +34,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(() => getStoredUser());
+  const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const refreshUser = async () => {
     try {
@@ -60,7 +60,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [categories, setCategories] = useState<Category[]>([]);
   const [isAiOpen, setIsAiOpen] = useState(false);
 
-  // Load cart from localStorage
+  // Load cart and stored user from localStorage on client mount (prevents SSR hydration mismatch)
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem('xanhfarm_cart');
@@ -70,6 +70,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
+
+    try {
+      const stored = getStoredUser();
+      if (stored) {
+        setCurrentUser(stored);
+      }
+    } catch {
+      // ignore
+    }
+
     void refreshUser();
     const sync = () => void refreshUser();
     const channel = new BroadcastChannel('hona-auth');

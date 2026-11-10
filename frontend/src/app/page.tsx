@@ -6,10 +6,11 @@ import { portalFor } from '@/services/auth';
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Category, Product, OrderResponse, AuthResponse } from '@/types';
+import { Category, Product, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import B2BDepositModal from '@/components/B2BDepositModal';
 import CreateProcurementModal from '@/components/CreateProcurementModal';
 import ProcurementBoardSection from '@/components/ProcurementBoardSection';
 import FarmCooperativesSection from '@/components/FarmCooperativesSection';
@@ -68,11 +69,14 @@ export default function HomePage() {
 
   // B2B Modals State
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [depositingProduct, setDepositingProduct] = useState<Product | null>(null);
   const [isProcurementModalOpen, setIsProcurementModalOpen] = useState(false);
 
   // Pagination for Home Catalog
   const [catalogPage, setCatalogPage] = useState(1);
-  const catalogPageSize = 16;
+  const catalogPageSize = 10;
+  const [totalCatalogItems, setTotalCatalogItems] = useState(0);
+  const [serverCatalogPages, setServerCatalogPages] = useState(1);
 
   // Modals
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -97,10 +101,12 @@ export default function HomePage() {
       try {
         const [catData, prodData] = await Promise.all([
           getCategories(),
-          getProducts({ categoryId: selectedCategory || undefined, keyword: searchQuery || undefined }),
+          getProducts({ categoryId: selectedCategory || undefined, keyword: activeSearchKeyword || undefined, page: catalogPage, size: catalogPageSize }),
         ]);
         setCategories(catData);
         setProducts(prodData.products);
+        setTotalCatalogItems(prodData.totalElements);
+        setServerCatalogPages(Math.max(1, prodData.totalPages));
       } catch (err) {
         console.error('Error loading catalog:', err);
       } finally {
@@ -109,50 +115,25 @@ export default function HomePage() {
     };
 
     fetchData();
-  }, [selectedCategory]);
+  }, [selectedCategory, catalogPage, activeSearchKeyword]);
 
-  const handleSearchSubmit = async (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const term = searchQuery.trim();
     setSearchQuery('');
     if (!term) return;
 
     setActiveSearchKeyword(term);
-    setLoading(true);
-    try {
-      const prodData = await getProducts({
-        categoryId: selectedCategory || undefined,
-        keyword: term,
-      });
-      setProducts(prodData.products);
-      setCatalogPage(1);
-      setTimeout(() => {
-        const el = document.getElementById('catalog-section');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 100);
-    } catch (err) {
-      console.error('Error searching products:', err);
-    } finally {
-      setLoading(false);
-    }
+    setCatalogPage(1);
+    setTimeout(() => {
+      const el = document.getElementById('catalog-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
-  const handleClearActiveSearch = async () => {
+  const handleClearActiveSearch = () => {
     setActiveSearchKeyword('');
-    setLoading(true);
-    try {
-      const prodData = await getProducts({
-        categoryId: selectedCategory || undefined,
-      });
-      setProducts(prodData.products);
-      setCatalogPage(1);
-    } catch (err) {
-      console.error('Error resetting search:', err);
-    } finally {
-      setLoading(false);
-    }
+    setCatalogPage(1);
   };
 
   const handleAddToCart = (product: Product, quantity?: number) => {
@@ -209,11 +190,12 @@ export default function HomePage() {
     setCatalogPage(1);
   }, [selectedCategory, selectedCert, selectedHarvestStage, maxPrice, searchQuery]);
 
-  const totalCatalogPages = Math.ceil(filteredProducts.length / catalogPageSize);
-  const paginatedCatalogProducts = filteredProducts.slice(
-    (catalogPage - 1) * catalogPageSize,
-    catalogPage * catalogPageSize
-  );
+  const hasClientSideFilters = Boolean(selectedCert || selectedHarvestStage || maxPrice < 150000);
+  const totalCatalogPages = hasClientSideFilters
+    ? Math.max(1, Math.ceil(filteredProducts.length / catalogPageSize))
+    : serverCatalogPages;
+  const paginatedCatalogProducts = filteredProducts;
+  const displayedCatalogTotal = hasClientSideFilters ? filteredProducts.length : totalCatalogItems;
 
   return (
     <div className="min-h-screen bg-[#F9F9F5] text-[#2C3E2E] flex flex-col selection:bg-[#4CAF50] selection:text-white pb-20 md:pb-0">
@@ -387,7 +369,7 @@ export default function HomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNegotiatingProduct(featuredHarvestLot)}
+                  onClick={() => setDepositingProduct(featuredHarvestLot)}
                   className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
                 >
                   <HeartHandshake className="w-3.5 h-3.5 text-[#8BC34A]" />
@@ -550,7 +532,7 @@ export default function HomePage() {
             </div>
             <span className="text-xs text-[#6B7280] font-medium">
               {filteredProducts.length > 0
-                ? `Hiển thị ${(catalogPage - 1) * catalogPageSize + 1} - ${Math.min(catalogPage * catalogPageSize, filteredProducts.length)} trong ${filteredProducts.length} lô chào bán`
+                ? `Hiển thị ${(catalogPage - 1) * catalogPageSize + 1} - ${Math.min(catalogPage * catalogPageSize, (catalogPage - 1) * catalogPageSize + filteredProducts.length)} trong ${displayedCatalogTotal} lô chào bán`
                 : '0 lô hàng'}
             </span>
           </div>
@@ -621,7 +603,10 @@ export default function HomePage() {
                       type="radio"
                       name="stageFilterHome"
                       checked={selectedHarvestStage === st.val}
-                      onChange={() => setSelectedHarvestStage(st.val)}
+                      onChange={() => {
+                        setSelectedHarvestStage(st.val);
+                        setCatalogPage(1);
+                      }}
                       className="accent-[#10542C]"
                     />
                     <span className={selectedHarvestStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
@@ -749,11 +734,12 @@ export default function HomePage() {
               ) : (
                 <div className="space-y-6">
                   {/* Layout 1 hàng 1 sản phẩm - card chiều ngang to ra */}
-                  <div className="flex flex-col gap-4">
+                  <div className="grid lg:grid-cols-2 gap-5">
                     {paginatedCatalogProducts.map((product) => (
                       <ProductCard
                         key={product.id}
                         product={product}
+                        layout="grid"
                         onViewDetail={(p) => {
                           trackProductView(p);
                           setSelectedProductForDetail(p);
@@ -767,7 +753,7 @@ export default function HomePage() {
                   <Pagination
                     currentPage={catalogPage}
                     totalPages={totalCatalogPages}
-                    totalItems={filteredProducts.length}
+                    totalItems={displayedCatalogTotal}
                     pageSize={catalogPageSize}
                     onPageChange={(page) => setCatalogPage(page)}
                     scrollTargetId="catalog-section"
@@ -891,9 +877,11 @@ export default function HomePage() {
         isOpen={selectedProductForDetail !== null}
         onClose={() => setSelectedProductForDetail(null)}
         onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
+        onSelectProduct={(p: Product) => setSelectedProductForDetail(p)}
       />
 
       {/* B2B RFQ Negotiation Modal */}
+      <B2BDepositModal product={depositingProduct} isOpen={!!depositingProduct} onClose={() => setDepositingProduct(null)} />
       <B2BNegotiationModal
         product={negotiatingProduct}
         isOpen={!!negotiatingProduct}

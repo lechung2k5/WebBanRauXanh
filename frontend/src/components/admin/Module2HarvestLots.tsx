@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import ImageUploadField from '../ImageUploadField';
 import {
@@ -50,14 +50,38 @@ import {
   MapPin,
   ExternalLink,
   SlidersHorizontal,
+  X,
 } from 'lucide-react';
+
+const removeVietnameseTones = (str: string) => {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+};
 
 interface Module2HarvestLotsProps {
   activeTab?: 'lots' | 'categories';
 }
 
 export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsProps = {}) {
-  const [activeSubTab, setActiveSubTab] = useState<'lots' | 'categories'>(activeTab);
+  const [activeSubTab, setActiveSubTab] = useState<'lots' | 'categories'>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('tab');
+      if (p === 'categories' || p === 'lots') return p;
+    }
+    return activeTab;
+  });
+
+  const handleTabChange = (tab: 'lots' | 'categories') => {
+    setActiveSubTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    }
+  };
 
   useEffect(() => {
     if (activeTab && activeTab !== activeSubTab) {
@@ -66,7 +90,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   }, [activeTab]);
 
   // ================= STATE CHO HARVEST LOTS =================
-  const [lots, setLots] = useState<HarvestLot[]>([]);
+  const [allLots, setAllLots] = useState<HarvestLot[]>([]);
   const [lotStats, setLotStats] = useState<Record<string, number>>({
     totalLots: 0,
     openLots: 0,
@@ -80,8 +104,49 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState<number>(0);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [totalElements, setTotalElements] = useState<number>(0);
+
+  // Tìm kiếm tức thì đồng thời khi người dùng gõ
+  const PAGE_SIZE = 15;
+  const filteredLots = useMemo(() => {
+    return allLots.filter((lot) => {
+      // 1. Lọc theo trạng thái
+      if (filterStatus !== 'ALL' && lot.status !== filterStatus) return false;
+
+      // 2. Lọc theo ngành hàng
+      if (filterCategory !== 'ALL') {
+        const lotCatCode = getCategoryCode({ id: lot.categoryId, slug: lot.category } as Category);
+        const lotRaw = (lot.category || '').toUpperCase().replace(/-/g, '_');
+        const filterCat = filterCategory.toUpperCase().replace(/-/g, '_');
+        if (lotRaw !== filterCat && lotCatCode !== filterCat) return false;
+      }
+
+      // 3. Tìm kiếm tức thì khi gõ
+      if (!searchKw.trim()) return true;
+      const kw = searchKw.trim().toLowerCase();
+      const kwNoTone = removeVietnameseTones(kw);
+
+      const targets = [
+        lot.lotCode,
+        lot.productName,
+        lot.farmerName,
+        lot.pucCode,
+        lot.certification,
+        lot.warehouseLocation,
+        lot.region,
+      ]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase());
+
+      return targets.some((t) => t.includes(kw) || removeVietnameseTones(t).includes(kwNoTone));
+    });
+  }, [allLots, filterStatus, filterCategory, searchKw]);
+
+  const totalPages = Math.ceil(filteredLots.length / PAGE_SIZE) || 1;
+  const totalElements = filteredLots.length;
+  const lots = useMemo(() => {
+    const start = currentPage * PAGE_SIZE;
+    return filteredLots.slice(start, start + PAGE_SIZE);
+  }, [filteredLots, currentPage]);
 
   // Modals cho Lots
   const [selectedLotDetail, setSelectedLotDetail] = useState<HarvestLot | null>(null);
@@ -97,6 +162,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   // Form State cho Tạo/Sửa Lô
   const [lotForm, setLotForm] = useState<{
     lotCode: string;
+    farmerId?: number;
     farmerName: string;
     productName: string;
     category: string;
@@ -118,6 +184,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     tierPricing: HarvestLotTierPrice[];
   }>({
     lotCode: '',
+    farmerId: 4,
     farmerName: 'HTX Nông Nghiệp Công Nghệ Cao Đơn Dương',
     productName: '',
     category: 'RAU_AN_LA',
@@ -141,10 +208,12 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       { minKg: 2000, price: 13500 },
     ],
   });
+  const [isSubmittingLot, setIsSubmittingLot] = useState<boolean>(false);
 
   // ================= STATE CHO CATEGORIES =================
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState<boolean>(false);
+  const [isSubmittingCategory, setIsSubmittingCategory] = useState<boolean>(false);
   const [categorySearchKw, setCategorySearchKw] = useState<string>('');
   const [categoryFilterStock, setCategoryFilterStock] = useState<'ALL' | 'HAS_LOTS' | 'EMPTY'>('ALL');
   const [categorySortBy, setCategorySortBy] = useState<'name_asc' | 'name_desc' | 'productCount'>('productCount');
@@ -207,7 +276,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     fetchLots();
     fetchStats();
     fetchCategoriesData();
-  }, [currentPage, filterStatus, filterCategory, activeSubTab]);
+  }, [activeSubTab]);
 
   // Khóa cuộn trang nền khi có bất kỳ modal nào đang mở
   useEffect(() => {
@@ -226,15 +295,10 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     setLoadingLots(true);
     try {
       const res = await getAdminHarvestLotsApi({
-        keyword: searchKw.trim() || undefined,
-        status: filterStatus,
-        category: filterCategory,
-        page: currentPage,
-        size: 15,
+        page: 0,
+        size: 200,
       });
-      setLots(res.data || []);
-      setTotalPages(res.totalPages || 1);
-      setTotalElements(res.totalElements || (res.data ? res.data.length : 0));
+      setAllLots(res.data || []);
     } catch (err) {
       console.error('Error fetching harvest lots:', err);
     } finally {
@@ -326,6 +390,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
     setLotForm({
       lotCode: '',
+      farmerId: 4,
       farmerName: 'HTX Nông Nghiệp Công Nghệ Cao Đơn Dương',
       productName: '',
       category: catCode,
@@ -367,6 +432,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
     setLotForm({
       lotCode: lot.lotCode,
+      farmerId: lot.farmerId || 4,
       farmerName: lot.farmerName,
       productName: lot.productName,
       category: catCode,
@@ -397,40 +463,53 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       return;
     }
 
+    const today = new Date().toISOString().split('T')[0];
+    const defaultExpiry = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+
     const payload: HarvestLotRequest = {
       lotCode: lotForm.lotCode.trim() || undefined,
-      farmerName: lotForm.farmerName,
-      productName: lotForm.productName,
+      farmerId: lotForm.farmerId || 4,
+      farmerName: lotForm.farmerName.trim() || 'HTX Nông Nghiệp Công Nghệ Cao Đơn Dương',
+      productName: lotForm.productName.trim(),
       category: lotForm.category,
       categoryId: lotForm.categoryId,
-      pucCode: lotForm.pucCode.toUpperCase(),
-      certification: lotForm.certification,
-      harvestDate: lotForm.harvestDate,
-      expiryDate: lotForm.expiryDate,
-      totalWeightKg: Number(lotForm.totalWeightKg),
-      availableWeightKg: Number(lotForm.availableWeightKg),
-      basePricePerKg: Number(lotForm.basePricePerKg),
-      tierPricingJson: JSON.stringify(lotForm.tierPricing),
-      reqTempMin: Number(lotForm.reqTempMin),
-      reqTempMax: Number(lotForm.reqTempMax),
-      status: lotForm.status,
-      imageUrl: lotForm.imageUrl,
-      warehouseLocation: lotForm.warehouseLocation,
-      region: lotForm.region,
-      auditNote: lotForm.auditNote,
+      pucCode: lotForm.pucCode.trim().toUpperCase(),
+      certification: lotForm.certification || 'VietGAP',
+      harvestDate: lotForm.harvestDate || today,
+      expiryDate: lotForm.expiryDate || defaultExpiry,
+      totalWeightKg: Number(lotForm.totalWeightKg) || 1000,
+      availableWeightKg: Number(lotForm.availableWeightKg) || Number(lotForm.totalWeightKg) || 1000,
+      basePricePerKg: Number(lotForm.basePricePerKg) || 15000,
+      tierPricingJson: JSON.stringify(lotForm.tierPricing || []),
+      reqTempMin: Number(lotForm.reqTempMin) || 2.0,
+      reqTempMax: Number(lotForm.reqTempMax) || 6.0,
+      status: lotForm.status || 'PENDING_APPROVAL',
+      imageUrl: lotForm.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      warehouseLocation: lotForm.warehouseLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+      region: lotForm.region || 'Tây Nguyên & Lâm Đồng',
+      auditNote: lotForm.auditNote || 'Đạt chuẩn kiểm định VietGAP',
     };
 
+    setIsSubmittingLot(true);
     try {
       if (editingLot) {
         await updateHarvestLotApi(editingLot.id, payload);
+        setIsLotFormOpen(false);
+        await fetchLots();
       } else {
         await createHarvestLotApi(payload);
+        setIsLotFormOpen(false);
+        setCurrentPage(0);
+        setFilterStatus('ALL');
+        setFilterCategory('ALL');
+        setSearchKw('');
+        await fetchLots();
       }
-      setIsLotFormOpen(false);
-      await fetchLots();
       await fetchStats();
     } catch (err: any) {
       alert(err.message || 'Lỗi khi lưu lô nông sản');
+    } finally {
+      setIsSubmittingLot(false);
     }
   };
 
@@ -470,6 +549,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     e.preventDefault();
     if (!categoryForm.name.trim()) return;
 
+    setIsSubmittingCategory(true);
     try {
       if (editingCategory) {
         await updateCategoryApi(editingCategory.id, categoryForm);
@@ -480,6 +560,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       await fetchCategoriesData();
     } catch (err: any) {
       alert(err.message || 'Lỗi khi lưu danh mục');
+    } finally {
+      setIsSubmittingCategory(false);
     }
   };
 
@@ -495,6 +577,55 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
   return (
     <div className="space-y-6">
+      {/* Thanh chuyển đổi phân hệ bên trong "Nguồn cung & danh mục" */}
+      <div className="flex items-center gap-2 bg-white p-1.5 sm:p-2 rounded-2xl border border-[#EAECE8] shadow-xs w-fit">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <button
+            type="button"
+            onClick={() => handleTabChange('lots')}
+            className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'lots'
+                ? 'bg-[#10542C] text-white shadow-sm'
+                : 'text-[#4B5563] hover:text-[#10542C] hover:bg-[#F4F6F0]'
+            }`}
+          >
+            <Package className="w-4 h-4" />
+            <span>Lô Nông Sản Sàn Sỉ</span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                activeSubTab === 'lots'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[#EAF5E9] text-[#10542C]'
+              }`}
+            >
+              {lotStats.totalLots || allLots.length || 50}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('categories')}
+            className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'categories'
+                ? 'bg-[#10542C] text-white shadow-sm'
+                : 'text-[#4B5563] hover:text-[#10542C] hover:bg-[#F4F6F0]'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Quản Lý Danh Mục</span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                activeSubTab === 'categories'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[#EAF5E9] text-[#10542C]'
+              }`}
+            >
+              {categories.length || 4}
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* ======================= SUB-TAB 1: LÔ NÔNG SẢN VỤ MÙA ======================= */}
       {activeSubTab === 'lots' && (
         <div className="space-y-6">
@@ -517,7 +648,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 <span className="text-xs font-bold">Lô Mở Bán (OPEN)</span>
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
               </div>
-              <p className="font-heading font-black text-2xl text-[#10542C]">{lotStats.openLots || 0}</p>
+              <p className="font-heading font-black text-2xl text-[#10542C]">{lotStats.openLots || allLots.filter(l => l.status === 'OPEN').length}</p>
               <span className="text-[11px] text-emerald-600 font-medium">Sẵn sàng xuất khẩu / giao sỉ</span>
             </div>
 
@@ -526,7 +657,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 <span className="text-xs font-bold">Chờ Kiểm Định (QC)</span>
                 <Clock className="w-4 h-4 text-amber-500" />
               </div>
-              <p className="font-heading font-black text-2xl text-amber-600">{lotStats.pendingLots || 0}</p>
+              <p className="font-heading font-black text-2xl text-amber-600">{lotStats.pendingLots || allLots.filter(l => l.status === 'PENDING_APPROVAL').length}</p>
               <span className="text-[11px] text-amber-600 font-medium">Đang chờ lấy mẫu kiểm nghiệm</span>
             </div>
 
@@ -535,7 +666,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 <span className="text-xs font-bold">Tạm Khóa (Cảnh Báo BVTV)</span>
                 <AlertTriangle className="w-4 h-4 text-rose-500" />
               </div>
-              <p className="font-heading font-black text-2xl text-rose-600">{lotStats.suspendedLots || 0}</p>
+              <p className="font-heading font-black text-2xl text-rose-600">{lotStats.suspendedLots || allLots.filter(l => l.status === 'SUSPENDED').length}</p>
               <span className="text-[11px] text-rose-600 font-medium">Khiếu nại dư lượng thuốc BVTV</span>
             </div>
 
@@ -544,7 +675,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 <span className="text-xs font-bold">Đã Bán Hết (SOLD OUT)</span>
                 <CheckCircle2 className="w-4 h-4 text-slate-500" />
               </div>
-              <p className="font-heading font-black text-2xl text-[#2C3E2E]">{lotStats.soldOutLots || 0}</p>
+              <p className="font-heading font-black text-2xl text-[#2C3E2E]">{lotStats.soldOutLots || allLots.filter(l => l.status === 'SOLD_OUT').length}</p>
               <span className="text-[11px] text-slate-500 font-medium">Hoàn tất hợp đồng thương lái</span>
             </div>
           </div>
@@ -557,16 +688,26 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   type="text"
                   placeholder="Tìm theo Mã Lô, Mã PUC, Nông trại, Tên sản phẩm..."
                   value={searchKw}
-                  onChange={(e) => setSearchKw(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setCurrentPage(0);
-                      fetchLots();
-                    }
+                  onChange={(e) => {
+                    setSearchKw(e.target.value);
+                    setCurrentPage(0);
                   }}
-                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-8 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C] transition-all"
                 />
-                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                {searchKw && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchKw('');
+                      setCurrentPage(0);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
 
               {/* Lọc Trạng Thái */}
@@ -931,9 +1072,19 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   placeholder="Tìm theo tên danh mục, mô tả ngành hàng..."
                   value={categorySearchKw}
                   onChange={(e) => setCategorySearchKw(e.target.value)}
-                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-8 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 />
-                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                {categorySearchKw && (
+                  <button
+                    type="button"
+                    onClick={() => setCategorySearchKw('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
 
               {/* Lọc Tình Trạng Lô Hàng */}
@@ -1570,9 +1721,10 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-[#10542C] text-white text-xs font-bold hover:bg-[#0C3E20] cursor-pointer shadow-md transition-colors"
+                  disabled={isSubmittingLot}
+                  className="flex-1 py-2.5 rounded-xl bg-[#10542C] text-white text-xs font-bold hover:bg-[#0C3E20] cursor-pointer shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {editingLot ? 'Lưu Thay Đổi' : 'Đăng Lô Nông Sản'}
+                  {isSubmittingLot ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingLot ? 'Lưu Thay Đổi' : 'Đăng Lô Nông Sản')}
                 </button>
               </div>
             </form>
@@ -1649,9 +1801,10 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-[#10542C] text-white text-xs font-bold hover:bg-[#0C3E20] cursor-pointer shadow-md transition-colors"
+                  disabled={isSubmittingCategory}
+                  className="flex-1 py-2.5 rounded-xl bg-[#10542C] text-white text-xs font-bold hover:bg-[#0C3E20] cursor-pointer shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {editingCategory ? 'Lưu Thay Đổi' : 'Tạo Danh Mục'}
+                  {isSubmittingCategory ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingCategory ? 'Lưu Thay Đổi' : 'Tạo Danh Mục')}
                 </button>
               </div>
             </form>

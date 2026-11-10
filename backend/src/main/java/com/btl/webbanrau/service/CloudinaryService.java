@@ -13,12 +13,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class CloudinaryService {
 
-    @Autowired(required = false)
     private final Cloudinary cloudinary;
+
+    public CloudinaryService(@org.springframework.lang.Nullable @Autowired(required = false) Cloudinary cloudinary) {
+        this.cloudinary = cloudinary;
+    }
 
     public boolean isConfigured() {
         return cloudinary != null;
