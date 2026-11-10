@@ -135,13 +135,13 @@ export default function FarmerOrderManagementView({
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-green-100 backdrop-blur-md mb-2">
               <ShoppingBag className="w-3.5 h-3.5 text-emerald-300" />
-              <span>PHÂN HỆ QUẢN LÝ ĐƠN HÀNG B2B & ESCROW</span>
+              <span>QUẢN LÝ TIẾN ĐỘ ĐƠN HÀNG & TIỀN CỌC</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-heading tracking-tight">
               Quản Lý Hợp Đồng & Đơn Hàng B2B
             </h1>
             <p className="text-sm text-green-100/90 mt-1 max-w-2xl">
-              Theo dõi và cập nhật trạng thái đơn hàng xuyên suốt tiến trình thu hoạch, vận chuyển xe lạnh IoT và giải ngân bảo chứng Escrow. Dữ liệu đồng bộ trực tiếp với Thương lái (Buyer).
+              Theo dõi và cập nhật trạng thái đơn hàng xuyên suốt tiến trình từ nhận cọc 30%, thu hoạch, vận chuyển xe lạnh đến bàn giao và thanh toán. Dữ liệu đồng bộ trực tiếp với khách mua.
             </p>
           </div>
 
@@ -176,25 +176,25 @@ export default function FarmerOrderManagementView({
         <div className="rounded-2xl bg-white p-4 border border-amber-100 shadow-2xs bg-amber-50/20">
           <span className="text-[11px] font-bold text-amber-700 block uppercase">Chờ Cọc 30%</span>
           <span className="text-2xl font-black text-amber-600 mt-1 block">{stats.waitingDeposit}</span>
-          <span className="text-[10px] text-amber-600/80 mt-0.5 block">Chờ Buyer quét VietQR</span>
+          <span className="text-[10px] text-amber-600/80 mt-0.5 block">Chờ khách mua quét mã chuyển cọc</span>
         </div>
 
         <div className="rounded-2xl bg-white p-4 border border-blue-100 shadow-2xs bg-blue-50/20">
           <span className="text-[11px] font-bold text-blue-700 block uppercase">Đang Vận Chuyển</span>
           <span className="text-2xl font-black text-blue-600 mt-1 block">{stats.inTransit}</span>
-          <span className="text-[10px] text-blue-600/80 mt-0.5 block">Xe lạnh có cảm biến IoT</span>
+          <span className="text-[10px] text-blue-600/80 mt-0.5 block">Xe lạnh có cảm biến nhiệt độ</span>
         </div>
 
         <div className="rounded-2xl bg-white p-4 border border-emerald-100 shadow-2xs bg-emerald-50/20">
           <span className="text-[11px] font-bold text-emerald-700 block uppercase">Đã Quyết Toán</span>
           <span className="text-2xl font-black text-emerald-600 mt-1 block">{stats.completed}</span>
-          <span className="text-[10px] text-emerald-600/80 mt-0.5 block">Tiền đã giải ngân về ví</span>
+          <span className="text-[10px] text-emerald-600/80 mt-0.5 block">Tiền đã giải ngân về tài khoản</span>
         </div>
 
         <div className="col-span-2 rounded-2xl bg-white p-4 border border-gray-100 shadow-2xs flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[11px] font-bold text-gray-500 block uppercase">Cọc Escrow Đang Bảo Chứng</span>
+              <span className="text-[11px] font-bold text-gray-500 block uppercase">Tiền Cọc Bảo Chứng (30%)</span>
               <span className="text-lg font-black text-emerald-700 mt-0.5 block">{formatVnd(stats.totalEscrowHolding)}</span>
             </div>
             <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">Bảo chứng sàn</span>
@@ -277,7 +277,7 @@ export default function FarmerOrderManagementView({
           <ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <h3 className="text-base font-bold text-gray-700">Chưa có đơn hàng nào phù hợp</h3>
           <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-            Khi thương lái gửi đề xuất mua và chốt giá qua mục Đàm Phán RFQ, hợp đồng điện tử và tiến trình giao hàng sẽ tự động xuất hiện tại đây.
+            Khi khách mua gửi yêu cầu báo giá và hai bên chốt đơn thành công, hợp đồng và tiến trình giao hàng sẽ tự động xuất hiện tại đây.
           </p>
         </div>
       ) : (
@@ -320,7 +320,7 @@ export default function FarmerOrderManagementView({
                         </span>
                         {contract.rfqCode && (
                           <span className="text-[10px] rounded-full bg-sky-50 text-sky-700 font-mono px-2 py-0.5">
-                            Gốc: {contract.rfqCode}
+                            Yêu cầu gốc: {contract.rfqCode}
                           </span>
                         )}
                       </div>
@@ -397,9 +397,9 @@ export default function FarmerOrderManagementView({
                     </div>
                   </div>
 
-                  {/* Cột 3: Vận tải lạnh IoT & ePOD */}
+                  {/* Cột 3: Vận chuyển xe lạnh & Biên bản bàn giao */}
                   <div className="space-y-1.5 p-3 rounded-2xl bg-gray-50/70 border border-gray-100">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Vận Chuyển Lạnh & ePOD</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Vận Chuyển Lạnh & Nhận Hàng</span>
                     <div className="flex items-center gap-2">
                       <Truck className="w-4 h-4 text-blue-600 shrink-0" />
                       <span className="font-bold text-gray-800 truncate">{contract.truckLicensePlate}</span>
@@ -411,7 +411,7 @@ export default function FarmerOrderManagementView({
                       </span>
                     </div>
                     <div className="flex justify-between text-gray-600">
-                      <span>Biên bản ePOD:</span>
+                      <span>Biên bản nhận hàng:</span>
                       {contract.epodSignedAt ? (
                         <span className="text-emerald-700 font-bold flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" /> Đã ký ({contract.epodDeliveredWeightKg} kg)
@@ -436,7 +436,7 @@ export default function FarmerOrderManagementView({
                       <Clock className="w-3.5 h-3.5" /> Tiến Trình Giao Nhận & Quyết Toán (Mốc {contract.fulfillmentStep}/6)
                     </span>
                     <span className="text-gray-400 font-normal">
-                      {contract.fulfillmentStep === 6 ? 'Đã giải ngân Escrow về ví' : 'Đang xử lý theo hợp đồng'}
+                      {contract.fulfillmentStep === 6 ? 'Đã thanh toán tiền về tài khoản' : 'Đang xử lý theo hợp đồng'}
                     </span>
                   </div>
 
@@ -446,7 +446,7 @@ export default function FarmerOrderManagementView({
                       { step: 2, label: '2. Thu Hoạch' },
                       { step: 3, label: '3. Xe Lạnh' },
                       { step: 4, label: '4. Giao Hàng' },
-                      { step: 5, label: '5. Ký ePOD' },
+                      { step: 5, label: '5. Ký Nhận Hàng' },
                       { step: 6, label: '6. Quyết Toán' },
                     ].map((m) => {
                       const isDone = contract.fulfillmentStep >= m.step;
@@ -537,7 +537,7 @@ export default function FarmerOrderManagementView({
                         }
                         className="flex items-center gap-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs"
                       >
-                        <CreditCard className="w-3.5 h-3.5" /> Yêu Cầu Giải Ngân Escrow Về Ví (Mốc 6)
+                        <CreditCard className="w-3.5 h-3.5" /> Yêu Cầu Chuyển Tiền Vào Tài Khoản (Mốc 6)
                       </button>
                     )}
 
@@ -561,13 +561,13 @@ export default function FarmerOrderManagementView({
                     </button>
                   </div>
 
-                  {/* Nút Xem chi tiết Post-Sale & Chuỗi lạnh */}
+                  {/* Nút Xem chi tiết Vận chuyển & Biên bản */}
                   <button
                     type="button"
                     onClick={() => onNavigateToPostSale(contract.id)}
                     className="flex items-center gap-1.5 text-xs font-bold text-[#10542C] hover:text-emerald-700 hover:underline px-2 py-1.5 transition"
                   >
-                    <span>Xem Chi Tiết Chuỗi Lạnh & ePOD</span>
+                    <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>

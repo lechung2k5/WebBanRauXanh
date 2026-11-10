@@ -66,7 +66,7 @@ export default function AdminQcPage() {
               <Warehouse className="w-7 h-7 text-[#8BC34A]" /> Trạm Kiểm Định QC & Kho Lạnh FEFO
             </h1>
             <p className="text-xs text-white/80 mt-1">
-              Module 4: Quản trị các buồng lạnh bảo quản tại trạm trung chuyển, nghiệm thu kiểm định chất lượng và xuất kho FEFO.
+              Quản trị các buồng lạnh bảo quản tại trạm trung chuyển, nghiệm thu kiểm định chất lượng và xuất kho tối ưu hạn dùng.
             </p>
           </div>
           <button

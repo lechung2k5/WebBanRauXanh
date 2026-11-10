@@ -231,7 +231,7 @@ export default function FarmerQcOverviewView({
 
             {/* SUBTITLE */}
             <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed max-w-2xl">
-              Cổng giám sát chất lượng trung gian: Cân Gross/Net đối soát khối lượng, đo độ ngọt Brix khúc xạ, kiểm định độ ẩm tế bào và loại bỏ phế phẩm trước khi đóng xe lạnh bảo vệ quyền lợi nông dân.
+              Cổng giám sát chất lượng trung gian: Cân đối soát khối lượng thực tế, đo độ ngọt tự nhiên (°Bx), kiểm định độ tươi ngon và loại bỏ phế phẩm trước khi chuyển lên xe lạnh nhằm bảo vệ tối đa quyền lợi nhà vườn.
             </p>
           </div>
 
@@ -491,7 +491,7 @@ export default function FarmerQcOverviewView({
                   Danh Sách Biên Bản Kiểm Định KCS ({filteredQcList.length})
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Nhấp vào từng dòng để xem chi tiết thông số bàn cân và đồng hồ Brix
+                  Nhấp vào từng dòng để xem chi tiết thông số bàn cân và chỉ số độ ngọt tự nhiên
                 </p>
               </div>
             </div>
@@ -675,7 +675,7 @@ export default function FarmerQcOverviewView({
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-bold text-amber-950 flex items-center gap-1.5">
                         <Sparkles className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-                        <span>Độ Ngọt Khúc Xạ Brix</span>
+                        <span>Chỉ Số Độ Ngọt Tự Nhiên</span>
                       </span>
                       <strong className="text-amber-900 text-base font-black tabular-nums font-heading">
                         {selectedQc.brixScore} °Bx
@@ -809,7 +809,7 @@ export default function FarmerQcOverviewView({
                   <th className="p-3 text-right">Đạt Chuẩn Kho</th>
                   <th className="p-3 text-right">Phế Phẩm</th>
                   <th className="p-3 text-center">Tỷ Lệ Đạt</th>
-                  <th className="p-3 text-center">Độ Ngọt Brix</th>
+                  <th className="p-3 text-center">Độ Ngọt (°Bx)</th>
                   <th className="p-3 text-center">Độ Ẩm Tự Nhiên</th>
                   <th className="p-3">Kiểm Định Viên</th>
                   <th className="p-3 text-center">Thao Tác</th>

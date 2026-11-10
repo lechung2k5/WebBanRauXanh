@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   ShieldCheck,
@@ -20,6 +20,10 @@ import {
 } from 'lucide-react';
 import { Product } from '@/types';
 import { submitPublicRfqOrDepositApi } from '@/services/farmerApi';
+import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
+import { DEFAULT_BANK_INFO, generateVietQrUrl } from '@/services/sepayService';
+import { useApp } from '@/context/AppContext';
+import { getStoredUser } from '@/services/api';
 
 interface B2BDepositModalProps {
   product: Product | null;
@@ -36,6 +40,7 @@ export default function B2BDepositModal({
 }: B2BDepositModalProps) {
   if (!isOpen || !product) return null;
 
+  const { currentUser } = useApp();
   const moq = product.moq || 500;
   const basePrice = product.price || 12000;
 
@@ -52,6 +57,20 @@ export default function B2BDepositModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [generatedContractCode, setGeneratedContractCode] = useState('');
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+  // Tự động điền thông tin tài khoản thương lái đang đăng nhập
+  useEffect(() => {
+    const user = currentUser || getStoredUser();
+    if (user) {
+      if (user.fullName) setTraderName(user.fullName);
+      if (user.phone) setTraderPhone(user.phone);
+      if (user.companyName) setTraderCompany(user.companyName);
+      if (user.warehouseAddress || user.address) {
+        setDeliveryLocation(user.warehouseAddress || user.address || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng');
+      }
+    }
+  }, [currentUser, isOpen]);
 
   // Tính giá theo sản lượng (Tier Pricing)
   const getUnitPrice = (qty: number) => {
@@ -116,11 +135,12 @@ export default function B2BDepositModal({
     }
   };
 
-  // QR VietQR chuẩn ngân hàng cho tài khoản Escrow sàn
-  const qrTransferContent = `COC ${contractCodeSafe(generatedContractCode || 'HD2026')} ${traderPhone.replace(/\D/g, '')}`;
-  const qrUrl = `https://img.vietqr.io/image/970436-0071001284920-compact2.png?amount=${depositAmount}&addInfo=${encodeURIComponent(
-    qrTransferContent
-  )}&accountName=QUY%20KY%20QUY%20HONA%20FRESH`;
+  // QR VietQR chuẩn ngân hàng cho tài khoản ký quỹ bảo chứng
+  const qrTransferContent = `COC ${contractCodeSafe(generatedContractCode || 'HD2026')}`;
+  const qrUrl = generateVietQrUrl({
+    amount: depositAmount,
+    content: qrTransferContent,
+  });
 
   function contractCodeSafe(code: string) {
     return code.replace(/[^a-zA-Z0-9]/g, '');
@@ -194,11 +214,19 @@ export default function B2BDepositModal({
             </div>
 
             <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setIsPaymentModalOpen(true)}
+                className="px-6 py-2.5 bg-[#8BC34A] hover:bg-[#7CB342] text-[#10542C] rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Mở Mã VietQR Chuyển Cọc</span>
+              </button>
               <a
                 href="/portal/farmer"
                 className="px-6 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
               >
-                <span>Xem Ngay Bên Phân Hệ Nông Dân (Farmer Portal)</span>
+                <span>Xem Trang Quản Lý Nông Trại</span>
                 <ArrowRight className="w-4 h-4" />
               </a>
               <button
@@ -369,6 +397,16 @@ export default function B2BDepositModal({
                   onChange={(e) => setDeliveryLocation(e.target.value)}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 >
+                  {deliveryLocation && ![
+                    'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
+                    'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
+                    'Chợ Đầu Mối Hóc Môn, TP.HCM',
+                    'Chợ Đầu Mối Bình Điền, TP.HCM',
+                    'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
+                    'Kho lạnh riêng của thương lái',
+                  ].includes(deliveryLocation) && (
+                    <option value={deliveryLocation}>{deliveryLocation} (Kho theo tài khoản)</option>
+                  )}
                   <option value="Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng">Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng</option>
                   <option value="Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM">Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM</option>
                   <option value="Chợ Đầu Mối Hóc Môn, TP.HCM">Chợ Đầu Mối Hóc Môn, TP.HCM</option>
@@ -413,17 +451,17 @@ export default function B2BDepositModal({
                 <div className="space-y-1.5 text-xs flex-1 min-w-0">
                   <div className="flex items-center justify-between text-gray-700">
                     <span>Ngân hàng thụ hưởng:</span>
-                    <strong className="text-[#10542C]">Vietcombank - CN Lâm Đồng</strong>
+                    <strong className="text-[#10542C]">{DEFAULT_BANK_INFO.bankName}</strong>
                   </div>
                   <div className="flex items-center justify-between text-gray-700">
-                    <span>Số tài khoản Escrow:</span>
+                    <span>Số tài khoản bảo chứng:</span>
                     <div className="flex items-center gap-1 font-mono font-bold text-gray-900">
-                      <span>0071001284920</span>
+                      <span>{DEFAULT_BANK_INFO.accountNumber}</span>
                       <button
                         type="button"
-                        onClick={() => handleCopyAccount('0071001284920')}
+                        onClick={() => handleCopyAccount(DEFAULT_BANK_INFO.accountNumber)}
                         className="text-[#10542C] hover:text-emerald-700 p-0.5 cursor-pointer"
-                        title="Sao chép STK"
+                        title="Sao chép số tài khoản"
                       >
                         {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
@@ -431,7 +469,7 @@ export default function B2BDepositModal({
                   </div>
                   <div className="flex items-center justify-between text-gray-700">
                     <span>Chủ tài khoản:</span>
-                    <strong className="text-gray-900">QUY KY QUY HONA FRESH</strong>
+                    <strong className="text-gray-900">{DEFAULT_BANK_INFO.accountName}</strong>
                   </div>
                   <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-emerald-200">
                     <span>Số tiền cọc 30%:</span>
@@ -467,6 +505,23 @@ export default function B2BDepositModal({
               </button>
             </div>
           </form>
+        )}
+
+        {/* Modal Quét Mã VietQR SePay xác nhận chuyển cọc */}
+        {isPaymentModalOpen && (
+          <SepayPaymentModal
+            isOpen={isPaymentModalOpen}
+            onClose={() => setIsPaymentModalOpen(false)}
+            type="CONTRACT"
+            code={generatedContractCode}
+            amount={depositAmount}
+            title="Quét Mã VietQR Nộp Cọc 30% Hợp Đồng"
+            recipientName={traderName}
+            onSuccess={() => {
+              setIsPaymentModalOpen(false);
+              if (onSuccess) onSuccess();
+            }}
+          />
         )}
       </div>
     </div>

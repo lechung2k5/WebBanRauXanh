@@ -1,5 +1,6 @@
 import {
   ApiResponse,
+  PageResponse,
   FarmerStats,
   FarmerProfile,
   HarvestLot,
@@ -345,6 +346,7 @@ export const getFarmerStatsApi = async (): Promise<FarmerStats> => {
     const res = await fetch(`${API_BASE_URL}/farmer/dashboard/stats`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<FarmerStats> = await res.json();
@@ -406,6 +408,7 @@ export const getFarmerProfileApi = async (): Promise<FarmerProfile> => {
     const res = await fetch(`${API_BASE_URL}/farmer/profile`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (!res.ok) throw new Error('Không thể tải thông tin hồ sơ nông dân');
     const data: ApiResponse<FarmerProfile> = await res.json();
@@ -419,7 +422,7 @@ export const updateFarmerProfileApi = async (profileData: Partial<FarmerProfile>
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/profile`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
       body: JSON.stringify(profileData),
     });
@@ -454,27 +457,34 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
     } catch {}
   }
 
-  let serverLots = FALLBACK_HARVEST_LOTS;
+  let serverLots: HarvestLot[] = [];
+  let isApiSuccess = false;
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<HarvestLot[]> = await res.json();
-      if (data.result && data.result.length > 0) {
-        serverLots = data.result;
+      const items = data.result || (data as unknown as { data: HarvestLot[] }).data;
+      if (Array.isArray(items)) {
+        serverLots = items;
+        isApiSuccess = true;
       }
     }
   } catch {
     // fallback
   }
 
-  // Kết hợp Lô người dùng vừa tạo với Lô mặc định (Lô vừa tạo lên đầu)
+  // Nếu API kết nối thành công, chỉ lấy các lô do farmer đó đăng từ máy chủ
+  const baseLots = isApiSuccess ? serverLots : [...localLots];
+
+  // Kết hợp Lô người dùng vừa tạo với Lô thực tế từ Database (Lô vừa tạo lên đầu)
   const seenCodes = new Set<string>();
   const merged: HarvestLot[] = [];
 
-  for (const lot of [...localLots, ...serverLots]) {
+  for (const lot of [...localLots, ...baseLots]) {
     const key = lot.lotCode || String(lot.id);
     if (!seenCodes.has(key)) {
       seenCodes.add(key);
@@ -505,20 +515,37 @@ export const createHarvestLotApi = async (lotData: {
   tierPricingJson: string;
   hubLocation?: string;
 }): Promise<HarvestLot> => {
+  let basePricePerKg = 15000;
+  try {
+    const parsed = JSON.parse(lotData.tierPricingJson || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].pricePerKg || parsed[0].price)) {
+      basePricePerKg = Number(parsed[0].pricePerKg || parsed[0].price);
+    }
+  } catch (_) {}
+
+  const payload = {
+    ...lotData,
+    totalWeightKg: lotData.totalQuantity,
+    availableWeightKg: lotData.totalQuantity,
+    basePricePerKg,
+    pucCode: lotData.pucCode || 'PUC-LD-001',
+  };
+
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
-      body: JSON.stringify(lotData),
+      body: JSON.stringify(payload),
     });
     const data: ApiResponse<HarvestLot> = await res.json();
-    if (res.ok && data.code === 200 && data.result) {
-      saveLocalLot(data.result);
-      return data.result;
+    const resultLot = data.result || (data as unknown as { data: HarvestLot }).data;
+    if (res.ok && resultLot) {
+      saveLocalLot(resultLot);
+      return resultLot;
     }
   } catch (err: unknown) {
-    console.warn('Backend API create lot error, generating mock lot:', err);
+    console.warn('Backend API create lot error, saving locally:', err);
   }
 
   const mockLot: HarvestLot = {
@@ -739,6 +766,7 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
     const res = await fetch(`${API_BASE_URL}/farmer/rfq`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<RfqItem[]> = await res.json();
@@ -834,7 +862,7 @@ export const respondToRfqApi = async (
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/rfq/${rfqId}/respond`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
       body: JSON.stringify(actionData),
     });
@@ -939,6 +967,7 @@ export const getContractQcApi = async (
     const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/qc`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<QcInspection> = await res.json();
@@ -1125,6 +1154,7 @@ export const settleContractApi = async (contractId: number): Promise<Settlement>
     const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/settle`, {
       method: 'POST',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data = await res.json();

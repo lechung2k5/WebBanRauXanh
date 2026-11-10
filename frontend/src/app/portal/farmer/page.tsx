@@ -18,6 +18,7 @@ import {
   XCircle,
   Clock,
   Thermometer,
+  Handshake,
   ArrowRight,
   TrendingUp,
   DollarSign,
@@ -217,6 +218,7 @@ function FarmerPortalContent() {
   const [realtimeTime, setRealtimeTime] = useState<Date | null>(null);
   const [isSyncingRfqs, setIsSyncingRfqs] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string>('');
+  const [realtimeNotification, setRealtimeNotification] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -584,9 +586,22 @@ function FarmerPortalContent() {
     window.addEventListener('b2b_rfq_updated', handleRfqUpdate);
     window.addEventListener('storage', handleRfqUpdate);
 
-    // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal)
+    // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal & Quản Trị Viên)
     const unsubscribeSync = subscribeB2bSyncEvents((event) => {
       console.log('Farmer Portal received BroadcastChannel event:', event);
+      if (event.type === 'RFQ_CREATED') {
+        setRealtimeNotification('Có thương lái vừa gửi yêu cầu đàm phán giá mới!');
+        setTimeout(() => setRealtimeNotification(null), 5000);
+      } else if (event.type === 'DEPOSIT_PAID') {
+        setRealtimeNotification('Thương lái đã nộp cọc 30% bảo chứng thành công! Bạn có thể bắt đầu thu hoạch.');
+        setTimeout(() => setRealtimeNotification(null), 5000);
+      } else if (event.type === 'EPOD_SIGNED') {
+        setRealtimeNotification('Thương lái đã ký nhận hàng! Khoản thanh toán 70% đã được giải ngân về ví.');
+        setTimeout(() => setRealtimeNotification(null), 5000);
+      } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER') {
+        setRealtimeNotification('Thương lái đã đồng ý mức giá đàm phán và tạo hợp đồng!');
+        setTimeout(() => setRealtimeNotification(null), 5000);
+      }
       loadPortalData();
     });
 
@@ -654,7 +669,7 @@ function FarmerPortalContent() {
       errors.totalQuantity = 'Sản lượng đăng bán tối thiểu cho sàn B2B là 100 kg.';
     }
     if (newLot.expiryDate <= newLot.harvestDate) {
-      errors.expiryDate = 'Hạn bảo quản tươi (FEFO) phải sau ngày dự kiến thu hoạch!';
+      errors.expiryDate = 'Hạn bảo quản tươi ngon phải sau ngày dự kiến thu hoạch!';
     }
     if (newLot.minTemp > newLot.maxTemp) {
       errors.temp = 'Nhiệt độ tối thiểu không được lớn hơn nhiệt độ tối đa!';
@@ -713,7 +728,7 @@ function FarmerPortalContent() {
   const handleAcceptRfq = async (rfqId: number) => {
     if (
       !confirm(
-        'Bạn có chắc chắn muốn CHẤP THUẬN đề xuất báo giá này? Hệ thống sẽ tự động khởi tạo Hợp Đồng B2B điện tử và yêu cầu Thương lái ký quỹ 30% Escrow.'
+        'Bạn có chắc chắn muốn ĐỒNG Ý đề xuất giá này? Hệ thống sẽ tự động xác lập Hợp Đồng và thông báo cho Thương lái nộp cọc 30% bảo chứng an toàn.'
       )
     )
       return;
@@ -997,201 +1012,154 @@ function FarmerPortalContent() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[#F9F9F5] text-[#1E293B] flex flex-col font-sans">
-      {/* HEADER PORTAL */}
-      <header className="shrink-0 z-40 bg-[#10542C] text-white border-b border-[#0D4423] shadow-md px-4 sm:px-6 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-            <Sprout className="w-6 h-6 text-emerald-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-heading font-black tracking-wide text-lg sm:text-xl text-white">
-                HoNa Fresh <span className="text-emerald-400">B2B</span>
-              </span>
-              <span className="text-[11px] bg-emerald-500/25 text-emerald-300 font-semibold px-2 py-0.5 rounded-full border border-emerald-400/30">
-                FARMER PORTAL
+    <div className="h-screen overflow-hidden bg-[#F4F6F2] text-[#243A2A] flex flex-col lg:flex-row antialiased font-sans">
+      {/* Toast thông báo thời gian thực */}
+      {realtimeNotification && (
+        <div className="fixed top-4 right-4 z-50 bg-[#10542C] text-white text-xs font-bold px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
+          <Sparkles className="w-4 h-4 text-[#8BC34A]" />
+          <span>{realtimeNotification}</span>
+        </div>
+      )}
+
+      {/* =========================================================================
+          1. MENU DỌC BÊN TRÁI (LEFT SIDEBAR MANAGEMENT - CỐ ĐỊNH, KHÔNG BỊ SCROLL)
+      ========================================================================= */}
+      <aside className="w-full lg:w-72 lg:h-screen lg:sticky lg:top-0 bg-[#0F3820] text-white flex flex-col shrink-0 border-r border-[#1B4D2E] shadow-xl z-20">
+        {/* Logo & Nhãn phân hệ */}
+        <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#8BC34A] to-[#4CAF50] flex items-center justify-center text-[#0F3820] font-black text-lg shadow-md">
+              HF
+            </div>
+            <div>
+              <h2 className="font-heading font-black text-base text-white tracking-tight">HoNa Fresh</h2>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-[#8BC34A] block">
+                Cổng Nông Trại & Nhà Vườn
               </span>
             </div>
-            <p className="text-xs text-emerald-100/75">
-              Cổng Quản Trị Vụ Mùa & Chuỗi Cung Ứng Lạnh Nông Dân
+          </div>
+        </div>
+
+        {/* Thông tin nhà vườn tóm tắt */}
+        <div className="p-4 mx-4 my-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-[#8BC34A] text-[#0F3820] flex items-center justify-center font-bold font-heading text-sm shrink-0">
+            {profile?.farmName?.charAt(0) || currentUser?.fullName?.charAt(0) || 'N'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold text-white truncate">
+              {profile?.farmName || currentUser?.companyName || 'HTX Nông Nghiệp Đà Lạt'}
+            </p>
+            <p className="text-[11px] text-[#8BC34A] truncate font-medium">
+              Mã PUC: {profile?.pucCode || 'VN-LDO-PUC-0849'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <B2BNotificationBell audience="FARMER" />
-          <div className="hidden md:flex items-center gap-3 bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl text-xs">
-            <Building2 className="w-4 h-4 text-emerald-300" />
-            <div>
-              <p className="font-semibold text-white">
-                {profile?.farmName || 'HTX Nông Nghiệp Đà Lạt GAP'}
-              </p>
-              <p className="text-[10px] text-emerald-200">
-                Mã PUC: <strong className="font-mono">{profile?.pucCode || 'VN-LDO-PUC-0849'}</strong> •{' '}
-                <span className="text-emerald-300">VietGAP 4 Sao</span>
-              </p>
-            </div>
+        {/* Danh sách mục menu */}
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+          {[
+            { id: 'dashboard', label: 'Tổng Quan Vụ Mùa', icon: LayoutDashboard },
+            { id: 'lots', label: 'Lô Vụ Mùa & Mở Bán', icon: Sprout, badge: lots.length },
+            { id: 'rfq', label: 'Đơn Đàm Phán Giá Sỉ', icon: Handshake, badge: rfqs.filter((r) => isRfqWaitingForFarmer(r.status)).length },
+            { id: 'orders', label: 'Hợp Đồng & Thu Hoạch', icon: FileText, badge: contracts.filter((c) => c.depositStatus === 'DEPOSIT_PAID').length },
+            { id: 'post_sale', label: 'Hành Trình Xe Lạnh', icon: Truck },
+            { id: 'qc', label: 'Biên Bản Kiểm Định', icon: Scale },
+            { id: 'settlements', label: 'Ví Tiền & Giải Ngân', icon: Receipt },
+            { id: 'profile', label: 'Hồ Sơ Nông Trại & STK', icon: Settings },
+            { id: 'ai', label: 'Trợ Lý Nông Nghiệp AI', icon: Sparkles },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id as any)}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-[#8BC34A] text-[#0F3820] shadow-sm'
+                    : 'text-white/80 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-[#0F3820]' : 'text-[#8BC34A]'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {Boolean(item.badge && item.badge > 0) && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                      isActive ? 'bg-[#0F3820] text-[#8BC34A]' : 'bg-[#E53935] text-white'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Hộp bảo chứng cọc an toàn */}
+        <div className="p-3 mx-4 my-2 rounded-2xl bg-white/5 border border-white/10 text-[11px] text-white/80 space-y-1">
+          <div className="flex items-center gap-1.5 font-bold text-[#8BC34A]">
+            <ShieldCheck className="w-4 h-4 text-[#8BC34A]" />
+            <span>Bảo Chứng Đặt Cọc 30%</span>
           </div>
+          <p className="text-[10px] text-white/70 leading-relaxed">
+            Nông dân an tâm thu hoạch khi thương lái đã nộp cọc 30% vào tài khoản bảo chứng an toàn.
+          </p>
+        </div>
 
-          <Link
-            href="/"
-            className="flex items-center gap-1.5 text-xs bg-white text-[#10542C] hover:bg-emerald-50 font-bold px-3.5 py-2 rounded-xl shadow-xs transition cursor-pointer"
-          >
-            <span>Về Sàn Chợ Sỉ</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
-
+        {/* Nút đăng xuất ở chân menu */}
+        <div className="p-4 border-t border-white/10">
           <button
             type="button"
             onClick={handleLogoutFarmer}
-            className="flex items-center gap-1.5 text-xs bg-emerald-900/60 hover:bg-emerald-900 text-emerald-200 hover:text-white font-bold px-3 py-2 rounded-xl border border-emerald-700/60 transition cursor-pointer"
-            title="Đăng xuất tài khoản Nông dân"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Đăng Xuất</span>
+            <LogOut className="w-4 h-4 text-rose-400" />
+            <span>Đăng xuất tài khoản</span>
           </button>
         </div>
-      </header>
+      </aside>
 
-      {/* BODY LAYOUT: SIDEBAR CỐ ĐỊNH + MAIN CONTENT SCROLL (ẨN SCROLLPANE) */}
-      <div className="flex-1 min-h-0 max-w-[1600px] w-full mx-auto px-3 sm:px-5 py-2 flex flex-col lg:flex-row gap-3 overflow-hidden">
-        {/* SIDEBAR NAVIGATION: CỐ ĐỊNH, KHÔNG BỊ SCROLL VỚI TRANG */}
-        <aside className="lg:w-64 shrink-0 bg-white rounded-2xl p-3 border border-[#EAECE8] shadow-2xs h-full overflow-y-auto scrollbar-none flex flex-col justify-between space-y-1">
-          <div className="px-3 py-2 text-[11px] font-bold tracking-wider uppercase text-gray-600">
-            Phân Hệ Nông Nghiệp
+      {/* =========================================================================
+          2. KHU VỰC NỘI DUNG CHÍNH BÊN PHẢI (MAIN CONTENT AREA)
+      ========================================================================= */}
+      <main className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto">
+        {/* Top Header thanh thoát */}
+        <header className="h-16 bg-white border-b border-[#EAECE8] px-6 sm:px-8 flex items-center justify-between shrink-0 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-[#6B7280]">Bàn làm việc</span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            <strong className="text-[#10542C] capitalize">
+              {activeTab === 'dashboard' && 'Tổng quan vụ mùa'}
+              {activeTab === 'lots' && 'Quản lý lô thu hoạch'}
+              {activeTab === 'rfq' && 'Đơn đàm phán giá sỉ'}
+              {activeTab === 'orders' && 'Hợp đồng B2B & Đặt cọc'}
+              {activeTab === 'post_sale' && 'Hành trình xe lạnh & Bàn giao'}
+              {activeTab === 'qc' && 'Biên bản kiểm định chất lượng'}
+              {activeTab === 'settlements' && 'Ví doanh thu & Quyết toán'}
+              {activeTab === 'profile' && 'Hồ sơ vùng trồng & STK'}
+              {activeTab === 'ai' && 'Trợ lý nông nghiệp HoNa Fresh'}
+            </strong>
           </div>
 
-          <button type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'dashboard'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            <span>Tổng Quan (Dashboard)</span>
-          </button>
-
-          <button type="button"
-            onClick={() => setActiveTab('lots')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'lots'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <Sprout className="w-4 h-4" />
-            <span>Lô Vụ Mùa ({lots.length})</span>
-          </button>
-
-          <button type="button"
-            onClick={() => setActiveTab('rfq')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'rfq'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <MessageSquare className="w-4 h-4" />
-              <span>Đàm Phán RFQ ({rfqs.length})</span>
-            </div>
-            {rfqs.filter((r) => isRfqWaitingForFarmer(r.status)).length > 0 && (
-              <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
-                Mới
-              </span>
-            )}
-          </button>
-
-          <button type="button"
-            onClick={() => setActiveTab('qc')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'qc'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <Scale className="w-4 h-4" />
-            <span>Biên Bản QC Trạm</span>
-          </button>
-
-          <button type="button"
-            onClick={() => setActiveTab('settlements')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'settlements'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            <span>Ví Tiền & Giải Ngân</span>
-          </button>
-
-          <button type="button"
-            onClick={() => setActiveTab('post_sale')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-              activeTab === 'post_sale'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            <span>Theo Dõi Sau Bán</span>
-          </button>
-
-          <div className="pt-2 border-t border-[#EAECE8]">
-            <button type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition cursor-pointer ${
-                activeTab === 'profile'
-                  ? 'bg-[#10542C] text-white shadow-xs'
-                  : 'text-gray-600 hover:bg-[#F2F4F0] hover:text-[#10542C]'
-              }`}
+          <div className="flex items-center gap-3">
+            <B2BNotificationBell audience="FARMER" tone="light" />
+            <button
+              type="button"
+              onClick={() => void loadPortalData()}
+              className="px-3.5 py-1.5 rounded-xl bg-[#F4F6F2] hover:bg-[#EAECE8] text-[#10542C] text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <Settings className="w-4 h-4" />
-              <span>Hồ Sơ Vùng Trồng & STK</span>
-            </button>
-
-            <button type="button"
-              onClick={() => setActiveTab('ai')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition mt-1 cursor-pointer ${
-                activeTab === 'ai'
-                  ? 'bg-gradient-to-r from-emerald-600 to-[#10542C] text-white shadow-sm ring-1 ring-emerald-500/50'
-                  : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-800'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Bot
-                  className={`w-4 h-4 shrink-0 ${
-                    activeTab === 'ai' ? 'text-white' : 'text-emerald-600'
-                  }`}
-                />
-                <span className="truncate">Trợ Lý HoNa Fresh</span>
-              </div>
-              <Sparkles
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  activeTab === 'ai' ? 'text-amber-300' : 'text-amber-500'
-                }`}
-              />
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Làm mới</span>
             </button>
           </div>
+        </header>
 
-          {/* ESCROW GUARANTEE BADGE */}
-          <div className="mt-4 p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100/80 text-[11px] text-emerald-950 space-y-1.5">
-            <div className="flex items-center gap-1.5 font-bold text-emerald-800">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Bảo Chứng Escrow 30%</span>
-            </div>
-            <p className="text-gray-600 leading-relaxed text-[10.5px]">
-              Nông dân chỉ thu hoạch khi Thương lái đã ký quỹ 30% vào tài khoản Sàn giữ hộ. Xóa bỏ rủi ro bị bùng hàng.
-            </p>
-          </div>
-        </aside>
-
-        {/* MAIN CONTENT AREA: CHỈ PHẦN NÀY ĐƯỢC SCROLL, ẨN SCROLLBAR */}
-        <main className="flex-1 h-full min-h-0 overflow-y-auto scrollbar-none pr-1 flex flex-col">
+        {/* Nội dung chi tiết các Section */}
+        <div className="p-6 sm:p-8 space-y-6 flex-1">
           {/* TAB 1: DASHBOARD (REDESIGNED BASED ON 8 CORE DESIGN RULES) */}
           {activeTab === 'dashboard' && (
             <FarmerDashboardView
@@ -1218,10 +1186,10 @@ function FarmerPortalContent() {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <h2 className="text-lg font-heading font-black text-[#10542C]">
-                    Quản Lý Lô Nông Sản Vụ Mùa (Harvest Lots)
+                    Quản Lý Lô Nông Sản Thu Hoạch
                   </h2>
                   <p className="text-xs text-gray-600">
-                    Chào bán sỉ theo sản lượng lớn kèm bảng giá phân tầng Tier Pricing và dải nhiệt độ bảo quản lạnh FEFO
+                    Chào bán sỉ theo sản lượng lớn kèm bảng giá ưu đãi theo số lượng và điều kiện bảo quản tươi ngon
                   </p>
                 </div>
                 <button type="button"
@@ -1567,7 +1535,7 @@ function FarmerPortalContent() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1">
                               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                              Đã Cọc 30% Escrow ({formatVnd(c.depositAmount)})
+                              Đã Nhận Cọc 30% ({formatVnd(c.depositAmount)})
                             </span>
                             <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2.5 py-1 rounded-lg">
                               {c.fulfillmentStatus}
@@ -1728,7 +1696,7 @@ function FarmerPortalContent() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Agri-Fintech Protocol • Escrow Smart Settlement
+                        Hệ Thống Thanh Toán & Bảo Chứng An Toàn
                       </span>
                       <span className="text-emerald-300 text-xs flex items-center gap-1 font-semibold">
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
@@ -1737,11 +1705,11 @@ function FarmerPortalContent() {
                     </div>
 
                     <h2 className="text-xl sm:text-2xl font-black font-heading text-white tracking-tight">
-                      Ví Tiền & Quyết Toán Doanh Thu Nông Vụ (Escrow & Settlements)
+                      Ví Doanh Thu & Quyết Toán Hợp Đồng Nông Sản
                     </h2>
 
                     <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed">
-                      Bảo chứng ký quỹ cọc 30% liên ngân hàng, tự động đối soát và giải ngân thẳng vào STK nông dân trong 60 giây sau nghiệm thu KCS trạm lạnh. Khấu trừ phí sàn 3% minh bạch và hỗ trợ xuất chứng từ thuế Mẫu 01/TNDN hợp pháp.
+                      Bảo chứng tiền cọc 30% liên ngân hàng, tự động đối soát và chuyển khoản thẳng vào tài khoản ngân hàng nhà vườn sau khi nghiệm thu nông sản đạt chuẩn. Khấu trừ phí sàn 3% minh bạch và hỗ trợ xuất chứng từ thuế hợp pháp.
                     </p>
 
                     <div className="flex items-center gap-2.5 pt-2">
@@ -1760,7 +1728,7 @@ function FarmerPortalContent() {
                     </div>
                   </div>
 
-                  {/* Cột phải: Beneficiary Virtual Bank Card (Thẻ thụ hưởng định danh KYC) */}
+                  {/* Cột phải: Beneficiary Virtual Bank Card (Thẻ thụ hưởng định danh) */}
                   <div className="shrink-0 w-full lg:w-auto">
                     <div className="relative rounded-2xl bg-gradient-to-br from-white/15 via-white/10 to-white/5 backdrop-blur-md border border-white/25 p-4 sm:p-5 shadow-xl text-white max-w-sm ml-auto">
                       {/* Top row: Bank chip & Name */}
@@ -1779,7 +1747,7 @@ function FarmerPortalContent() {
 
                         <span className="bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                          KYC LEVEL 2
+                          ĐÃ XÁC MINH DANH TÍNH
                         </span>
                       </div>
 
@@ -1823,7 +1791,7 @@ function FarmerPortalContent() {
                     }`}
                   >
                     <Wallet className="w-4 h-4 text-[#10542C]" aria-hidden="true" />
-                    <span>Ví Tiền & Ký Quỹ Escrow</span>
+                    <span>Ví Doanh Thu & Tiền Cọc Bảo Chứng</span>
                   </button>
 
                   <button
@@ -1899,7 +1867,7 @@ function FarmerPortalContent() {
                     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-blue-50/70 via-white to-white p-5 sm:p-6 border border-blue-100/90 shadow-2xs flex flex-col justify-between gap-4 group transition-all hover:border-blue-300 hover:shadow-xs">
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-blue-900 text-xs font-bold">
-                          <span className="tracking-wide">QUỸ BẢO CHỨNG ESCROW (CỌC 30%)</span>
+                          <span className="tracking-wide">QUỸ TIỀN CỌC BẢO CHỨNG (30%)</span>
                           <div className="p-2 rounded-xl bg-blue-100 text-blue-700 border border-blue-200">
                             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                           </div>
@@ -2017,7 +1985,7 @@ function FarmerPortalContent() {
                                 <div className="flex items-center justify-between text-blue-900 bg-blue-50/80 p-2.5 rounded-xl font-medium text-xs border border-blue-100">
                                   <span className="flex items-center gap-1">
                                     <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                                    Tiền cọc Escrow đang giữ (30%):
+                                    Tiền cọc bảo chứng đang giữ (30%):
                                   </span>
                                   <strong className="text-blue-950 font-black tabular-nums">{formatVnd(c.depositAmount)}</strong>
                                 </div>
@@ -2204,7 +2172,7 @@ function FarmerPortalContent() {
                 <div>
                   <h2 className="text-xl font-heading font-black text-[#10542C] flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-[#4CAF50]" />
-                    <span>Hồ Sơ Vùng Trồng, Chứng Nhận & Tài Khoản Ngân Hàng (Module 1)</span>
+                    <span>Hồ Sơ Vùng Trồng, Chứng Nhận & Tài Khoản Ngân Hàng</span>
                   </h2>
                   <p className="text-xs text-gray-600">
                     Hồ sơ pháp lý định danh vùng trồng PUC, giấy chứng nhận VietGAP/GlobalGAP và tài khoản thụ hưởng giải ngân
@@ -2967,8 +2935,8 @@ function FarmerPortalContent() {
           {activeTab === 'post_sale' && (
             <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} initialContractId={selectedPostSaleContractId} />
           )}
-        </main>
-      </div>
+        </div>
+      </main>
 
       {/* ================= MODAL: CREATE HARVEST LOT ================= */}
       {isLotModalOpen && (
@@ -3069,7 +3037,7 @@ function FarmerPortalContent() {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Hạn Bảo Quản Tươi (FEFO) *</label>
+                  <label className="block font-semibold text-gray-700 mb-1">Hạn Bảo Quản Tươi Ngon *</label>
                   <input
                     type="date"
                     required

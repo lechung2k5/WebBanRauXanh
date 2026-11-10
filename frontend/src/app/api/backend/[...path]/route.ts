@@ -43,6 +43,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
   }
   let access = request.cookies.get(ACCESS)?.value;
   const refresh = request.cookies.get(REFRESH)?.value;
+  if (!access) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      access = authHeader.substring(7).trim();
+    }
+  }
   let session: Session | null = null;
   try {
     const maxBytes = isMultipart ? 7_000_000 : 4_000_000;

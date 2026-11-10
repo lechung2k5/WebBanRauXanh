@@ -22,6 +22,8 @@ frontend/out/
 .DS_Store
 Thumbs.db
 scratch/
+tools/
+*.exe
 
 # Secrets & Environment Configurations
 .gemini_api_key

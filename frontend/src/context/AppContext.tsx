@@ -37,10 +37,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const refreshUser = async () => {
+    const stored = getStoredUser();
+    if (typeof window !== 'undefined' && !currentUser && !stored) {
+      setCurrentUser(null);
+      setAuthLoading(false);
+      return;
+    }
     try {
       const u = await getCurrentUserApi();
       setCurrentUser(u);
       if (typeof window !== 'undefined' && u) {
+        localStorage.setItem('xanhfarm_user', JSON.stringify(u));
         sessionStorage.setItem('xanhfarm_user', JSON.stringify(u));
       }
     } catch {

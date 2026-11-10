@@ -465,7 +465,7 @@ export default function FarmerPostSaleView({
             </h2>
 
             <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed">
-              Minh bạch hóa toàn bộ dòng lưu chuyển nông sản sau khi xuất vườn: Phân bổ sản lượng theo hợp đồng B2B, giám sát nhiệt độ xe lạnh bảo vệ quyền lợi nông dân, lưu trữ biên bản giao nhận điện tử ePOD và tem QR truy xuất.
+              Minh bạch hóa toàn bộ dòng lưu chuyển nông sản sau khi xuất vườn: Phân bổ sản lượng theo hợp đồng, giám sát nhiệt độ xe lạnh bảo vệ quyền lợi nông dân, lưu trữ biên bản giao nhận điện tử và tem mã QR truy xuất nguồn gốc.
             </p>
           </div>
 
@@ -524,7 +524,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <FileCheck2 className="w-4 h-4" aria-hidden="true" />
-            <span>3. Bằng Chứng ePOD & Hao Hụt</span>
+            <span>3. Biên Bản Nhận Hàng & Hao Hụt</span>
           </button>
 
           <button
@@ -843,7 +843,7 @@ export default function FarmerPostSaleView({
                             {alloc.shipmentStatus === 'COMPLETED' || alloc.fulfillmentStatus === 'COMPLETED'
                               ? '✓ Giao Xong & Tất Toán'
                               : alloc.fulfillmentStatus === 'EPOD_SIGNED'
-                              ? '✓ Đã Ký ePOD'
+                              ? '✓ Đã Ký Nhận Hàng'
                               : alloc.fulfillmentStatus === 'HUB_DELIVERED'
                               ? '📍 Đã Đến Điểm Nhận'
                               : '🚚 Đang Vận Chuyển'}
@@ -861,7 +861,7 @@ export default function FarmerPostSaleView({
                               title="Xem giám sát nhiệt độ xe lạnh"
                             >
                               <Thermometer className="w-3 h-3" aria-hidden="true" />
-                              <span>IoT Lạnh</span>
+                              <span>Nhiệt độ</span>
                             </button>
                             <button
                               type="button"
@@ -870,10 +870,10 @@ export default function FarmerPostSaleView({
                                 setSubTab('epod');
                               }}
                               className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold text-[11px] transition cursor-pointer flex items-center gap-1"
-                              title="Xem biên bản giao nhận điện tử ePOD"
+                              title="Xem biên bản bàn giao nhận hàng"
                             >
                               <FileCheck2 className="w-3 h-3" aria-hidden="true" />
-                              <span>ePOD</span>
+                              <span>Biên bản</span>
                             </button>
                           </div>
                         </td>
@@ -1405,7 +1405,7 @@ export default function FarmerPostSaleView({
                     </p>
                     <p className="text-[11px] text-gray-500 font-mono">17:45 • 28/10</p>
                     <span className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                      Đã ký ePOD & Thu 100%
+                      Đã ký nhận & Thu 100%
                     </span>
                   </div>
                 </div>
@@ -1588,7 +1588,7 @@ export default function FarmerPostSaleView({
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                        <span>Chờ Buyer ký ePOD tại /portal/buyer (Tự động chuyển Mốc 5 khi ký)</span>
+                        <span>Chờ khách mua ký nhận hàng (Hệ thống tự động cập nhật khi đã ký)</span>
                       </div>
                       <button
                         type="button"
@@ -1598,10 +1598,10 @@ export default function FarmerPostSaleView({
                           setAutoCompleteType('AUTO_48H');
                         }}
                         className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
-                        title="Kích hoạt tự động hoàn tất sau 48h nếu Buyer không ký hoặc quên bấm"
+                        title="Kích hoạt tự động hoàn tất sau 48h nếu khách mua chưa bấm ký nhận"
                       >
                         <Zap className="w-3.5 h-3.5" />
-                        <span>⚡ Quá Hạn 48h (Tự Động Ký ePOD & Giải Ngân)</span>
+                        <span>⚡ Quá Hạn 48h (Tự Động Ký Nhận Hàng & Chuyển Tiền)</span>
                       </button>
                     </div>
                   )}
@@ -1610,7 +1610,7 @@ export default function FarmerPostSaleView({
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Buyer đã ký nghiệm thu ePOD thành công! Chờ thanh toán 70% còn lại</span>
+                        <span>Khách mua đã ký nhận hàng thành công! Đang xử lý chuyển khoản 70% còn lại</span>
                       </div>
                       <button
                         type="button"
@@ -1621,7 +1621,7 @@ export default function FarmerPostSaleView({
                         className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                       >
                         <Award className="w-4 h-4" />
-                        <span>✓ Xác Nhận Quyết Toán Tiền Về Ví (Hoàn Tất Đơn Mốc 6)</span>
+                        <span>✓ Xác Nhận Quyết Toán Tiền Về Tài Khoản (Hoàn Tất Đơn Mốc 6)</span>
                       </button>
                     </div>
                   )}
@@ -1644,9 +1644,9 @@ export default function FarmerPostSaleView({
                   Hình Thức Thu Tiền:
                 </span>
                 <p className="font-bold text-gray-900 mt-0.5 tabular-nums">
-                  Đã thu đủ 100% (30% Cọc Escrow + 70% Thu Tiền/Chuyển Khoản)
+                  Đã thu đủ 100% (30% Tiền Cọc Bảo Chứng + 70% Thanh Toán Còn Lại)
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Biên bản ePOD số: KCS-08491</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">Biên bản nhận hàng số: KCS-08491</p>
               </div>
               <div>
                 <span className="text-gray-500 font-semibold flex items-center gap-1">
@@ -1759,7 +1759,7 @@ export default function FarmerPostSaleView({
           <div className="bg-white rounded-3xl p-5 border border-[#EAECE8] shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex-1 max-w-2xl">
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                Chọn Hợp Đồng B2B Cần Xem Biên Bản Giao Hàng ePOD:
+                Chọn Hợp Đồng Cần Xem Biên Bản Giao Hàng:
               </label>
               <div className="relative" ref={epodDropdownRef}>
                 <button
@@ -1807,7 +1807,7 @@ export default function FarmerPostSaleView({
                     <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 mb-1.5">
                       <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
                         <FileCheck2 className="w-3 h-3 text-[#10542C]" />
-                        Danh Sách Hợp Đồng Có Biên Bản Ký ePOD
+                        Danh Sách Hợp Đồng Có Biên Bản Giao Nhận
                       </span>
                       <span className="text-[10.5px] font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
                         {contracts.length} Hồ Sơ
@@ -1862,7 +1862,7 @@ export default function FarmerPostSaleView({
 
                             <div className="flex items-center gap-2.5 shrink-0 ml-2">
                               <span className="font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shadow-2xs">
-                                Đã ký ePOD
+                                Đã ký nhận hàng
                               </span>
                               {isSelected && (
                                 <div className="w-4 h-4 rounded-full bg-[#10542C] text-white flex items-center justify-center shrink-0 shadow-2xs">
@@ -1993,7 +1993,7 @@ export default function FarmerPostSaleView({
                 >
                   <img
                     src={deliveryProof.epodPhotoUrl}
-                    alt="ePOD hiện trường dỡ hàng sọt rau củ tại kho"
+                    alt="Hiện trường dỡ hàng sọt rau củ tại kho"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
@@ -2043,7 +2043,7 @@ export default function FarmerPostSaleView({
                 <div className="rounded-2xl overflow-hidden border border-gray-200 max-h-[60vh]">
                   <img
                     src={deliveryProof.epodPhotoUrl}
-                    alt="ePOD chi tiết dỡ hàng"
+                    alt="Chi tiết dỡ hàng tại kho"
                     className="w-full h-full object-cover"
                   />
                 </div>

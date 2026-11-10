@@ -537,7 +537,7 @@ export default function FarmerAiChatView({ farmerName }: FarmerAiChatViewProps) 
               <div className="flex items-center gap-2">
                 <Key className="w-5 h-5 text-[#10542C]" />
                 <h3 className="font-heading font-black text-base text-[#10542C]">
-                  Cấu Hình Google Gemini API Key
+                  Cấu Hình Kết Nối Trí Tuệ Nhân Tạo
                 </h3>
               </div>
               <button
@@ -551,11 +551,11 @@ export default function FarmerAiChatView({ farmerName }: FarmerAiChatViewProps) 
 
             <div className="space-y-3 text-xs">
               <p className="text-gray-600">
-                Khóa API được lưu trữ bền vững và bảo mật trực tiếp trên máy chủ backend HoNa Fresh, tuyệt đối không bị lộ ra mã nguồn frontend.
+                Khóa kết nối trí tuệ nhân tạo được lưu trữ an toàn và bảo mật trực tiếp trên máy chủ HoNa Fresh.
               </p>
 
               <div>
-                <label className="font-bold text-gray-700 block mb-1">Nhập Google Gemini API Key:</label>
+                <label className="font-bold text-gray-700 block mb-1">Nhập khóa kết nối Google Gemini:</label>
                 <input
                   type="password"
                   value={apiKeyInput}

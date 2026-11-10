@@ -65,7 +65,7 @@ export default function LotsPage() {
 
   const rfq = (lot: Row) => {
     if (!currentUser) { router.push('/dang-nhap?redirect=/lo-hang'); return; }
-    if (!currentUser.roles.includes('ROLE_BUYER')) { setError('Chỉ tài khoản BUYER được gửi RFQ.'); return; }
+    if (!currentUser.roles.includes('ROLE_BUYER')) { setError('Chỉ tài khoản Thương lái mới có quyền gửi yêu cầu đàm phán giá.'); return; }
     if (!currentUser.profileComplete || currentUser.kycStatus !== 'VERIFIED') { router.push('/portal/buyer'); return; }
     setSelected(lot);
   };
@@ -83,7 +83,7 @@ export default function LotsPage() {
         <div className="bg-white rounded-3xl border border-green-100 p-6 shadow-sm">
           <p className="text-xs uppercase tracking-wider font-bold text-green-700">SÀN GIAO DỊCH B2B</p>
           <h1 className="text-3xl font-black text-green-950 mt-1">Lô nông sản đang chào bán</h1>
-          <p className="text-gray-500 mt-2">Tối đa {PAGE_SIZE} lô mỗi trang · Giao dịch từ 100 kg · Khối lượng và giá được chốt qua RFQ.</p>
+          <p className="text-gray-500 mt-2">Tối đa {PAGE_SIZE} lô mỗi trang · Giao dịch từ 100 kg · Khối lượng và giá được chốt qua thương lượng giá sỉ trực tiếp.</p>
         </div>
 
         {error && <p role="alert" className="bg-red-50 text-red-800 p-3 rounded-xl">{error}</p>}
@@ -111,7 +111,7 @@ export default function LotsPage() {
                       <div><p className="text-xs text-gray-500">Giá sỉ xuất vườn</p><p className="text-2xl font-black text-green-900">{Number(lot.base_price_per_kg).toLocaleString('vi-VN')} đ/kg</p></div>
                       <div className="text-xs bg-green-50 rounded-xl p-3 space-y-1">{tiers.length ? tiers.map((tier) => <p key={`${tier.minKg}-${tier.price}`}>Từ {Number(tier.minKg).toLocaleString('vi-VN')} kg: <b>{Number(tier.price ?? (tier as any).pricePerKg).toLocaleString('vi-VN')} đ/kg</b></p>) : 'Liên hệ để thỏa thuận giá theo sản lượng'}</div>
                     </div>
-                    <div className="p-5 pt-0"><button className="bg-green-900 hover:bg-green-800 text-white rounded-xl px-4 py-3 w-full font-bold" onClick={() => rfq(lot)}>Gửi yêu cầu báo giá</button></div>
+                    <div className="p-5 pt-0"><button className="bg-green-900 hover:bg-green-800 text-white rounded-xl px-4 py-3 w-full font-bold" onClick={() => rfq(lot)}>Thương lượng giá mua sỉ</button></div>
                   </article>
                 );
               })}
@@ -120,7 +120,7 @@ export default function LotsPage() {
           </>
         )}
 
-        {selected && <FormDialog value={{ title: `RFQ · ${selected.product_name}`, fields, submit: (values) => api('buyer/contracts', 'POST', { ...values, lotId: selected.id, logisticsFee: 0 }) }} onClose={() => setSelected(null)} onDone={() => { setSelected(null); setMessage('Đã gửi RFQ. Theo dõi trong Portal Thương lái.'); }} />}
+        {selected && <FormDialog value={{ title: `Thương lượng giá sỉ · ${selected.product_name}`, fields, submit: (values) => api('buyer/contracts', 'POST', { ...values, lotId: selected.id, logisticsFee: 0 }) }} onClose={() => setSelected(null)} onDone={() => { setSelected(null); setMessage('Đã gửi đề xuất giá mua sỉ. Theo dõi trong Cổng Thương lái.'); }} />}
       </div>
     </main>
   );

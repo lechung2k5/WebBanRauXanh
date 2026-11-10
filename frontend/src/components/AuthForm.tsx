@@ -9,6 +9,7 @@ import { api, AuthResult, isChallenge, OtpChallenge, portalFor } from '@/service
 import { useApp } from '@/context/AppContext';
 import type { AuthResponse } from '@/types';
 import ImageUploadField from './ImageUploadField';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
 
 type GoogleWindow = Window & {
   google?: {
@@ -152,6 +153,8 @@ export default function AuthForm({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [address, setAddress] = useState('');
+  const [warehouseAddress, setWarehouseAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -180,6 +183,10 @@ export default function AuthForm({
   };
 
   const handleSuccess = (user: AuthResponse) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('xanhfarm_user', JSON.stringify(user));
+      sessionStorage.setItem('xanhfarm_user', JSON.stringify(user));
+    }
     setCurrentUser(user);
     const channel = new BroadcastChannel('hona-auth');
     channel.postMessage('login');
@@ -539,7 +546,15 @@ export default function AuthForm({
                   {field('phone', 'Số điện thoại', 'tel', true)}
                 </div>
 
-                {field('address', 'Địa chỉ', 'text', true)}
+                <AddressAutocomplete
+                  name="address"
+                  label="Địa chỉ thường trú"
+                  required={true}
+                  placeholder="Số nhà, tên đường, phường/xã, quận/huyện..."
+                  value={address}
+                  onChange={setAddress}
+                  showCurrentLocationBtn={true}
+                />
 
                 {/* Mật khẩu */}
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -600,14 +615,15 @@ export default function AuthForm({
                         individualBuyer ? 'CCCD (không bắt buộc)' : '10 hoặc 13 chữ số'
                       )}
 
-                      {field(
-                        'warehouseAddress',
-                        'Địa chỉ kho tiếp nhận / Vựa nhận hàng',
-                        'text',
-                        true,
-                        '',
-                        'Địa chỉ tiếp nhận hàng hóa'
-                      )}
+                      <AddressAutocomplete
+                        name="warehouseAddress"
+                        label="Địa chỉ kho tiếp nhận / Vựa nhận hàng"
+                        required={true}
+                        placeholder="Số nhà, tên đường, phường/xã, quận/huyện..."
+                        value={warehouseAddress}
+                        onChange={setWarehouseAddress}
+                        showCurrentLocationBtn={true}
+                      />
                     </div>
                   ) : (
                     /* Vai trò FARMER */

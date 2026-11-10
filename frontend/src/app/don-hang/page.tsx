@@ -13,6 +13,7 @@ import {
   getFarmerContractsApi,
 } from '@/services/farmerApi';
 import { OrderResponse, B2BContract, QcInspection } from '@/types';
+import { GoongMapViewer } from '@/components/common/GoongMapViewer';
 import {
   Clock,
   Search,
@@ -34,7 +35,9 @@ import {
   Thermometer,
   Droplets,
   Layers,
+  QrCode,
 } from 'lucide-react';
+import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 
 function OrderTrackingContent() {
   const searchParams = useSearchParams();
@@ -73,6 +76,10 @@ function OrderTrackingContent() {
   // Modal QC state
   const [qcModalData, setQcModalData] = useState<QcInspection | null>(null);
   const [isQcLoading, setIsQcLoading] = useState(false);
+
+  // Modal Thanh Toán VietQR SePay
+  const [paymentModalOrder, setPaymentModalOrder] = useState<OrderResponse | null>(null);
+  const [paymentModalContract, setPaymentModalContract] = useState<B2BContract | null>(null);
 
   // Load local history on mount
   useEffect(() => {
@@ -193,9 +200,9 @@ function OrderTrackingContent() {
   const b2bStatusSteps = [
     {
       key: 'DEPOSIT_PAID',
-      label: 'Ký quỹ Escrow 30%',
+      label: 'Đặt cọc bảo chứng 30%',
       icon: ShieldCheck,
-      desc: 'Sàn bảo chứng nhận cọc 30%',
+      desc: 'Tài khoản bảo chứng nhận cọc 30%',
     },
     {
       key: 'WAITING_HARVEST',
@@ -207,19 +214,19 @@ function OrderTrackingContent() {
       key: 'HUB_DELIVERED',
       label: 'Giao tại Trạm lạnh',
       icon: Truck,
-      desc: 'Bàn giao trạm Cross-docking',
+      desc: 'Bàn giao trạm trung chuyển lạnh',
     },
     {
       key: 'QC_VERIFIED',
-      label: 'Nghiệm thu QC',
+      label: 'Kiểm định chất lượng',
       icon: Award,
-      desc: 'Đo Brix, độ ẩm & bàn cân',
+      desc: 'Kiểm tra độ tươi ngọt & khối lượng',
     },
     {
       key: 'COMPLETED',
       label: 'Hoàn tất giao xe lạnh',
       icon: CheckCircle2,
-      desc: 'Ký nhận ePOD & quyết toán',
+      desc: 'Ký nhận bàn giao & quyết toán',
     },
   ];
 
@@ -265,7 +272,7 @@ function OrderTrackingContent() {
                 : 'text-[#6B7280] hover:text-[#10542C] hover:bg-[#F9F9F5]'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-[#8BC34A]" /> Hợp Đồng & Ký Quỹ Đặt Cọc Sỉ (B2B Escrow)
+            <ShieldCheck className="w-4 h-4 text-[#8BC34A]" /> Hợp Đồng & Đặt Cọc Nông Sản Sỉ
           </button>
         </div>
 
@@ -431,11 +438,44 @@ function OrderTrackingContent() {
                     </div>
                     <div className="flex items-start gap-2">
                       <ReceiptText className="w-4 h-4 text-[#10542C] shrink-0 mt-0.5" />
-                      <div>
+                      <div className="flex-1">
                         <span className="text-[#6B7280]">Thanh toán:</span>
-                        <p className="font-bold text-[#10542C] mt-0.5">
-                          {order.paymentMethod === 'COD' ? 'Tiền mặt (COD)' : 'Chuyển khoản VietQR'} • {order.isPaid ? 'Đã thanh toán' : 'Chưa thanh toán'}
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-2 mt-0.5">
+                          <p className="font-bold text-[#10542C]">
+                            {order.paymentMethod === 'COD' ? 'Tiền mặt khi nhận hàng (COD)' : 'Chuyển khoản VietQR'} •{' '}
+                            <span className={order.isPaid ? 'text-emerald-700' : 'text-amber-700'}>
+                              {order.isPaid ? 'Đã thanh toán' : 'Chưa thanh toán'}
+                            </span>
+                          </p>
+                          {!order.isPaid && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentModalOrder(order)}
+                              className="px-3 py-1 bg-[#10542C] hover:bg-[#0C3E20] text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+                            >
+                              <QrCode className="w-3.5 h-3.5" />
+                              <span>Thanh toán VietQR</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mini Bản Đồ Định Vị Địa Chỉ Goong Maps */}
+                    <div className="pt-2">
+                      <div className="rounded-2xl overflow-hidden border border-[#EAECE8] relative bg-emerald-50/50">
+                        <img
+                          src="https://rsapi.goong.io/staticmap/route?origin=10.8231,106.6297&destination=10.8499,106.7725&vehicle=bike&width=600&height=240&color=%2310542C&api_key=MPEqUMBdbR1WFaTmu1JfbmviYgyScrQwQ91fXcGL"
+                          alt="Định vị điểm nhận hàng Goong Maps"
+                          className="w-full h-36 object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-bold text-[#10542C] flex items-center gap-1 shadow-sm border border-[#EAECE8]">
+                          <MapPin className="w-3 h-3 text-rose-600" />
+                          <span>Định vị giao hàng (Goong Map)</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -460,14 +500,14 @@ function OrderTrackingContent() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                 <div>
                   <h1 className="font-heading text-2xl font-black text-[#10542C] flex items-center gap-2.5">
-                    <ShieldCheck className="w-7 h-7 text-[#2E7D32]" /> Tra Cứu Hợp Đồng Sỉ & Ký Quỹ Escrow 30%
+                    <ShieldCheck className="w-7 h-7 text-[#2E7D32]" /> Tra Cứu Hợp Đồng Sỉ & Đặt Cọc Bảo Chứng 30%
                   </h1>
                   <p className="text-xs text-[#6B7280] mt-1">
-                    Nhập <strong>Mã Hợp Đồng</strong> (ví dụ: <code className="bg-[#E8F5E9] text-[#2E7D32] px-1.5 py-0.5 rounded font-mono font-bold">HD-2026-B2B-0104</code>) hoặc <strong>Số Điện Thoại Thương Lái</strong> để tra cứu tiến độ thu hoạch, trạng thái cọc bảo chứng và biên bản nghiệm thu QC trạm lạnh.
+                    Nhập <strong>Mã Hợp Đồng</strong> (ví dụ: <code className="bg-[#E8F5E9] text-[#2E7D32] px-1.5 py-0.5 rounded font-mono font-bold">HD-2026-B2B-0104</code>) hoặc <strong>Số Điện Thoại Thương Lái</strong> để tra cứu tiến độ thu hoạch, trạng thái cọc bảo chứng và biên bản nghiệm thu chất lượng trạm lạnh.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-[#E8F5E9] text-[#10542C] rounded-2xl text-xs font-bold border border-[#C8E6C9] shrink-0">
-                  <ShieldCheck className="w-4 h-4 text-[#2E7D32]" /> Quỹ Ký Quỹ Escrow HoNa Fresh
+                  <ShieldCheck className="w-4 h-4 text-[#2E7D32]" /> Tài Khoản Bảo Chứng HoNa Fresh
                 </div>
               </div>
 
@@ -547,7 +587,7 @@ function OrderTrackingContent() {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div>
                       <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-xs font-bold mb-3 border border-white/20">
-                        <ShieldCheck className="w-4 h-4 text-[#8BC34A]" /> HỢP ĐỒNG BẢO CHỨNG ESCROW 3 BÊN ĐÃ XÁC LẬP
+                        <ShieldCheck className="w-4 h-4 text-[#8BC34A]" /> HỢP ĐỒNG BẢO CHỨNG GIAO DỊCH AN TOÀN ĐÃ XÁC LẬP
                       </div>
                       <h2 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">
                         {selectedContract.productName}
@@ -597,19 +637,33 @@ function OrderTrackingContent() {
                       </span>
                     </div>
 
-                    <div className="bg-[#2E7D32]/50 border border-[#8BC34A]/40 rounded-2xl p-4 backdrop-blur-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-white/80">Ký Quỹ Đặt Cọc 30% (Escrow):</span>
-                        <span className="text-[10px] bg-white text-[#10542C] font-bold px-2 py-0.5 rounded-full">
-                          ĐÃ KÝ QUỸ
-                        </span>
+                    <div className="bg-[#2E7D32]/50 border border-[#8BC34A]/40 rounded-2xl p-4 backdrop-blur-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-white/80">Ký Quỹ Đặt Cọc 30%:</span>
+                          <span className="text-[10px] bg-white text-[#10542C] font-bold px-2 py-0.5 rounded-full">
+                            {selectedContract.depositStatus === 'DEPOSIT_PAID' ? 'ĐÃ NỘP CỌC' : 'CHỜ NỘP CỌC'}
+                          </span>
+                        </div>
+                        <p className="font-heading font-black text-xl text-[#8BC34A] mt-1">
+                          {formatVND(selectedContract.depositAmount)}
+                        </p>
                       </div>
-                      <p className="font-heading font-black text-xl text-[#8BC34A] mt-1">
-                        {formatVND(selectedContract.depositAmount)}
-                      </p>
-                      <span className="text-[10px] text-white/70">
-                        Quỹ Ký Quỹ Sàn HoNa Fresh đang giữ bảo chứng
-                      </span>
+
+                      {selectedContract.depositStatus !== 'DEPOSIT_PAID' ? (
+                        <button
+                          type="button"
+                          onClick={() => setPaymentModalContract(selectedContract)}
+                          className="mt-2 w-full py-1.5 bg-[#8BC34A] hover:bg-[#7CB342] text-[#10542C] text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>Quét VietQR nộp cọc ngay</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-white/70 block mt-1">
+                          Quỹ bảo chứng HoNa Fresh đang giữ an toàn
+                        </span>
+                      )}
                     </div>
 
                     <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-xs">
@@ -618,7 +672,7 @@ function OrderTrackingContent() {
                         {formatVND(selectedContract.totalAmount - selectedContract.depositAmount)}
                       </p>
                       <span className="text-[10px] text-white/60">
-                        Thanh toán khi ký nhận ePOD tại bàn cân trạm
+                        Thanh toán khi ký nhận phiếu giao nhận điện tử tại bàn cân trạm
                       </span>
                     </div>
                   </div>
@@ -836,7 +890,7 @@ function OrderTrackingContent() {
               {/* Footer Modal QC */}
               <div className="flex items-center justify-between pt-2">
                 <span className="text-[11px] text-[#6B7280] italic">
-                  * Kết quả kiểm định là căn cứ giải phóng quỹ ký quỹ Escrow.
+                  * Kết quả kiểm định là căn cứ giải ngân khoản tiền bảo chứng.
                 </span>
                 <button
                   type="button"
@@ -848,6 +902,37 @@ function OrderTrackingContent() {
               </div>
             </div>
           </div>
+        )}
+        {/* Modal Quét mã VietQR SePay cho Đơn hàng B2C */}
+        {paymentModalOrder && (
+          <SepayPaymentModal
+            isOpen={!!paymentModalOrder}
+            onClose={() => setPaymentModalOrder(null)}
+            type="ORDER"
+            code={paymentModalOrder.orderCode}
+            amount={paymentModalOrder.totalAmount}
+            recipientName={paymentModalOrder.recipientName}
+            onSuccess={() => {
+              setOrder((prev) => (prev ? { ...prev, isPaid: true } : null));
+              setPaymentModalOrder(null);
+            }}
+          />
+        )}
+
+        {/* Modal Quét mã VietQR SePay cho Hợp đồng sỉ B2B */}
+        {paymentModalContract && (
+          <SepayPaymentModal
+            isOpen={!!paymentModalContract}
+            onClose={() => setPaymentModalContract(null)}
+            type="CONTRACT"
+            code={paymentModalContract.contractCode}
+            amount={paymentModalContract.depositAmount}
+            title="Quét Mã VietQR Nộp Cọc 30% Hợp Đồng Sỉ"
+            onSuccess={() => {
+              setSelectedContract((prev) => (prev ? { ...prev, depositStatus: 'DEPOSIT_PAID' } : null));
+              setPaymentModalContract(null);
+            }}
+          />
         )}
       </main>
 

@@ -74,7 +74,7 @@ export default function AdminAccountingPage() {
               <Receipt className="w-7 h-7 text-[#8BC34A]" /> Báo Cáo Kế Toán Thuế VAS & Cài Đặt Sàn
             </h1>
             <p className="text-xs text-white/80 mt-1">
-              Module 7: Tự động hóa chuẩn mực kế toán Việt Nam (VAS), bảng kê 01/TNDN, hóa đơn sàn và thiết lập tham số sàn.
+              Hệ thống kế toán đối soát giao dịch nông sản, bảng kê thu mua 01/TNDN, hóa đơn sàn và thiết lập tham số sàn.
             </p>
           </div>
           <button

@@ -11,7 +11,7 @@ import {
   type B2bNotification,
 } from '@/services/b2bSyncService';
 
-export default function B2BNotificationBell({ audience, tone = 'dark' }: { audience: 'BUYER' | 'FARMER'; tone?: 'dark' | 'light' }) {
+export default function B2BNotificationBell({ audience, tone = 'dark' }: { audience: 'BUYER' | 'FARMER' | 'ADMIN'; tone?: 'dark' | 'light' }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<B2bNotification[]>([]);
 

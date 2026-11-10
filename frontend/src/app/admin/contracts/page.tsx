@@ -28,8 +28,11 @@ import {
   CheckCircle2,
   Scale,
   ShieldCheck,
+  QrCode,
 } from 'lucide-react';
 import { FormDialog, Row, Field } from '@/components/admin/AdminConsole';
+import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
 
@@ -60,11 +63,11 @@ const nextState: Record<string, string> = {
 };
 
 const nextStateLabel: Record<string, string> = {
-  RFQ_SENT: 'Chấp thuận RFQ',
+  RFQ_SENT: 'Chấp thuận đơn đàm phán',
   AGREED: 'Xác nhận cọc 30%',
-  DEPOSIT_PAID: 'Chuyển trạm QC',
+  DEPOSIT_PAID: 'Chuyển trạm kiểm định',
   AT_HUB_QC: 'Điều xe vận chuyển',
-  IN_TRANSIT: 'Ký nhận ePOD',
+  IN_TRANSIT: 'Ký nhận bàn giao',
   DELIVERED: 'Quyết toán & Giải ngân',
 };
 
@@ -151,7 +154,7 @@ export const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: st
   },
   DELIVERED: {
     label: 'Đã giao hàng (Chờ quyết toán)',
-    desc: 'Bên mua đã ký nhận ePOD tại kho, kế toán đang đối soát giải ngân.',
+    desc: 'Bên mua đã ký nhận bàn giao tại kho, kế toán đang đối soát giải ngân.',
     bg: 'bg-blue-50',
     text: 'text-blue-800',
     border: 'border-blue-200',
@@ -159,23 +162,23 @@ export const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: st
   },
   IN_TRANSIT: {
     label: 'Đang vận chuyển lạnh',
-    desc: 'Xe tải lạnh đang di chuyển và giám sát nhiệt độ IoT hành trình.',
+    desc: 'Xe tải lạnh đang di chuyển và giám sát nhiệt độ thùng xe liên tục.',
     bg: 'bg-purple-50',
     text: 'text-purple-800',
     border: 'border-purple-200',
     dot: 'bg-purple-500',
   },
   AT_HUB_QC: {
-    label: 'Đang kiểm định tại trạm QC',
-    desc: 'Lô hàng đang được kỹ thuật viên đo độ ngọt Brix và độ ẩm tại trạm.',
+    label: 'Đang kiểm định chất lượng',
+    desc: 'Lô hàng đang được kỹ thuật viên kiểm tra độ ngọt và độ ẩm tại trạm.',
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
     dot: 'bg-amber-500',
   },
   DEPOSIT_PAID: {
-    label: 'Đã ký quỹ cọc 30%',
-    desc: 'Bên mua đã chuyển cọc 30% vào quỹ tạm giữ Escrow sàn (TK 3388).',
+    label: 'Đã nộp tiền cọc 30%',
+    desc: 'Bên mua đã chuyển cọc 30% vào tài khoản bảo chứng sàn.',
     bg: 'bg-teal-50',
     text: 'text-teal-800',
     border: 'border-teal-200',
@@ -233,6 +236,7 @@ export default function AdminContractsPage() {
   const [dialog, setDialog] = useState<{ title: string; fields: Field[]; submit: (v: Row) => Promise<unknown> } | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [claimDetail, setClaimDetail] = useState<Row | null>(null);
+  const [paymentContractModal, setPaymentContractModal] = useState<Row | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
@@ -257,6 +261,10 @@ export default function AdminContractsPage() {
 
   useEffect(() => {
     void loadData();
+    const unsubscribe = subscribeB2bSyncEvents(() => {
+      void loadData();
+    });
+    return () => unsubscribe();
   }, [loadData]);
 
   const openDialog = (title: string, endpoint: string, fields: Field[], method = 'POST', fixed: Row = {}) => {
@@ -342,10 +350,10 @@ export default function AdminContractsPage() {
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-heading font-black tracking-tight text-white flex items-center gap-3">
-              <Handshake className="w-7 h-7 text-[#8BC34A]" /> Hợp Đồng B2B & Quỹ Ký Quỹ Escrow
+              <Handshake className="w-7 h-7 text-[#8BC34A]" /> Hợp Đồng Mua Bán Sỉ & Tiền Bảo Chứng
             </h1>
             <p className="text-xs text-white/80 mt-1 max-w-2xl">
-              Module 3: Giám sát toàn trình hợp đồng mua bán sỉ nông sản, dòng tiền ký quỹ 30% giữ hộ (TK 3388), kiểm soát phí sàn (TK 5113) và giải ngân quyết toán nông dân.
+              Giám sát toàn bộ tiến trình hợp đồng mua bán sỉ nông sản, dòng tiền đặt cọc 30% bảo chứng giao dịch an toàn và giải ngân quyết toán tới nhà vườn.
             </p>
           </div>
           <button
@@ -369,7 +377,7 @@ export default function AdminContractsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-[#EAECE8] shadow-xs">
           <div className="flex items-center justify-between text-[#6B7280] mb-2">
-            <span className="text-xs font-bold">Quỹ Tạm Giữ Escrow (TK 3388)</span>
+            <span className="text-xs font-bold">Tiền Cọc Bảo Chứng Tạm Giữ</span>
             <DollarSign className="w-4 h-4 text-[#10542C]" />
           </div>
           <p className="text-2xl font-black text-[#10542C]">
@@ -825,10 +833,10 @@ export default function AdminContractsPage() {
                     </span>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-                    <Handshake className="w-6 h-6 text-[#8BC34A]" /> Chi Tiết Hợp Đồng & Ký Quỹ Escrow
+                    <Handshake className="w-6 h-6 text-[#8BC34A]" /> Chi Tiết Hợp Đồng & Bảo Chứng An Toàn
                   </h2>
                   <p className="text-xs text-white/80 mt-1">
-                    Hợp đồng nguyên tắc mua bán sỉ qua Sàn Nông Sản HoNa Fresh · Bảo chứng Quỹ Escrow độc lập
+                    Hợp đồng nguyên tắc mua bán sỉ qua Sàn Nông Sản HoNa Fresh · Bảo chứng tài khoản an toàn độc lập
                   </p>
                 </div>
                 <button
@@ -971,7 +979,7 @@ export default function AdminContractsPage() {
               {/* 3. Dòng tiền Ký quỹ Escrow & Kế toán VAS */}
               <div>
                 <h3 className="font-heading font-black text-xs uppercase tracking-wider text-[#6B7280] mb-3 flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-[#10542C]" /> Dòng Tiền Ký Quỹ Escrow & Quyết Toán (Kế Toán VAS)
+                  <Receipt className="w-4 h-4 text-[#10542C]" /> Dòng Tiền Đặt Cọc Bảo Chứng & Quyết Toán
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
@@ -1003,6 +1011,17 @@ export default function AdminContractsPage() {
                           {str(detail.deposit_ref || 'Chưa phát sinh')}
                         </span>
                       </div>
+
+                      {Number(detail.deposit_received || 0) === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setPaymentContractModal(detail)}
+                          className="w-full mt-2 py-2 bg-[#10542C] hover:bg-[#0C3E20] text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <QrCode className="w-4 h-4 text-[#8BC34A]" />
+                          <span>Mở Mã VietQR Thu Cọc 30%</span>
+                        </button>
+                      )}
 
                       <div className="flex justify-between items-center py-1 border-b border-[#F9FAF8]">
                         <span className="text-[#6B7280]">Thanh toán 70% đợt 2:</span>
@@ -1317,6 +1336,23 @@ export default function AdminContractsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Quét Mã VietQR SePay Thu Cọc Hợp Đồng B2B */}
+      {paymentContractModal && (
+        <SepayPaymentModal
+          isOpen={!!paymentContractModal}
+          onClose={() => setPaymentContractModal(null)}
+          type="CONTRACT"
+          code={String(paymentContractModal.contract_code || `HD-${paymentContractModal.id}`)}
+          amount={Number(paymentContractModal.deposit_30_amount || paymentContractModal.deposit_amount || 0)}
+          title="Quét Mã VietQR Thu Cọc Hợp Đồng Sỉ"
+          recipientName={String(paymentContractModal.buyer_name || 'Bên Mua')}
+          onSuccess={() => {
+            setPaymentContractModal(null);
+            void loadData();
+          }}
+        />
       )}
     </div>
   );

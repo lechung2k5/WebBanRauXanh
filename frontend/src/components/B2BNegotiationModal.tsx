@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Send,
@@ -16,8 +16,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Product } from '@/types';
-import { createBuyerRfqApi } from '@/services/api';
+import { createBuyerRfqApi, getStoredUser } from '@/services/api';
 import { saveSyncRfq } from '@/services/b2bSyncService';
+import { useApp } from '@/context/AppContext';
 
 interface B2BNegotiationModalProps {
   product: Product | null;
@@ -34,6 +35,7 @@ export default function B2BNegotiationModal({
 }: B2BNegotiationModalProps) {
   if (!isOpen || !product) return null;
 
+  const { currentUser } = useApp();
   const moq = product.moq || 500;
   const basePrice = product.price || 10000;
 
@@ -51,6 +53,19 @@ export default function B2BNegotiationModal({
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [rfqCode, setRfqCode] = useState('');
 
+  // Tự động điền thông tin tài khoản thương lái đang đăng nhập
+  useEffect(() => {
+    const user = currentUser || getStoredUser();
+    if (user) {
+      if (user.fullName) setTraderName(user.fullName);
+      if (user.phone) setTraderPhone(user.phone);
+      if (user.companyName) setTraderCompany(user.companyName);
+      if (user.warehouseAddress || user.address) {
+        setDeliveryLocation(user.warehouseAddress || user.address || 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM');
+      }
+    }
+  }, [currentUser, isOpen]);
+
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
   };
@@ -66,7 +81,7 @@ export default function B2BNegotiationModal({
       return;
     }
     if (quantity < moq) {
-      alert(`Số lượng đặt tối thiểu (MOQ) cho lô nông sản này là ${moq} kg!`);
+      alert(`Số lượng đặt tối thiểu cho lô nông sản này là ${moq} kg!`);
       return;
     }
 
@@ -224,7 +239,7 @@ export default function B2BNegotiationModal({
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#10542C]/10 text-[#10542C] text-[11px] font-bold">
                 <Scale className="w-3.5 h-3.5 text-[#4CAF50]" />
-                <span>Đàm Phán Báo Giá Sỉ (B2B Request For Quote)</span>
+                <span>Thương Lượng Giá Sỉ Trực Tiếp Nông Trại</span>
               </div>
               <h3 className="font-heading text-xl sm:text-2xl font-black text-[#10542C]">
                 Gửi Yêu Cầu Thu Mua Lô Nông Sản
@@ -255,7 +270,7 @@ export default function B2BNegotiationModal({
                 </div>
                 <div className="flex items-center gap-3 text-xs">
                   <span>Giá chào xuất vườn: <strong className="text-[#10542C] font-black">{formatVND(basePrice)}/kg</strong></span>
-                  <span>MOQ tối thiểu: <strong className="text-[#E53935] font-black">{moq >= 1000 ? `${moq / 1000} Tấn` : `${moq} kg`}</strong></span>
+                  <span>Khối lượng tối thiểu: <strong className="text-[#E53935] font-black">{moq >= 1000 ? `${moq / 1000} Tấn` : `${moq} kg`}</strong></span>
                 </div>
               </div>
             </div>
@@ -405,6 +420,16 @@ export default function B2BNegotiationModal({
                   onChange={(e) => setDeliveryLocation(e.target.value)}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 >
+                  {deliveryLocation && ![
+                    'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
+                    'Chợ Đầu Mối Hóc Môn, TP.HCM',
+                    'Chợ Đầu Mối Bình Điền, TP.HCM',
+                    'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
+                    'Kho lạnh riêng của thương lái',
+                    'Nhận hàng tại cổng nông trại (FOB xuất vườn)',
+                  ].includes(deliveryLocation) && (
+                    <option value={deliveryLocation}>{deliveryLocation} (Kho theo tài khoản)</option>
+                  )}
                   <option value="Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM">Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM</option>
                   <option value="Chợ Đầu Mối Hóc Môn, TP.HCM">Chợ Đầu Mối Hóc Môn, TP.HCM</option>
                   <option value="Chợ Đầu Mối Bình Điền, TP.HCM">Chợ Đầu Mối Bình Điền, TP.HCM</option>

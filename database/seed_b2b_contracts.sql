@@ -61,9 +61,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-001', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-001' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-001' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   1500.00, 18000.00, 27000000.00, 8100000.00, 
   3.00, 810000.00, 1200000.00, 10.00, 
   'Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM', 'SETTLED', 
@@ -81,9 +81,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-002', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-002' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_coop' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-002' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_coop' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   3000.00, 12000.00, 36000000.00, 10800000.00, 
   3.00, 1080000.00, 1800000.00, 10.00, 
   'Tổng Kho Phân Phối Co.op Mart, KCN Sóng Thần, Dĩ An, Bình Dương', 'SETTLED', 
@@ -101,9 +101,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-003', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-014' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-014' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   2500.00, 22000.00, 55000000.00, 16500000.00, 
   3.00, 1650000.00, 2000000.00, 10.00, 
   'Trung Tâm Trung Chuyển Nông Sản WinMart, An Khánh, TP. Thủ Đức, TP.HCM', 'SETTLED', 
@@ -121,9 +121,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-004', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-SLA-2026-025' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_lotte' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-SLA-2026-025' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_lotte' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   3000.00, 16000.00, 48000000.00, 14400000.00, 
   3.00, 1440000.00, 1500000.00, 10.00, 
   'Kho Lạnh Phân Phối Nông Sản Lotte Mart Miền Nam, Quận 7, TP.HCM', 'SETTLED', 
@@ -141,9 +141,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-005', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-013' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-013' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   2000.00, 32000.00, 64000000.00, 19200000.00, 
   3.00, 1920000.00, 1600000.00, 10.00, 
   'Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM', 'DELIVERED', 
@@ -161,9 +161,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-006', 
-  (SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-008' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), 
-  (SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), 
+  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-008' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
+  COALESCE((SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   1500.00, 28000.00, 42000000.00, 12600000.00, 
   3.00, 1260000.00, 1200000.00, 10.00, 
   'Trung Tâm Trung Chuyển Nông Sản WinMart, An Khánh, TP. Thủ Đức, TP.HCM', 'DEPOSIT_PAID', 

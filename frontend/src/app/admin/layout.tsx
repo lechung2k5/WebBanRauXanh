@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { getStoredUser } from '@/services/api';
+import B2BNotificationBell from '@/components/B2BNotificationBell';
 import {
   LayoutDashboard,
   Users,
@@ -36,9 +37,16 @@ export default function AdminLayout({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
+    const user = currentUser || getStoredUser();
+
+    // Nếu đã có thông tin quyền admin, mở khóa giao diện ngay lập tức
+    if (user && user.roles?.includes('ROLE_ADMIN')) {
+      setAuthChecked(true);
+      return;
+    }
+
     if (authLoading) return;
 
-    const user = currentUser || getStoredUser();
     if (!user) {
       router.replace(`/dang-nhap?redirect=${encodeURIComponent(pathname)}`);
       return;
@@ -95,7 +103,7 @@ export default function AdminLayout({
     },
     {
       id: 'shipments',
-      name: 'Vận tải & ePOD',
+      name: 'Vận tải & Phiếu giao hàng',
       href: '/admin/shipments',
       icon: Truck,
     },
@@ -227,6 +235,8 @@ export default function AdminLayout({
               <Activity className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
               Sàn B2B Trực Tuyến
             </span>
+
+            <B2BNotificationBell audience="ADMIN" tone="light" />
 
             <div className="flex items-center gap-2 text-xs">
               <span className="font-bold text-[#2C3E2E] hidden sm:inline">{currentUser?.fullName}</span>

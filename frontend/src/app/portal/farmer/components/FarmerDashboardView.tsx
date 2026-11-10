@@ -294,13 +294,13 @@ export default function FarmerDashboardView({
               <p className="text-xs sm:text-sm text-gray-700 font-medium">
                 ⚡{' '}
                 {pendingRfqs.length > 0 ? (
-                  <strong className="text-gray-900">{pendingRfqs.length} RFQ chờ chốt</strong>
+                  <strong className="text-gray-900">{pendingRfqs.length} đơn đàm phán chờ chốt</strong>
                 ) : (
-                  <strong className="text-emerald-700">Tất cả RFQ đã chốt</strong>
+                  <strong className="text-emerald-700">Tất cả đơn đàm phán đã chốt</strong>
                 )}{' '}
                 trước 18:00 •{' '}
-                <strong className="text-[#10542C]">{contracts.length} Hợp đồng B2B</strong> đang chạy •{' '}
-                <strong className="text-amber-800">{formatVnd(liveEscrow)}</strong> tiền cọc Escrow bảo chứng.
+                <strong className="text-[#10542C]">{contracts.length} Hợp đồng</strong> đang chạy •{' '}
+                <strong className="text-amber-800">{formatVnd(liveEscrow)}</strong> tiền cọc bảo chứng an toàn.
               </p>
             </div>
           </div>
@@ -407,7 +407,7 @@ export default function FarmerDashboardView({
         {/* KPI 4: TIỀN CỌC ESCROW BẢO CHỨNG (CẬP NHẬT ĐỘNG KHI KÝ HĐ) */}
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-[#EAECE8] shadow-2xs flex flex-col justify-between hover:border-amber-300 transition group">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-600">Tiền Cọc Sàn Giữ Hộ (Escrow)</span>
+            <span className="text-xs font-semibold text-gray-600">Tiền Cọc Bảo Chứng Tạm Giữ</span>
             <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-105 transition">
               <ShieldCheck className="w-4 h-4" />
             </div>

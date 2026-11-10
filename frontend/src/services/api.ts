@@ -340,7 +340,8 @@ export const getPublicHarvestLotsApi = async (params?: {
     return {
       ...data.result,
       data: openLots,
-      totalElements: openLots.length < (data.result?.totalElements || 0) && params?.status !== 'ALL' ? openLots.length : data.result.totalElements,
+      totalElements: data.result?.totalElements ?? openLots.length,
+      totalPages: data.result?.totalPages ?? Math.ceil((data.result?.totalElements || openLots.length) / (params?.size || 12)),
     };
   } catch {
     let filtered = [...FALLBACK_HARVEST_LOTS].filter(l => l.status === 'OPEN');
@@ -431,8 +432,8 @@ export const getProducts = async (
 
     return {
       products,
-      totalElements: products.length,
-      totalPages: Math.ceil(products.length / size) || 1,
+      totalElements: lotRes.totalElements || products.length,
+      totalPages: lotRes.totalPages || Math.ceil((lotRes.totalElements || products.length) / size) || 1,
     };
   } catch (err) {
     console.warn('Error fetching harvest lots for getProducts, using fallback:', err);

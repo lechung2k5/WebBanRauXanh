@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
 import { Thermometer, AlertTriangle, AlertCircle, RefreshCw, Loader2, Volume2, VolumeX, ShieldAlert, Activity } from 'lucide-react';
 import { DataTable, FormDialog, Row, Field, str, cleanVietnamese } from '@/components/admin/AdminConsole';
+import { GoongMapViewer } from '@/components/common/GoongMapViewer';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
 
@@ -112,7 +113,7 @@ export default function AdminIotPage() {
               <Thermometer className="w-7 h-7 text-[#8BC34A]" /> Giám Sát IoT Chuỗi Lạnh & Bảng Giả Lập Sự Cố
             </h1>
             <p className="text-xs text-white/80 mt-1">
-              Module 5: Đo lường nhiệt độ & độ ẩm buồng bảo quản / xe tải lạnh thời gian thực (2°C - 6°C), kích hoạt giả lập sự cố phục vụ báo cáo.
+              Đo lường nhiệt độ & độ ẩm buồng bảo quản và xe tải lạnh thời gian thực (2°C - 6°C), kích hoạt giả lập sự cố phục vụ báo cáo.
             </p>
           </div>
           <button
@@ -168,6 +169,25 @@ export default function AdminIotPage() {
         </span>
       </div>
 
+      {/* Bản Đồ Số Giám Sát Chuỗi Lạnh Goong Maps */}
+      <GoongMapViewer
+        title="Bản Đồ Mạng Lưới Chuỗi Lạnh IoT HoNa Fresh (Goong Maps)"
+        origin={{
+          lat: 11.9404,
+          lng: 108.4583,
+          name: 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1 (4.0°C - 85% RH)',
+        }}
+        destination={{
+          lat: 10.9324,
+          lng: 107.1352,
+          name: 'Buồng Lạnh Trung Chuyển Dầu Giây B2 (3.8°C - 88% RH)',
+        }}
+        truckCode="Hệ thống Cold Chain IoT"
+        temperature={assets.length > 0 ? Number(assets[0].current_temp || 4.0) : 4.0}
+        statusBadge="Giám sát cảm biến thời gian thực"
+        height={320}
+      />
+
       {/* Danh Sách Buồng & Xe Lạnh Kèm Bảng Điều Khiển Giả Lập */}
       <div className="space-y-3">
         <h3 className="font-heading font-black text-sm text-[#2C3E2E]">
@@ -182,7 +202,7 @@ export default function AdminIotPage() {
         ) : assets.length === 0 ? (
           <div className="p-12 text-center text-xs text-[#6B7280] bg-white rounded-2xl border border-[#EAECE8]">
             <p className="font-bold text-[#2C3E2E]">Chưa có thiết bị cảm biến / buồng lạnh trong cơ sở dữ liệu.</p>
-            <p className="mt-1">Vui lòng khai báo Buồng lạnh tại Module 4 hoặc Xe lạnh tại Module 6 để kích hoạt giám sát.</p>
+            <p className="mt-1">Vui lòng khai báo Buồng lạnh tại trang Quản lý Kho hoặc Đội xe lạnh để kích hoạt giám sát.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -7,6 +7,7 @@ import {
   getAdminLotStatsApi,
 } from '@/services/api';
 import { api } from '@/services/auth';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import {
   LayoutDashboard,
   Package,
@@ -38,6 +39,10 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchDashboardStats();
+    const unsubscribe = subscribeB2bSyncEvents(() => {
+      fetchDashboardStats();
+    });
+    return () => unsubscribe();
   }, []);
 
   const fetchDashboardStats = async () => {
@@ -188,14 +193,14 @@ export default function AdminDashboardPage() {
                 <Users className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-[#10542C] transition-colors">
-                Module 1: Tài Khoản & KYC Đối Tác
+                Tài Khoản & Xác Thực Đối Tác
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
                 Quản lý hồ sơ pháp lý HTX nông dân, thương lái và cấp tài khoản nhân sự nội bộ (QC, Tài xế, Kế toán).
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-[#10542C] mt-4">
-              <span>Đến trang Tài Khoản & KYC</span>
+              <span>Đến trang Quản Lý Tài Khoản</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
@@ -209,10 +214,10 @@ export default function AdminDashboardPage() {
                 <Package className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-[#10542C] transition-colors">
-                Module 2: Nguồn Cung Lô Nông Sản & Danh Mục
+                Nguồn Cung Lô Nông Sản & Ngành Hàng
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Kiểm duyệt mã vùng trồng PUC, tiêu chuẩn VietGAP, bảng giá sỉ phân tầng và phân loại ngành hàng.
+                Kiểm duyệt mã vùng trồng, tiêu chuẩn VietGAP, bảng giá sỉ phân tầng và phân loại ngành hàng.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-[#10542C] mt-4">
@@ -230,14 +235,14 @@ export default function AdminDashboardPage() {
                 <Truck className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-[#10542C] transition-colors">
-                Module 3: Hợp Đồng B2B & Ký Quỹ Escrow
+                Hợp Đồng Mua Bán Sỉ & Tiền Bảo Chứng
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Theo dõi tiến trình hợp đồng 7 bước, giám sát quỹ cọc 30% bảo chứng (TK 3388) và phán quyết tranh chấp.
+                Theo dõi tiến trình hợp đồng, giám sát tiền cọc 30% bảo chứng giao dịch an toàn và giải quyết khiếu nại.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-purple-700 mt-4">
-              <span>Đến trang Hợp Đồng & Ký Quỹ</span>
+              <span>Đến trang Hợp Đồng & Bảo Chứng</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
@@ -251,14 +256,14 @@ export default function AdminDashboardPage() {
                 <Leaf className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-[#10542C] transition-colors">
-                Module 4: Trạm Kiểm Định QC & Kho Lạnh FEFO
+                Trạm Kiểm Định Chất Lượng & Bảo Quản Lạnh
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Giám sát buồng bảo quản tại trạm trung chuyển, nhật ký nghiệm thu Brix/độ ẩm và xuất kho FEFO.
+                Giám sát buồng bảo quản tại trạm trung chuyển, nhật ký nghiệm thu độ ngọt, độ ẩm và xuất kho.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 mt-4">
-              <span>Đến trang Trạm QC & FEFO</span>
+              <span>Đến trang Kiểm Định & Kho Lạnh</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
@@ -272,14 +277,14 @@ export default function AdminDashboardPage() {
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-red-700 transition-colors">
-                Module 5: Giám Sát IoT Chuỗi Lạnh & Sự Cố
+                Giám Sát Nhiệt Độ Thùng Lạnh & Cảnh Báo
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Biểu đồ nhiệt độ thời gian thực (2°C - 6°C), còi báo động và bảng giả lập sự cố phục vụ báo cáo.
+                Biểu đồ nhiệt độ thời gian thực (2°C - 6°C), chuông cảnh báo và kiểm tra giả lập sự cố.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-red-600 mt-4">
-              <span>Đến trang Giám Sát IoT</span>
+              <span>Đến trang Giám Sát Nhiệt Độ</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
@@ -293,14 +298,14 @@ export default function AdminDashboardPage() {
                 <Truck className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-sky-800 transition-colors">
-                Module 6: Điều Phối Vận Tải Lạnh TMS & ePOD
+                Điều Phối Đội Xe Lạnh & Phiếu Giao Nhận
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Quản lý đội xe thùng lạnh, lịch trình giao nhận và biên bản giao hàng điện tử ePOD có chữ ký số.
+                Quản lý đội xe thùng lạnh, bản đồ lộ trình giao nhận và phiếu bàn giao có chữ ký xác nhận.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-sky-700 mt-4">
-              <span>Đến trang Vận Tải TMS</span>
+              <span>Đến trang Đội Xe Lạnh</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
@@ -314,14 +319,14 @@ export default function AdminDashboardPage() {
                 <TrendingUp className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-amber-800 transition-colors">
-                Module 7: Báo Cáo Kế Toán VAS & Tham Số Sàn
+                Báo Cáo Kế Toán & Cấu Hình Sàn
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Xuất bảng kê thu mua 01/TNDN, hóa đơn sàn, sổ nhật ký chung và cấu hình tỷ lệ phí sàn.
+                Xuất bảng kê thu mua 01/TNDN, hóa đơn sàn, sổ nhật ký đối soát và cấu hình tỷ lệ phí sàn.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 mt-4">
-              <span>Đến trang Kế Toán VAS</span>
+              <span>Đến trang Báo Cáo Kế Toán</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>

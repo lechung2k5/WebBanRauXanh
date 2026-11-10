@@ -2,8 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/auth';
-import { Truck, Plus, AlertCircle, RefreshCw, Loader2, FileCheck2, Wrench } from 'lucide-react';
+import { Truck, Plus, AlertCircle, RefreshCw, Loader2, FileCheck2, Wrench, MapPin, Navigation } from 'lucide-react';
 import { DataTable, FormDialog, Row, Field, epodFields, str } from '@/components/admin/AdminConsole';
+import { GoongMapViewer } from '@/components/common/GoongMapViewer';
+import { geocodeAddress } from '@/services/goongMapService';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
 
@@ -22,6 +25,40 @@ export default function AdminShipmentsPage() {
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<{ title: string; fields: Field[]; submit: (v: Row) => Promise<unknown> } | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
+  const [selectedShipment, setSelectedShipment] = useState<Row | null>(null);
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number; name: string }>({
+    lat: 10.8499,
+    lng: 106.7725,
+    name: 'Tổng Kho Phân Phối Chuỗi Lạnh Thủ Đức, TP.HCM',
+  });
+
+  // Tự động Geocode địa chỉ giao hàng khi chọn chuyến xe
+  useEffect(() => {
+    if (selectedShipment?.delivery_address) {
+      const addr = String(selectedShipment.delivery_address);
+      void geocodeAddress(addr).then((coords) => {
+        if (coords) {
+          setDestinationCoords({
+            lat: coords.lat,
+            lng: coords.lng,
+            name: addr,
+          });
+        } else {
+          setDestinationCoords({
+            lat: 10.8499,
+            lng: 106.7725,
+            name: addr,
+          });
+        }
+      });
+    } else {
+      setDestinationCoords({
+        lat: 10.8499,
+        lng: 106.7725,
+        name: 'Tổng Kho Phân Phối Chuỗi Lạnh Thủ Đức, TP.HCM',
+      });
+    }
+  }, [selectedShipment]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -43,6 +80,10 @@ export default function AdminShipmentsPage() {
 
   useEffect(() => {
     void loadData();
+    const unsubscribe = subscribeB2bSyncEvents(() => {
+      void loadData();
+    });
+    return () => unsubscribe();
   }, [loadData]);
 
   const openDialog = (title: string, endpoint: string, fields: Field[], method = 'POST', fixed: Row = {}) => {
@@ -64,10 +105,10 @@ export default function AdminShipmentsPage() {
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-heading font-black tracking-tight text-white flex items-center gap-3">
-              <Truck className="w-7 h-7 text-[#8BC34A]" /> Điều Phối Vận Tải Lạnh TMS & Hồ Sơ ePOD
+              <Truck className="w-7 h-7 text-[#8BC34A]" /> Quản Lý Đội Xe Tải Lạnh & Phiếu Giao Nhận Điện Tử
             </h1>
             <p className="text-xs text-white/80 mt-1">
-              Module 6: Quản trị đội xe tải lạnh chuyên dụng, điều phối chuyến hàng từ trạm về kho bên mua và lưu trữ biên bản giao nhận điện tử ePOD.
+              Quản trị đội xe tải lạnh chuyên dụng, điều phối chuyến hàng từ trạm về kho bên mua và lưu trữ phiếu giao nhận điện tử.
             </p>
           </div>
           <button
@@ -173,15 +214,36 @@ export default function AdminShipmentsPage() {
         )}
       </div>
 
+      {/* Bản Đồ Định Tuyến Vận Tải Lạnh Goong Maps */}
+      <GoongMapViewer
+        title={
+          selectedShipment
+            ? `Bản Đồ Lộ Trình Vận Tải · Chuyến ${selectedShipment.shipment_code || ''}`
+            : 'Bản Đồ Hành Lang Vận Tải Lạnh Tuyến Tây Nguyên - Đông Nam Bộ'
+        }
+        origin={{
+          lat: 11.9404,
+          lng: 108.4583,
+          name: 'Trạm Trung Chuyển Nông Sản Đức Trọng - Đà Lạt (Lâm Đồng)',
+        }}
+        destination={destinationCoords}
+        truckCode={selectedShipment ? String(selectedShipment.asset_code || 'Xe tải lạnh') : 'Đội xe TMS'}
+        temperature={4.2}
+        statusBadge={
+          selectedShipment ? `Trạng thái: ${selectedShipment.status || 'IN_TRANSIT'}` : 'Đang vận hành hành lang lạnh'
+        }
+        height={360}
+      />
+
       {/* Danh Sách Chuyến Hàng & Biên Bản Giao Nhận ePOD */}
       <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#F0F2ED] gap-2">
           <div>
             <h3 className="font-heading font-black text-sm text-[#2C3E2E] flex items-center gap-2">
               <FileCheck2 className="w-4 h-4 text-[#10542C]" />
-              <span>Lịch Trình Vận Chuyển & Biên Bản Giao Nhận ePOD</span>
+              <span>Lịch Trình Vận Chuyển & Phiếu Giao Nhận Điện Tử</span>
             </h3>
-            <p className="text-xs text-[#6B7280] mt-0.5">Theo dõi hành trình xe lạnh và biên bản ký nhận số của bên mua</p>
+            <p className="text-xs text-[#6B7280] mt-0.5">Theo dõi hành trình xe lạnh và phiếu ký nhận hàng của bên mua</p>
           </div>
           <span className="text-xs text-[#6B7280]">
             Hiển thị <strong className="text-[#10542C] font-semibold">{shipments.length}</strong> chuyến hàng
@@ -210,22 +272,35 @@ export default function AdminShipmentsPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => setSelectedShipment(row)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer border flex items-center gap-1 ${
+                    selectedShipment?.id === row.id
+                      ? 'bg-[#10542C] text-white border-[#10542C]'
+                      : 'text-[#10542C] bg-white border-[#CDE5CB] hover:bg-[#EAF5E9]'
+                  }`}
+                  title="Xem lộ trình trên bản đồ"
+                >
+                  <MapPin className="w-3 h-3" />
+                  <span>Bản đồ</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setDetail(row)}
                   className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-[#EAF5E9] hover:bg-[#D7EED6] border border-[#CDE5CB] rounded-lg transition-colors cursor-pointer"
                 >
-                  Hồ sơ ePOD
+                  Phiếu giao nhận
                 </button>
                 {row.status === 'IN_TRANSIT' && (
                   <button
                     type="button"
                     onClick={() =>
-                      openDialog(
-                        `Ký Nhận Giao Hàng ePOD · ${row.shipment_code}`,
-                        `admin/shipments/${row.id}/epod`,
-                        epodFields
-                      )
-                    }
-                    className="px-2.5 py-1 text-xs font-semibold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-lg transition-colors cursor-pointer"
+                    openDialog(
+                      `Ký Nhận Giao Hàng · ${row.shipment_code}`,
+                      `admin/shipments/${row.id}/epod`,
+                      epodFields
+                    )
+                  }
+                  className="px-2.5 py-1 text-xs font-semibold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-lg transition-colors cursor-pointer"
                   >
                     Ghi nhận ePOD
                   </button>
