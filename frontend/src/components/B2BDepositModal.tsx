@@ -277,7 +277,7 @@ export default function B2BDepositModal({
                 </div>
                 {/* Nút chọn nhanh */}
                 <div className="flex gap-1.5 mt-1.5">
-                  {[moq, 1000, 2000, 5000, 10000].map((qty) => (
+                  {Array.from(new Set([moq, 1000, 2000, 5000, 10000])).filter((qty) => qty >= moq).sort((a, b) => a - b).map((qty) => (
                     <button
                       key={qty}
                       type="button"

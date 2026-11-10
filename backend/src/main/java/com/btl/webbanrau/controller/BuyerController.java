@@ -5,10 +5,14 @@ import com.btl.webbanrau.dto.request.BuyerProfileRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
+import com.btl.webbanrau.dto.request.B2bReviewRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
-import com.btl.webbanrau.model.BuyerProfile;
+import com.btl.webbanrau.dto.response.BuyerProfileResponse;
+import com.btl.webbanrau.dto.response.OrderResponse;
+import com.btl.webbanrau.dto.response.PageResponse;
 import com.btl.webbanrau.model.BuyerWarehouse;
 import com.btl.webbanrau.service.BuyerWorkflowService;
+import com.btl.webbanrau.service.B2bReviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -24,13 +28,21 @@ import java.util.Map;
 @PreAuthorize("hasRole('BUYER')")
 public class BuyerController {
     private final BuyerWorkflowService buyer;
+    private final B2bReviewService reviews;
 
     @GetMapping("/profile")
-    public ApiResponse<BuyerProfile> getProfile() { return ApiResponse.success(buyer.profile()); }
+    public ApiResponse<BuyerProfileResponse> getProfile() { return ApiResponse.success(buyer.profile()); }
 
     @PutMapping("/profile")
-    public ApiResponse<BuyerProfile> updateProfile(@Valid @RequestBody BuyerProfileRequest request) {
+    public ApiResponse<BuyerProfileResponse> updateProfile(@Valid @RequestBody BuyerProfileRequest request) {
         return ApiResponse.success("Cập nhật hồ sơ Buyer thành công", buyer.updateProfile(request));
+    }
+
+    @GetMapping("/orders")
+    public ApiResponse<PageResponse<OrderResponse>> orders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(buyer.orders(Math.max(page, 0), Math.min(Math.max(size, 1), 50)));
     }
 
     @GetMapping("/addresses")
@@ -54,6 +66,11 @@ public class BuyerController {
 
     @GetMapping("/rfq")
     public ApiResponse<List<Map<String, Object>>> getRfqs() { return ApiResponse.success(buyer.listRfqs()); }
+
+    @GetMapping("/rfq/{id}/history")
+    public ApiResponse<List<Map<String, Object>>> rfqHistory(@PathVariable Long id) {
+        return ApiResponse.success(buyer.rfqHistory(id));
+    }
 
     @PostMapping("/rfq")
     public ApiResponse<Map<String, Object>> createRfq(@Valid @RequestBody BuyerRfqRequest request) {
@@ -100,6 +117,16 @@ public class BuyerController {
     @PostMapping("/contracts/{id}/final-payment/confirm")
     public ApiResponse<Map<String, Object>> confirmFinalPayment(@PathVariable Long id) {
         return ApiResponse.success("Đã xác nhận thanh toán 70% giả lập", buyer.confirmFinalPayment(id));
+    }
+
+    @GetMapping("/contracts/{id}/reviews")
+    public ApiResponse<List<Map<String, Object>>> reviews(@PathVariable Long id) {
+        return ApiResponse.success(reviews.list(id, "BUYER"));
+    }
+
+    @PostMapping("/contracts/{id}/reviews")
+    public ApiResponse<Map<String, Object>> submitReview(@PathVariable Long id, @Valid @RequestBody B2bReviewRequest request) {
+        return ApiResponse.success("Đã lưu đánh giá giao dịch", reviews.submit(id, request, "BUYER"));
     }
 
     @GetMapping(value = "/contracts/{id}/invoice", produces = MediaType.TEXT_HTML_VALUE)

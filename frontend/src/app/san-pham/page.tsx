@@ -56,7 +56,9 @@ function ProductListContent() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 16;
+  const pageSize = 10;
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [totalProductPages, setTotalProductPages] = useState(1);
 
   useEffect(() => {
     setSelectedCategorySlug(normalizeCategory(searchParams.get('category')));
@@ -74,8 +76,12 @@ function ProductListContent() {
           categorySlug: selectedCategorySlug || undefined,
           maxPrice: priceRange < 100000 ? priceRange : undefined,
           isOrganic: selectedCert === 'organic' ? true : undefined,
+          page: currentPage,
+          size: pageSize,
         });
         setProducts(res.products);
+        setTotalProducts(res.totalElements);
+        setTotalProductPages(Math.max(1, res.totalPages));
         setIsSemanticResult(Boolean(res.isSemanticSearch));
       } catch (err) {
         console.error('Error fetching products:', err);
@@ -85,7 +91,7 @@ function ProductListContent() {
     };
 
     fetchList();
-  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert]);
+  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage]);
 
   // Apply sorting
   const sortedProducts = [...products].sort((a, b) => {
@@ -95,8 +101,8 @@ function ProductListContent() {
     return 0;
   });
 
-  const totalPages = Math.ceil(sortedProducts.length / pageSize) || 1;
-  const paginatedProducts = sortedProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = totalProductPages;
+  const paginatedProducts = sortedProducts;
 
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -258,7 +264,10 @@ function ProductListContent() {
                       type="radio"
                       name="stageFilter"
                       checked={selectedStage === st.val}
-                      onChange={() => setSelectedStage(st.val)}
+                      onChange={() => {
+                        setSelectedStage(st.val);
+                        setCurrentPage(1);
+                      }}
                       className="accent-[#10542C]"
                     />
                     <span className={selectedStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
@@ -398,11 +407,12 @@ function ProductListContent() {
             ) : (
               <>
                 {/* Layout 1 hàng 1 lô nông sản - card chiều ngang to ra */}
-                <div id="product-list-container" className="flex flex-col gap-4">
+                <div id="product-list-container" className="grid lg:grid-cols-2 gap-5">
                   {paginatedProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={product}
+                      layout="grid"
                       onViewDetail={(p) => {
                         trackProductView(p);
                         setSelectedProduct(p);
@@ -416,7 +426,7 @@ function ProductListContent() {
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  totalItems={sortedProducts.length}
+                  totalItems={totalProducts}
                   pageSize={pageSize}
                   onPageChange={(page) => setCurrentPage(page)}
                   scrollTargetId="product-list-container"

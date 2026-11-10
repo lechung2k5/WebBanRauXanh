@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   LayoutDashboard,
+  ShoppingBag,
   Sprout,
   MessageSquare,
   FileText,
@@ -47,6 +48,7 @@ import {
   Eye,
   CreditCard,
   Landmark,
+  Star,
 } from 'lucide-react';
 
 import {
@@ -76,6 +78,7 @@ import {
   getFarmerHarvestLotsApi,
   createHarvestLotApi,
   getFarmerRfqsApi,
+  getFarmerRfqHistoryApi,
   respondToRfqApi,
   getFarmerContractsApi,
   getContractQcApi,
@@ -88,19 +91,31 @@ import {
   saveLocalContract,
   saveLocalRfqUpdate,
   FALLBACK_QC,
+  getFarmerReviewsApi,
+  submitFarmerReviewApi,
 } from '@/services/farmerApi';
 
 import { getStoredUser, loginApi, aiChatRagApi } from '@/services/api';
 import FarmerDashboardView, { formatRfqTimestamp } from './components/FarmerDashboardView';
 import FarmerAiChatView from './components/FarmerAiChatView';
 import FarmerPostSaleView from './components/FarmerPostSaleView';
+import FarmerOrderManagementView from './components/FarmerOrderManagementView';
+import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
+import Pagination from '@/components/Pagination';
+import { getRfqStatusMeta, isRfqExpiredAt, isRfqWaitingForFarmer } from '@/utils/rfqStatus';
+import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
+import B2BNotificationBell from '@/components/B2BNotificationBell';
+import RfqCountdown from '@/components/RfqCountdown';
+
+const FARMER_LOTS_PAGE_SIZE = 10;
 
 function FarmerPortalContent() {
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'lots' | 'rfq' | 'qc' | 'settlements' | 'profile' | 'ai' | 'post_sale'
+    'dashboard' | 'lots' | 'rfq' | 'orders' | 'qc' | 'settlements' | 'profile' | 'ai' | 'post_sale'
   >('dashboard');
+  const [selectedPostSaleContractId, setSelectedPostSaleContractId] = useState<number | undefined>(undefined);
 
   const [currentUser, setCurrentUser] = useState<AuthResponse | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -109,11 +124,24 @@ function FarmerPortalContent() {
   const [profile, setProfile] = useState<FarmerProfile | null>(null);
   const [lots, setLots] = useState<HarvestLot[]>([]);
   const [rfqs, setRfqs] = useState<RfqItem[]>([]);
+  const [rfqHistories, setRfqHistories] = useState<Record<number, RfqHistoryEvent[]>>({});
+  const [expandedRfqHistory, setExpandedRfqHistory] = useState<number | null>(null);
   const [contracts, setContracts] = useState<B2BContract[]>([]);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [selectedContractQc, setSelectedContractQc] = useState<QcInspection | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [isQcDropdownOpen, setIsQcDropdownOpen] = useState(false);
+  const [farmerLotsPage, setFarmerLotsPage] = useState(1);
+
+  const farmerLotsTotalPages = Math.max(1, Math.ceil(lots.length / FARMER_LOTS_PAGE_SIZE));
+  const visibleFarmerLots = lots.slice(
+    (farmerLotsPage - 1) * FARMER_LOTS_PAGE_SIZE,
+    farmerLotsPage * FARMER_LOTS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setFarmerLotsPage((current) => Math.min(current, farmerLotsTotalPages));
+  }, [farmerLotsTotalPages]);
 
   // Subtab in RFQ
   const [rfqSubTab, setRfqSubTab] = useState<'inbox' | 'contracts'>('inbox');
@@ -407,6 +435,11 @@ function FarmerPortalContent() {
     notes: 'Giữ nhiệt độ Pre-cooling 4.0°C khi chạy trên đường',
   });
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
+  const [reviewContractId, setReviewContractId] = useState<number | null>(null);
+  const [reviewStars, setReviewStars] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
 
   const handleOpenScheduleModal = (c: B2BContract) => {
     setScheduleModalContract(c);
@@ -431,6 +464,33 @@ function FarmerPortalContent() {
       alert('Lỗi khi cập nhật lịch giao trạm');
     } finally {
       setIsUpdatingSchedule(false);
+    }
+  };
+
+  const handleOpenFarmerReview = async (contractId: number) => {
+    setReviewContractId(contractId);
+    setReviewMessage('');
+    try {
+      const reviews = await getFarmerReviewsApi(contractId);
+      const mine = reviews.find((review) => review.reviewerRole === 'FARMER');
+      setReviewStars(mine?.rating || 5);
+      setReviewComment(mine?.comment || '');
+    } catch {
+      setReviewStars(5);
+      setReviewComment('');
+    }
+  };
+
+  const handleSubmitFarmerReview = async (contractId: number) => {
+    setReviewLoading(true);
+    setReviewMessage('');
+    try {
+      await submitFarmerReviewApi(contractId, { rating: reviewStars, comment: reviewComment });
+      setReviewMessage('Đã lưu đánh giá Buyer thành công.');
+    } catch (error) {
+      setReviewMessage(error instanceof Error ? error.message : 'Không thể lưu đánh giá Buyer.');
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -516,18 +576,24 @@ function FarmerPortalContent() {
     setCurrentUser(getStoredUser());
     loadPortalData();
 
-    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ từ Trang Chủ
+    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ từ Trang Chủ hoặc Buyer Portal
     const handleRfqUpdate = (e?: Event) => {
-      if (e instanceof StorageEvent) {
-        if (!e.key || !e.key.startsWith('b2b_')) return;
-      }
+      console.log('Farmer Portal: Sync event received, reloading data...', e);
       loadPortalData();
     };
     window.addEventListener('b2b_rfq_updated', handleRfqUpdate);
     window.addEventListener('storage', handleRfqUpdate);
+
+    // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal)
+    const unsubscribeSync = subscribeB2bSyncEvents((event) => {
+      console.log('Farmer Portal received BroadcastChannel event:', event);
+      loadPortalData();
+    });
+
     return () => {
       window.removeEventListener('b2b_rfq_updated', handleRfqUpdate);
       window.removeEventListener('storage', handleRfqUpdate);
+      unsubscribeSync();
     };
   }, []);
 
@@ -653,6 +719,7 @@ function FarmerPortalContent() {
       return;
     try {
       await respondToRfqApi(rfqId, { action: 'ACCEPT' });
+      try { farmerRespondRfq(rfqId, 'ACCEPT'); } catch (_) {}
 
       const targetRfq = rfqs.find((r) => r.id === rfqId);
       setRfqs((prev) =>
@@ -710,6 +777,18 @@ function FarmerPortalContent() {
     }
   };
 
+  const handleToggleRfqHistory = async (rfqId: number) => {
+    if (expandedRfqHistory === rfqId) {
+      setExpandedRfqHistory(null);
+      return;
+    }
+    setExpandedRfqHistory(rfqId);
+    if (!rfqHistories[rfqId]) {
+      const events = await getFarmerRfqHistoryApi(rfqId);
+      setRfqHistories((prev) => ({ ...prev, [rfqId]: events as unknown as RfqHistoryEvent[] }));
+    }
+  };
+
   const handleCounterRfq = async () => {
     if (!counterModalRfq) return;
     try {
@@ -719,10 +798,18 @@ function FarmerPortalContent() {
         counterQuantity: Number(counterQty),
       });
 
+      try {
+        farmerRespondRfq(counterModalRfq.id, 'COUNTER', Number(counterPrice));
+      } catch (_) {
+        try {
+          farmerRespondRfq(counterModalRfq.rfqCode, 'COUNTER', Number(counterPrice));
+        } catch (e) {}
+      }
+
       saveLocalRfqUpdate({
         id: counterModalRfq.id,
         rfqCode: counterModalRfq.rfqCode,
-        status: 'COUNTER_OFFER',
+        status: 'WAITING_BUYER',
         counterPrice: Number(counterPrice),
         counterQuantity: Number(counterQty),
       });
@@ -749,6 +836,14 @@ function FarmerPortalContent() {
         action: 'REJECT',
         rejectReason,
       });
+
+      try {
+        farmerRespondRfq(rejectModalRfq.id, 'REJECT', undefined, rejectReason);
+      } catch (_) {
+        try {
+          farmerRespondRfq(rejectModalRfq.rfqCode, 'REJECT', undefined, rejectReason);
+        } catch (e) {}
+      }
 
       saveLocalRfqUpdate({
         id: rejectModalRfq.id,
@@ -925,6 +1020,7 @@ function FarmerPortalContent() {
         </div>
 
         <div className="flex items-center gap-3">
+          <B2BNotificationBell audience="FARMER" />
           <div className="hidden md:flex items-center gap-3 bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl text-xs">
             <Building2 className="w-4 h-4 text-emerald-300" />
             <div>
@@ -1002,7 +1098,7 @@ function FarmerPortalContent() {
               <MessageSquare className="w-4 h-4" />
               <span>Đàm Phán RFQ ({rfqs.length})</span>
             </div>
-            {rfqs.filter((r) => r.status === 'PENDING').length > 0 && (
+            {rfqs.filter((r) => isRfqWaitingForFarmer(r.status)).length > 0 && (
               <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
                 Mới
               </span>
@@ -1138,8 +1234,8 @@ function FarmerPortalContent() {
               </div>
 
               {/* LOTS GRID */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {lots.map((lot) => (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" id="farmer-lots-grid">
+                {visibleFarmerLots.map((lot) => (
                   <div
                     key={lot.id}
                     className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs overflow-hidden flex flex-col justify-between hover:shadow-md transition"
@@ -1229,7 +1325,19 @@ function FarmerPortalContent() {
                   </div>
                 ))}
               </div>
+              <Pagination currentPage={farmerLotsPage} totalPages={farmerLotsTotalPages} totalItems={lots.length} pageSize={FARMER_LOTS_PAGE_SIZE} onPageChange={setFarmerLotsPage} scrollTargetId="farmer-lots-grid" />
             </div>
+          )}
+
+          {/* TAB QUẢN LÝ ĐƠN HÀNG B2B & ESCROW */}
+          {activeTab === 'orders' && (
+            <FarmerOrderManagementView
+              onNavigateToPostSale={(contractId) => {
+                setSelectedPostSaleContractId(contractId);
+                setActiveTab('post_sale');
+              }}
+              formatVnd={formatVnd}
+            />
           )}
 
           {/* TAB 3: RFQ NEGOTIATION & B2B CONTRACTS */}
@@ -1299,7 +1407,7 @@ function FarmerPortalContent() {
                   <div className="grid grid-cols-1 gap-4">
                     {rfqs.map((rfq) => (
                       <div
-                        key={rfq.id}
+                        key={`${rfq.rfqCode || "rfq"}-${rfq.id}`}
                         className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-200 transition space-y-4"
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
@@ -1316,20 +1424,8 @@ function FarmerPortalContent() {
                               </p>
                             </div>
                           </div>
-                          <span
-                            className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${
-                              rfq.status === 'ACCEPTED'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : rfq.status === 'PENDING'
-                                ? 'bg-amber-100 text-amber-800 animate-pulse'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {rfq.status === 'ACCEPTED'
-                              ? '✓ ĐÃ CHẤP THUẬN (HỢP ĐỒNG KHỞI TẠO)'
-                              : rfq.status === 'PENDING'
-                              ? 'ĐANG CHỜ BÀ CON PHẢN HỒI'
-                              : rfq.status}
+                          <span className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').className}`}>
+                            {getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').label}
                           </span>
                         </div>
 
@@ -1384,7 +1480,7 @@ function FarmerPortalContent() {
 
                               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                                 <Calendar className="w-3 h-3 text-amber-600" />
-                                <span>Hạn chốt đàm phán: 18:00 ngày {rfq.deliveryDate}</span>
+                                <RfqCountdown expiresAt={rfq.expiresAt} createdAt={rfq.createdAt} />
                               </div>
                             </div>
                           );
@@ -1397,8 +1493,29 @@ function FarmerPortalContent() {
                           </div>
                         )}
 
+                        {rfq.contractCode && (
+                          <div className="p-3 bg-emerald-50 rounded-xl text-xs text-emerald-900 border border-emerald-200">
+                            <strong>Hợp đồng đã tạo:</strong> {rfq.contractCode} · Chờ Buyer đặt cọc 30%.
+                          </div>
+                        )}
+
+                        <div className="border-t border-gray-100 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleRfqHistory(rfq.id)}
+                            className="text-xs font-bold text-sky-700 hover:text-sky-900"
+                          >
+                            {expandedRfqHistory === rfq.id ? 'Ẩn lịch sử đàm phán' : 'Xem lịch sử phiên bản giá'}
+                          </button>
+                          {expandedRfqHistory === rfq.id && (
+                            <div className="mt-3">
+                              <RfqHistoryTimeline events={rfqHistories[rfq.id] || []} />
+                            </div>
+                          )}
+                        </div>
+
                         {/* Actions */}
-                        {rfq.status === 'PENDING' && (
+                        {isRfqWaitingForFarmer(rfq.status) && !isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) && (
                           <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                             <button type="button"
                               onClick={() => setRejectModalRfq(rfq)}
@@ -1437,7 +1554,7 @@ function FarmerPortalContent() {
                   <div className="grid grid-cols-1 gap-4">
                     {contracts.map((c) => (
                       <div
-                        key={c.id}
+                        key={`${c.contractCode || "contract"}-${c.id}`}
                         className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs space-y-4"
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
@@ -1538,8 +1655,36 @@ function FarmerPortalContent() {
                                 {isSettlingId === c.id ? 'Đang giải ngân...' : '⚡ Quyết Toán Ngay'}
                               </button>
                             )}
+                            {c.fulfillmentStatus === 'COMPLETED' && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFarmerReview(c.id)}
+                                className="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs transition flex items-center gap-1"
+                              >
+                                <Star className="w-3.5 h-3.5" /> Đánh giá Buyer
+                              </button>
+                            )}
                           </div>
                         </div>
+                        {reviewContractId === c.id && c.fulfillmentStatus === 'COMPLETED' && (
+                          <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-100 space-y-3">
+                            <div className="flex items-center gap-2">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button key={star} type="button" onClick={() => setReviewStars(star)} className="p-1 hover:scale-110 transition-transform" aria-label={`Chọn ${star} sao`}>
+                                  <Star className={`w-6 h-6 ${star <= reviewStars ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} />
+                                </button>
+                              ))}
+                              <span className="text-xs font-bold text-slate-500">{reviewStars}/5 sao</span>
+                            </div>
+                            <textarea value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} maxLength={2000} rows={2} placeholder="Chia sẻ về phối hợp và thanh toán của Buyer..." className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-xs text-emerald-700">{reviewMessage}</span>
+                              <button type="button" onClick={() => handleSubmitFarmerReview(c.id)} disabled={reviewLoading} className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs disabled:opacity-50">
+                                {reviewLoading ? 'Đang lưu...' : 'Lưu đánh giá'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2820,7 +2965,7 @@ function FarmerPortalContent() {
 
           {/* TAB 8: THEO DÕI LÔ HÀNG SAU BÁN & CHUỖI LẠNH IOT */}
           {activeTab === 'post_sale' && (
-            <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} />
+            <FarmerPostSaleView lots={lots} contracts={contracts} formatVnd={formatVnd} initialContractId={selectedPostSaleContractId} />
           )}
         </main>
       </div>

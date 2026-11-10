@@ -15,6 +15,8 @@ Phần Buyer đã được nối với luồng nghiệp vụ dùng chung của h
 - Ký ePOD.
 - Thanh toán phần còn lại giả lập.
 - Xem hóa đơn HTML.
+- Gửi/cập nhật đánh giá sau giao dịch B2B; đánh giá được lưu theo từng Buyer/Farmer và hợp đồng.
+- Nhận thông báo email khi trạng thái hợp đồng B2B thay đổi (SMTP lỗi không làm rollback giao dịch).
 
 ## 2. Backend đã sửa hoặc bổ sung
 
@@ -33,6 +35,7 @@ Phần Buyer đã được nối với luồng nghiệp vụ dùng chung của h
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerWarehouseRequest.java`
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerRfqActionRequest.java`
 - `backend/src/main/java/com/btl/webbanrau/dto/request/BuyerEpodRequest.java`
+- `backend/src/main/java/com/btl/webbanrau/dto/request/B2bReviewRequest.java`
 
 Các DTO này nhận dữ liệu cập nhật địa chỉ, thao tác đàm phán và ký ePOD.
 
@@ -55,12 +58,21 @@ Các DTO này nhận dữ liệu cập nhật địa chỉ, thao tác đàm phá
     - `/buyer/contracts/{id}/sign-epod`
     - API QR/xác nhận thanh toán cuối
     - `/buyer/contracts/{id}/invoice`
+    - `/buyer/contracts/{id}/reviews`
+- `backend/src/main/java/com/btl/webbanrau/controller/FarmerController.java`
+  - Bổ sung `GET/POST /farmer/contracts/{id}/reviews` để đánh giá hai chiều.
+- `backend/src/main/java/com/btl/webbanrau/service/B2bReviewService.java`
+  - Kiểm tra quyền sở hữu hợp đồng, trạng thái đã giao/quyết toán và upsert đánh giá.
+- `backend/src/main/java/com/btl/webbanrau/service/AdminBusinessService.java`
+  - Gửi email thông báo sau mỗi lần chuyển trạng thái hợp đồng; lỗi SMTP chỉ ghi log.
 
 ### Database
 
 - `backend/src/main/resources/db/migration/V6__buyer_workflow.sql`
   - Thêm `buyer_id`, `shipping_option`, `notes` cho bảng `rfq_negotiations`.
   - Thêm index phục vụ truy vấn RFQ theo Buyer.
+- `backend/src/main/resources/db/migration/V10__b2b_reviews.sql`
+  - Tạo bảng đánh giá B2B, giới hạn 1 đánh giá cho mỗi bên trên mỗi hợp đồng và kiểm tra điểm 1–5.
 
 ### Tài khoản demo
 
@@ -127,6 +139,7 @@ Mở `http://localhost:3000`, đăng nhập bằng `buyer / buyer123`, sau đó 
 6. Mở phần đặt cọc, lấy QR giả lập và xác nhận thanh toán.
 7. Ký ePOD với chữ ký, khối lượng và ảnh minh chứng.
 8. Thực hiện thanh toán cuối và mở hóa đơn.
+9. Với hợp đồng đã giao/quyết toán, vào `Đơn đã mua` để gửi đánh giá; đăng nhập Farmer để đánh giá lại Buyer.
 
 ## 5. Kết quả kiểm tra mã nguồn
 
@@ -141,4 +154,75 @@ Mở `http://localhost:3000`, đăng nhập bằng `buyer / buyer123`, sau đó 
 - Đàm phán hiện hỗ trợ trạng thái và phản hồi RFQ; chưa có chat realtime theo từng tin nhắn.
 - Hóa đơn hiện trả về HTML, chưa phát sinh PDF hóa đơn điện tử có giá trị pháp lý.
 - Cần chạy migration và kiểm thử API trên môi trường có PostgreSQL trước khi triển khai production.
+- Email trạng thái hợp đồng cần cấu hình SMTP hợp lệ để gửi thật; nếu chưa có SMTP, trạng thái giao dịch vẫn được lưu bình thường.
+
+## 7. Bổ sung Buyer: mua hàng, theo dõi đơn và hồ sơ cá nhân
+
+Đã bổ sung theo yêu cầu:
+
+- Trang `Sản phẩm đã mua`: lấy danh sách đơn bán lẻ của Buyer đang đăng nhập và hiển thị từng sản phẩm, số lượng, đơn giá, thành tiền.
+- Trang `Theo dõi đơn hàng`: hiển thị tiến trình `PENDING` → `CONFIRMED` → `SHIPPING` → `DELIVERED`, địa chỉ giao và tổng thanh toán; có trạng thái riêng cho đơn đã hủy.
+- Trang cá nhân Buyer: sửa họ tên, số điện thoại, địa chỉ liên hệ, công ty/cửa hàng, mã số thuế và địa chỉ kho nhận.
+
+### Đồng bộ Buyer B2B và loại bỏ luồng bán lẻ
+
+- Màn hình theo dõi chỉ lấy hợp đồng từ `GET /buyer/contracts` theo JWT Buyer; không còn lấy dữ liệu Farmer, fallback hoặc đơn hàng bán lẻ từ localStorage.
+- Portal Buyer thay danh sách hợp đồng mẫu bằng dữ liệu backend sau khi đăng nhập; Buyer chưa có hợp đồng sẽ hiển thị danh sách rỗng.
+- Đã gỡ mục `Sản phẩm đã mua`, `Theo dõi đơn hàng` và tab `Đơn Hàng Tiêu Dùng`; phần đánh giá được giữ ở mục `Đánh giá giao dịch B2B`.
+
+### API mới
+
+- `GET /buyer/orders?page=0&size=20`
+  - Chỉ trả về đơn hàng thuộc Buyer hiện tại từ JWT.
+- `GET /buyer/profile`
+  - Trả về thông tin tài khoản, thông tin liên hệ và trạng thái KYC.
+- `PUT /buyer/profile`
+  - Cập nhật thông tin Buyer; username và email được giữ chỉ đọc.
+
+Ngoài ra, khi checkout trong lúc đã đăng nhập, backend tự gắn đơn hàng vào tài khoản hiện tại để các đơn mới xuất hiện trong lịch sử Buyer. Các đơn cũ được tạo dưới dạng khách hoặc chưa có `user_id` sẽ không thể tự động truy ngược về tài khoản Buyer.
+
+### File bổ sung
+
+- `backend/src/main/java/com/btl/webbanrau/dto/response/BuyerProfileResponse.java`
+- `frontend/src/components/BuyerOrdersPanel.tsx`
+- `frontend/src/components/BuyerProfilePanel.tsx`
+
+## 8. Đồng bộ đơn hàng Buyer với Admin
+
+Đã cập nhật ngày 08/11/2026:
+
+- `backend/src/main/java/com/btl/webbanrau/util/DataInitializer.java`
+  - Tạo 3 đơn hàng mẫu cho mỗi tài khoản có `ROLE_BUYER`.
+  - Các đơn mẫu được gắn trực tiếp với Buyer qua `orders.user_id`.
+  - Bao gồm các trạng thái chờ xác nhận, đang giao và đã giao.
+  - Mã đơn mẫu có tính ổn định, không tạo trùng khi restart backend.
+  - Tồn kho được trừ khi tạo đơn mẫu để nghiệp vụ hủy đơn/hoàn kho vẫn chính xác.
+
+- `backend/src/main/java/com/btl/webbanrau/dto/response/OrderResponse.java`
+- `backend/src/main/java/com/btl/webbanrau/service/OrderService.java`
+  - Bổ sung `buyerUsername`, `buyerName` và `buyerCompany` trong dữ liệu đơn hàng trả về cho Admin.
+
+- `frontend/src/app/admin/orders/page.tsx`
+  - Hiển thị rõ tài khoản Buyer, tên Buyer và công ty trong danh sách/chi tiết đơn hàng.
+
+- `frontend/src/services/api.ts`
+  - Checkout gửi JWT để backend tự liên kết đơn mới với Buyer đang đăng nhập.
+  - API Admin tải danh sách và cập nhật trạng thái đơn gửi đúng JWT Admin.
+
+- `frontend/src/types/index.ts`
+  - Bổ sung kiểu dữ liệu các trường thông tin Buyer trong `OrderResponse`.
+
+### Tài khoản kiểm thử
+
+- Admin: `admin / Admin@123456`
+- Buyer: `buyer / buyer123`
+- Buyer Sài Gòn: `buyer_sg / Buyer@123456`
+
+Sau khi khởi động lại backend, đăng nhập Admin và mở `/admin/orders` để xem các đơn mẫu của Buyer. Đơn đặt mới từ Buyer đã đăng nhập cũng sẽ xuất hiện tại đây.
+
+### Kiểm tra
+
+- Backend: `gradlew.bat compileJava --no-daemon` thành công.
+- Frontend: `npx tsc --noEmit` thành công.
+- Frontend production build: `npm run build -- --webpack` thành công.
 

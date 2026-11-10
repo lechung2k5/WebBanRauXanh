@@ -7,6 +7,10 @@ import java.math.BigDecimal;
 @Entity
 @Table(name = "hub_inspections")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@AttributeOverrides({
+    @AttributeOverride(name = "createdAt", column = @Column(name = "created_at", nullable = true)),
+    @AttributeOverride(name = "updatedAt", column = @Column(name = "updated_at", nullable = true))
+})
 public class HubInspection extends BaseEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "contract_id", nullable = false) private B2bContract contract;

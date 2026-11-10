@@ -12,6 +12,11 @@ import {
   DeliveryProof,
   LotTrace,
 } from '@/types';
+import {
+  getSyncContracts,
+  getSyncRfqs,
+  B2bSyncContract,
+} from '@/services/b2bSyncService';
 
 export const getAuthHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = {
@@ -168,7 +173,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 11500,
     deliveryDate: '2026-10-28',
     hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T07:15:00',
   },
   {
@@ -184,7 +189,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 18500,
     deliveryDate: '2026-10-29',
     hubLocation: 'Trạm Lạnh Đơn Dương',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T08:00:00',
   },
   {
@@ -346,46 +351,43 @@ export const getFarmerStatsApi = async (): Promise<FarmerStats> => {
       if (data.result) return data.result;
     }
   } catch {
-    // fallback tính động
+    // fallback tính động từ syncContracts thật
   }
 
-  let totalRev = 51749500;
-  let escrow = 16500000;
+  let totalRev = 0;
+  let escrow = 0;
   let openLots = 3;
-  let runningContracts = 1;
-  let pendingRfqs = 2;
+  let runningContracts = 0;
+  let pendingRfqs = 0;
 
   if (typeof window !== 'undefined') {
     try {
+      const syncContracts = getSyncContracts();
+      const syncRfqs = getSyncRfqs();
       const localLots: HarvestLot[] = JSON.parse(localStorage.getItem('b2b_farmer_lots') || '[]');
-      const localContracts: B2BContract[] = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
-      const localRfqs = getLocalSubmittedRfqs();
-      const overrides = getLocalRfqOverrides();
 
       openLots = Math.max(3, 3 + localLots.length);
-      runningContracts = Math.max(1, 1 + localContracts.length);
 
-      const contractsTotal = localContracts.reduce((s, c) => s + (c.totalAmount || 0), 0);
-      const contractsDeposit = localContracts.reduce((s, c) => s + (c.depositAmount || 0), 0);
-      totalRev += contractsTotal;
-      escrow += contractsDeposit;
+      // Doanh thu thật: Hợp đồng đã tất toán hoàn tất (Mốc 6 hoặc finalPaidStatus === 'PAID')
+      const completedContracts = syncContracts.filter(
+        (c) => c.fulfillmentStep === 6 || c.finalPaidStatus === 'PAID'
+      );
+      totalRev = completedContracts.reduce(
+        (sum, c) => sum + (c.settledAmount || c.totalAmount),
+        0
+      );
 
-      // Đếm số RFQ PENDING còn lại
-      const seenRfqKeys = new Set<string>();
-      let pendingCount = 0;
-      const allRfqs = [...localRfqs, ...FALLBACK_RFQS];
-      for (const r of allRfqs) {
-        const key = r.rfqCode || String(r.id);
-        if (seenRfqKeys.has(key)) continue;
-        seenRfqKeys.add(key);
+      // Tiền cọc Escrow 30% bảo chứng THỰC TẾ của các hợp đồng đang thực hiện (Mốc 2-5)
+      const inProgressContracts = syncContracts.filter(
+        (c) => c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStep < 6
+      );
+      escrow = inProgressContracts.reduce((sum, c) => sum + (c.depositAmount || 0), 0);
 
-        const ov = overrides[String(r.id)] || (r.rfqCode ? overrides[r.rfqCode] : undefined);
-        const finalStatus = ov ? ov.status : r.status;
-        if (finalStatus === 'PENDING') {
-          pendingCount++;
-        }
-      }
-      pendingRfqs = pendingCount;
+      // Hợp đồng đang chạy
+      runningContracts = syncContracts.filter((c) => c.fulfillmentStep < 6).length;
+
+      // RFQ đang chờ phản hồi
+      pendingRfqs = syncRfqs.filter((r) => r.status === 'PENDING').length;
     } catch {}
   }
 
@@ -551,12 +553,17 @@ export const createHarvestLotApi = async (lotData: {
 export const getLocalSubmittedRfqs = (): RfqItem[] => {
   if (typeof window === 'undefined') return [];
   try {
+    const rawSyncRfqs = localStorage.getItem('hona_b2b_sync_rfqs_v2');
+    const rawSubmitted = localStorage.getItem('b2b_submitted_rfqs');
     const rawHistory = localStorage.getItem('b2b_rfq_history');
     const rawFarmerRfqs = localStorage.getItem('b2b_farmer_rfqs');
+
+    const syncList = rawSyncRfqs ? JSON.parse(rawSyncRfqs) : [];
+    const submittedList = rawSubmitted ? JSON.parse(rawSubmitted) : [];
     const historyList = rawHistory ? JSON.parse(rawHistory) : [];
     const farmerList = rawFarmerRfqs ? JSON.parse(rawFarmerRfqs) : [];
 
-    const combined = [...farmerList, ...historyList];
+    const combined = [...syncList, ...submittedList, ...farmerList, ...historyList];
     const seenCodes = new Set<string>();
     const result: RfqItem[] = [];
 
@@ -580,8 +587,8 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
       result.push({
         id: numericId,
         rfqCode,
-        harvestLotId: item.harvestLotId || item.productId || 1,
-        harvestLotCode: item.harvestLotCode || 'LOT-2026-DL-001',
+        harvestLotId: item.harvestLotId || item.lotId || item.productId || 1,
+        harvestLotCode: item.harvestLotCode || item.lotCode || 'LOT-2026-DL-001',
         productName: item.productName || 'Nông Sản VietGAP HoNa Fresh',
         buyerName: item.buyerName || item.traderName || 'Thương Lái Mua Sỉ',
         buyerPhone: item.buyerPhone || item.traderPhone || '0908.776.889',
@@ -589,17 +596,17 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
           item.buyerCompany ||
           item.traderCompany ||
           (item.traderName ? `Vựa Nông Sản ${item.traderName}` : 'Đơn vị phân phối sỉ'),
-        requestedQuantity: Number(item.requestedQuantity || item.quantity || 1000),
-        targetPrice: Number(item.targetPrice || 15000),
-        counterPrice: item.counterPrice,
-        counterQuantity: item.counterQuantity,
-        rejectReason: item.rejectReason,
-        deliveryDate: item.deliveryDate || '2026-10-29',
+        requestedQuantity: Number(item.requestedQuantityKg || item.requestedQuantity || item.quantity || 1000),
+        targetPrice: Number(item.targetPricePerKg || item.targetPrice || 15000),
+        counterPrice: item.counterPricePerKg ?? item.counterPrice,
+        counterQuantity: Number(item.counterQuantity || item.requestedQuantityKg || item.requestedQuantity || 1000),
+        rejectReason: item.rejectReason || item.notes,
+        deliveryDate: item.desiredDeliveryDate || item.deliveryDate || '2026-10-29',
         hubLocation:
-          item.hubLocation ||
           item.deliveryLocation ||
+          item.hubLocation ||
           'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-        status: item.status || 'PENDING',
+        status: item.status || 'WAITING_FARMER',
         createdAt: item.createdAt || new Date().toISOString(),
       });
     }
@@ -615,7 +622,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
 export interface RfqStatusOverride {
   id?: number;
   rfqCode?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   counterPrice?: number;
   counterQuantity?: number;
   rejectReason?: string;
@@ -634,7 +641,7 @@ export const getLocalRfqOverrides = (): Record<string, RfqStatusOverride> => {
 
 export const saveLocalRfqOverride = (
   rfqKey: string | number,
-  override: Partial<RfqStatusOverride> & { status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER' }
+  override: Partial<RfqStatusOverride> & { status: RfqStatusOverride['status'] }
 ) => {
   if (typeof window === 'undefined') return;
   try {
@@ -743,14 +750,27 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
     // fallback
   }
 
-  // Kết hợp RFQs từ local và server/fallback
+  // Kết hợp RFQs từ local và server/fallback, đảm bảo rfqCode và ID duy nhất 100%
   let combined: RfqItem[] = [];
-  if (localRfqs.length > 0) {
-    const seenCodes = new Set(localRfqs.map((r) => r.rfqCode));
-    combined = [...localRfqs, ...baseRfqs.filter((r) => !seenCodes.has(r.rfqCode))];
-  } else {
-    combined = [...baseRfqs];
-  }
+  const seenCodes = new Set<string>();
+  const seenIds = new Set<number>();
+
+  const processRfq = (rfq: RfqItem) => {
+    const code = rfq.rfqCode || `RFQ-${rfq.id}`;
+    if (seenCodes.has(code)) return;
+    seenCodes.add(code);
+
+    let finalId = rfq.id;
+    while (seenIds.has(finalId)) {
+      finalId = finalId + 1000 + Math.floor(Math.random() * 9000);
+    }
+    seenIds.add(finalId);
+
+    combined.push({ ...rfq, id: finalId, rfqCode: code });
+  };
+
+  localRfqs.forEach(processRfq);
+  baseRfqs.forEach(processRfq);
 
   // Áp dụng overrides từ b2b_rfq_status_overrides cho TẤT CẢ RFQ (kể cả fallback mẫu)
   const overrides = getLocalRfqOverrides();
@@ -771,6 +791,21 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   });
 };
 
+export const getFarmerRfqHistoryApi = async (id: number) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${id}/history`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    });
+    const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
+    return data.result || [];
+  } catch {
+    return [];
+  }
+};
+
 export const respondToRfqApi = async (
   rfqId: number,
   actionData: {
@@ -785,7 +820,7 @@ export const respondToRfqApi = async (
       ? 'ACCEPTED'
       : actionData.action === 'REJECT'
       ? 'REJECTED'
-      : 'PENDING';
+      : 'WAITING_BUYER';
 
   // Lưu trạng thái vào storage
   saveLocalRfqUpdate({
@@ -845,40 +880,55 @@ export const saveLocalContract = (contract: B2BContract) => {
 
 // 5. Contracts & QC
 export const getFarmerContractsApi = async (): Promise<B2BContract[]> => {
-  let localContracts: B2BContract[] = [];
+  let syncList: B2bSyncContract[] = [];
   if (typeof window !== 'undefined') {
     try {
-      localContracts = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
+      syncList = getSyncContracts();
     } catch {}
   }
 
-  let serverContracts = FALLBACK_CONTRACTS;
-  try {
-    const res = await fetch(`${API_BASE_URL}/farmer/contracts`, {
-      cache: 'no-store',
-      credentials: 'include',
+  if (syncList.length > 0) {
+    return syncList.map((sc) => {
+      const fulfillmentStatus =
+        sc.fulfillmentStep === 6
+          ? 'COMPLETED'
+          : sc.fulfillmentStep === 5
+          ? 'EPOD_SIGNED'
+          : sc.fulfillmentStep === 4
+          ? 'HUB_DELIVERED'
+          : sc.fulfillmentStep === 3
+          ? 'IN_TRANSIT'
+          : sc.fulfillmentStep === 2
+          ? 'HARVESTING'
+          : 'WAITING_DEPOSIT';
+
+      return {
+        id: sc.id,
+        contractCode: sc.contractCode,
+        rfqId: sc.id,
+        rfqCode: sc.rfqCode || `RFQ-${sc.id}`,
+        harvestLotId: sc.lotId,
+        lotCode: sc.lotCode,
+        productName: sc.productName,
+        buyerName: sc.buyerCompany ? `${sc.buyerName} (${sc.buyerCompany})` : sc.buyerName,
+        buyerPhone: sc.buyerPhone,
+        quantity: sc.quantityKg,
+        unitPrice: sc.agreedPricePerKg,
+        totalAmount: sc.totalAmount,
+        depositAmount: sc.depositAmount,
+        depositStatus: sc.depositStatus,
+        fulfillmentStatus: fulfillmentStatus,
+        hubName: sc.deliveryAddress,
+        hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : '2026-10-28'),
+        createdAt: sc.createdAt,
+        hasQc: true,
+        fulfillmentStep: sc.fulfillmentStep,
+        finalPaidStatus: sc.finalPaidStatus,
+      } as unknown as B2BContract;
     });
-    if (res.ok) {
-      const data: ApiResponse<B2BContract[]> = await res.json();
-      if (data.result && data.result.length > 0) {
-        serverContracts = data.result;
-      }
-    }
-  } catch {
-    // fallback
   }
 
-  // Kết hợp Hợp đồng vừa tạo với Hợp đồng mặc định
-  const seenCodes = new Set<string>();
-  const merged: B2BContract[] = [];
-  for (const c of [...localContracts, ...serverContracts]) {
-    const key = c.contractCode || String(c.id);
-    if (!seenCodes.has(key)) {
-      seenCodes.add(key);
-      merged.push(c);
-    }
-  }
-  return merged;
+  return FALLBACK_CONTRACTS;
 };
 
 export const getContractQcApi = async (
@@ -941,33 +991,46 @@ export const getContractQcApi = async (
 // 6. Settlements & Form 01/TNDN
 export const getFarmerSettlementsApi = async (): Promise<Settlement[]> => {
   let list: Settlement[] = [];
-  try {
-    const res = await fetch(`${API_BASE_URL}/farmer/settlements`, {
-      cache: 'no-store',
-      credentials: 'include',
-    });
-    if (res.ok) {
-      const data: ApiResponse<Settlement[]> = await res.json();
-      if (data.result && data.result.length > 0) {
-        list = data.result;
-      }
-    }
-  } catch {
-    // API network error, use fallback
+
+  if (typeof window !== 'undefined') {
+    try {
+      const syncContracts = getSyncContracts();
+      const completed = syncContracts.filter(
+        (c) => c.fulfillmentStep === 6 || c.finalPaidStatus === 'PAID'
+      );
+
+      list = completed.map((c) => {
+        const gross = c.settledAmount || c.totalAmount;
+        const fee = Math.round(gross * 0.03);
+        const payout = gross - fee;
+
+        return {
+          id: c.id,
+          settlementCode: `STL-2026-${c.id}`,
+          contractId: c.id,
+          contractCode: c.contractCode,
+          productName: c.productName,
+          qualifiedWeight: c.epodDeliveredWeightKg || c.quantityKg,
+          unitPrice: c.agreedPricePerKg,
+          grossAmount: gross,
+          platformFeePercent: 3.0,
+          platformFee: fee,
+          payoutAmount: payout,
+          bankName: 'Vietcombank - CN Lâm Đồng',
+          bankAccount: '0071001284920',
+          bankAccountName: 'HTX NONG NGHIEP DA LAT GAP',
+          bankReference: `VCB-B2B-${c.id}`,
+          isPaid: true,
+          paidAt: c.settledToFarmerAt || c.finalPaidAt || c.createdAt,
+          taxFormType: 'FORM_01_TNDN',
+          createdAt: c.createdAt,
+        };
+      });
+    } catch {}
   }
 
   if (list.length === 0) {
     list = [...FALLBACK_SETTLEMENTS];
-  }
-
-  if (typeof window !== 'undefined') {
-    const localSettlements = JSON.parse(localStorage.getItem('farmer_local_settlements') || '[]');
-    // Tránh trùng ID
-    for (const ls of localSettlements) {
-      if (!list.some((s) => s.id === ls.id || s.settlementCode === ls.settlementCode)) {
-        list.unshift(ls);
-      }
-    }
   }
 
   return list;
@@ -1188,6 +1251,36 @@ export const getContractPrintUrl = (contractId: number): string => {
   return `${API_BASE_URL}/farmer/contracts/${contractId}/print`;
 };
 
+export interface FarmerB2bReview {
+  id: number;
+  contractId: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getFarmerReviewsApi = async (contractId: number): Promise<FarmerB2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    cache: 'no-store', credentials: 'include', headers: getAuthHeaders(),
+  });
+  const data: ApiResponse<FarmerB2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitFarmerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<FarmerB2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    method: 'POST', cache: 'no-store', credentials: 'include',
+    headers: getAuthHeaders(), body: JSON.stringify(request),
+  });
+  const data: ApiResponse<FarmerB2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
+};
+
 
 // 12. Lấy Cây Phân Bổ Sản Lượng của Lô Hàng (Post-sale Allocation Tree)
 export const getLotAllocationApi = async (lotId: number): Promise<HarvestLotAllocation | null> => {
@@ -1202,8 +1295,57 @@ export const getLotAllocationApi = async (lotId: number): Promise<HarvestLotAllo
       return data.result;
     }
   } catch (err) {
-    console.warn('API getLotAllocation error:', err);
+    // fallback
   }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const syncContracts = getSyncContracts();
+      const matched = syncContracts.filter((c) => c.lotId === lotId || !lotId || lotId === 1);
+      const lotContracts = matched.length > 0 ? matched : syncContracts;
+      const totalAllocatedKg = lotContracts.reduce((s, c) => s + c.quantityKg, 0);
+      const totalWeightKg = Math.max(10000, totalAllocatedKg + 2000);
+      const availableKg = Math.max(0, totalWeightKg - totalAllocatedKg);
+
+      return {
+        lotId,
+        lotCode: lotContracts[0]?.lotCode || 'LOT-2026-DL-001',
+        productName: lotContracts[0]?.productName || 'Nông Sản VietGAP HoNa Fresh',
+        totalWeightKg,
+        allocatedWeightKg: totalAllocatedKg,
+        availableWeightKg: availableKg,
+        soldPercentage: Math.round((totalAllocatedKg / totalWeightKg) * 100),
+        status: 'ACTIVE',
+        allocations: lotContracts.map((c) => ({
+          contractId: c.id,
+          contractCode: c.contractCode,
+          buyerName: c.buyerCompany ? `${c.buyerName} (${c.buyerCompany})` : c.buyerName,
+          buyerPhone: c.buyerPhone,
+          quantityKg: c.quantityKg,
+          unitPrice: c.agreedPricePerKg,
+          totalAmount: c.totalAmount,
+          depositStatus: c.depositStatus,
+          fulfillmentStatus:
+            c.fulfillmentStep === 6
+              ? 'COMPLETED'
+              : c.fulfillmentStep === 5
+              ? 'EPOD_SIGNED'
+              : c.fulfillmentStep === 4
+              ? 'HUB_DELIVERED'
+              : c.fulfillmentStep === 3
+              ? 'IN_TRANSIT'
+              : c.fulfillmentStep === 2
+              ? 'HARVESTING'
+              : 'WAITING_DEPOSIT',
+          destinationWarehouse: c.deliveryAddress,
+          deliveryDate: c.deliveryTimeSlot || (c.createdAt ? c.createdAt.slice(0, 10) : '2026-10-28'),
+          shipmentCode: `SHP-2026-00${c.id}`,
+          shipmentStatus: c.fulfillmentStep === 6 ? 'COMPLETED' : 'IN_TRANSIT',
+        })),
+      };
+    } catch {}
+  }
+
   return null;
 };
 

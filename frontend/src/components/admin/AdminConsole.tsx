@@ -12,9 +12,115 @@ export type Row = Record<string, unknown>;
 export type Field = { name: string; label: string; type?: string; options?: string[]; value?: string | number; optional?: boolean; min?: number; max?: number; hint?: string };
 type DialogState = { title: string; fields: Field[]; submit: (value: Row) => Promise<unknown> };
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
-const str = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+
+export const cleanVietnamese = (s: string, code?: string): string => {
+  if (code) {
+    if (code === 'CR-DL-01') return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
+    if (code === 'CR-DG-02') return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
+    if (code === 'TRK-51D-88234') return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
+    if (code === 'TRK-49C-67890') return 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)';
+    if (code === 'buyer_coop') return 'Nguyễn Thị Minh Hạnh';
+    if (code === 'buyer_winmart') return 'Phạm Hoàng Nam';
+    if (code === 'buyer_lotte') return 'Lê Trọng Đạt';
+    if (code === 'buyer_sg') return 'Trần Thị Thương';
+    if (code === 'qc_tram1') return 'Kỹ Thuật Viên Kiểm Định 01';
+    if (code === 'driver_tms') return 'Tài Xế Nguyễn Văn Tài';
+    if (code === 'accountant_vas') return 'Kế Toán Viên Lê Thị Thu';
+  }
+  if (!s || !s.includes('?')) return s;
+
+  // Sửa lỗi phông chữ tài sản lạnh
+  if (s.includes('CR-DL-01') || (s.includes('Bu') && (s.includes('DL') || s.includes('L???t') || s.includes('Tr??m ????')))) {
+    return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
+  }
+  if (s.includes('CR-DG-02') || (s.includes('Bu') && (s.includes('DG') || s.includes('Gi??y') || s.includes('D???u')))) {
+    return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
+  }
+  if (s.includes('Bu') && s.includes('nh')) {
+    return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
+  }
+  if (s.includes('TRK-51D') || s.includes('51D-882.34') || (s.includes('Xe') && s.includes('Isuzu'))) {
+    return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
+  }
+  if (s.includes('TRK-49C') || s.includes('49C-678.90') || (s.includes('Xe') && (s.includes('Hino') || s.includes('L??m')))) {
+    return 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)';
+  }
+  if (s.includes('Xe') && (s.includes('T') || s.includes('nh'))) {
+    return 'Xe Tải Lạnh HoNa Express';
+  }
+
+  // Sửa lỗi phông chữ người dùng
+  if (s.includes('Nguy') || s.includes('Minh H') || s.includes('H???nh')) return 'Nguyễn Thị Minh Hạnh';
+  if (s.includes('Ph') || s.includes('Nam') || s.includes('Ho??ng')) return 'Phạm Hoàng Nam';
+  if (s.includes('L') && (s.includes('Tr') || s.includes('t') || s.includes('????t'))) return 'Lê Trọng Đạt';
+  if (s.includes('Th') && s.includes('ng') && s.includes('Tr')) return 'Trần Thị Thương';
+
+  return s;
+};
+
+export const str = (value: unknown, code?: string) => {
+  if (value == null) return '—';
+  const val = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return cleanVietnamese(val, code);
+};
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });
+
+export const VIETNAMESE_LABELS: Record<string, string> = {
+  id: 'Mã định danh (ID)',
+  contract_code: 'Mã số hợp đồng',
+  lot_id: 'Mã lô nông sản liên kết',
+  lot_code: 'Mã lô thu hoạch',
+  farmer_id: 'ID Nông dân / Nông trại',
+  farmer_name: 'Nông trại cung ứng',
+  farmer_contact: 'Người đại diện nông trại',
+  buyer_id: 'ID Doanh nghiệp thu mua',
+  buyer_name: 'Bên mua (Thương lái)',
+  buyer_contact: 'Người đại diện thu mua',
+  offered_weight_kg: 'Khối lượng đặt sỉ (kg)',
+  offered_price_per_kg: 'Đơn giá thỏa thuận (đ/kg)',
+  total_goods_amount: 'Tổng giá trị hàng hóa (đ)',
+  deposit_30_amount: 'Tiền cọc 30% bảo chứng (đ)',
+  deposit_received: 'Tiền cọc thực nhận (đ)',
+  deposit_ref: 'Mã giao dịch cọc ngân hàng',
+  balance_received: 'Tiền thanh toán 70% đợt 2 (đ)',
+  balance_ref: 'Mã giao dịch đợt 2',
+  platform_fee_rate: 'Tỷ lệ phí dịch vụ sàn (%)',
+  platform_fee_amount: 'Tiền phí dịch vụ sàn (đ)',
+  logistics_fee_amount: 'Phí vận tải & lưu trạm lạnh (đ)',
+  service_vat_rate: 'Thuế VAT phí dịch vụ (%)',
+  payout_amount: 'Thực chi giải ngân cho Nông dân (đ)',
+  payout_ref: 'Mã ủy nhiệm chi / Payout',
+  refund_amount: 'Tiền hoàn cọc (đ)',
+  delivery_address: 'Địa chỉ kho nhận hàng',
+  status: 'Trạng thái',
+  product_name: 'Tên nông sản',
+  category: 'Ngành hàng',
+  puc_code: 'Mã vùng trồng PUC',
+  certification: 'Chứng nhận chất lượng',
+  harvest_date: 'Ngày thu hoạch',
+  expiry_date: 'Ngày hết hạn',
+  total_weight_kg: 'Tổng sản lượng (kg)',
+  available_weight_kg: 'Sản lượng còn lại (kg)',
+  base_price_per_kg: 'Giá cơ sở (đ/kg)',
+  temp_min: 'Nhiệt độ tối thiểu (°C)',
+  temp_max: 'Nhiệt độ tối đa (°C)',
+  created_at: 'Thời điểm tạo',
+  updated_at: 'Cập nhật gần nhất',
+  username: 'Tên đăng nhập',
+  fullName: 'Họ và tên',
+  email: 'Địa chỉ email',
+  phone: 'Số điện thoại',
+  companyName: 'Tên đơn vị / Doanh nghiệp',
+  taxCode: 'Mã số thuế',
+  roles: 'Vai trò tài khoản',
+  kycStatus: 'Trạng thái xét duyệt KYC',
+  emailVerified: 'Xác thực email',
+  enabled: 'Trạng thái hoạt động',
+  warehouseAddress: 'Địa chỉ kho bãi',
+  bankName: 'Ngân hàng',
+  bankAccountNo: 'Số tài khoản ngân hàng',
+};
 
 export function SignaturePad({ onChange }: { onChange: (data: string) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -30,7 +136,66 @@ export function SignaturePad({ onChange }: { onChange: (data: string) => void })
 }
 
 export function DataTable({ rows, columns, actions }: { rows: Row[]; columns: [string, string][]; actions?: (row: Row) => React.ReactNode }) {
-  return <div className="overflow-auto border rounded-2xl bg-white"><table className="w-full text-sm text-left"><thead className="bg-[#F4F6F1] text-[#52634F]"><tr>{columns.map(([key, label]) => <th className="p-3 whitespace-nowrap" key={key}>{label}</th>)}{actions && <th className="p-3">Thao tác</th>}</tr></thead><tbody>{rows.map((row, i) => <tr key={str(row.id || i)} className="border-t hover:bg-green-50/40">{columns.map(([key]) => <td key={key} className="p-3 max-w-[260px] break-words">{key === 'status' || key === 'kycStatus' ? <span className="inline-block text-xs rounded-full bg-green-50 px-2 py-1 text-green-900">{str(row[key])}</span> : str(row[key])}</td>)}{actions && <td className="p-3"><div className="flex flex-wrap gap-2 min-w-40">{actions(row)}</div></td>}</tr>)}</tbody></table>{rows.length === 0 && <p className="p-10 text-center text-gray-500">Chưa có dữ liệu.</p>}</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="py-10 text-center text-xs text-[#6B7280]">
+        Chưa có dữ liệu hiển thị.
+      </div>
+    );
+  }
+
+  const renderBadge = (val: unknown) => {
+    const text = str(val);
+    const positive = ['OPEN', 'NORMAL', 'VERIFIED', 'ACTIVE', 'IN_TRANSIT', 'true'].includes(text);
+    const negative = ['TEMP_WARNING', 'REJECTED', 'MAINTENANCE', 'LOCKED', 'false'].includes(text);
+    const warning = ['PENDING', 'WARNING'].includes(text);
+
+    let colorClass = 'bg-gray-100 text-gray-700 border-gray-200';
+    if (positive) colorClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+    else if (negative) colorClass = 'bg-rose-50 text-rose-800 border-rose-200';
+    else if (warning) colorClass = 'bg-amber-50 text-amber-800 border-amber-200';
+
+    return (
+      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${colorClass}`}>
+        {text}
+      </span>
+    );
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-xs">
+        <thead className="bg-[#F9F9F5] text-[#2C3E2E] uppercase font-bold text-[11px] border-b border-[#EAECE8]">
+          <tr>
+            {columns.map(([key, label]) => (
+              <th className="py-3 px-3.5 whitespace-nowrap" key={key}>
+                {label}
+              </th>
+            ))}
+            {actions && <th className="py-3 px-3.5 text-right whitespace-nowrap">Thao tác</th>}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F0F2ED]">
+          {rows.map((row, i) => (
+            <tr key={str(row.id || i)} className="hover:bg-[#F9F9F5]/60 transition-colors">
+              {columns.map(([key]) => (
+                <td key={key} className="py-3 px-3.5 max-w-[260px] break-words text-[#2C3E2E]">
+                  {key === 'status' || key === 'kycStatus'
+                    ? renderBadge(row[key])
+                    : str(row[key], String(row.asset_code || row.username || ''))}
+                </td>
+              ))}
+              {actions && (
+                <td className="py-3 px-3.5 text-right">
+                  <div className="flex items-center justify-end gap-1.5 min-w-32">{actions(row)}</div>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function FormDialog({ value, onClose, onDone }: { value: DialogState; onClose: () => void; onDone: () => void }) {
@@ -59,7 +224,8 @@ const modules = [{ id: 'overview', label: 'Tổng quan', icon: LayoutDashboard }
 export default function AdminConsole() {
   const { currentUser, authLoading, logout } = useApp(); const router = useRouter();
   const [tab, setTab] = useState('overview'); const [nav, setNav] = useState(false); const [rows, setRows] = useState<Row[]>([]); const [extra, setExtra] = useState<Row[]>([]); const [claims, setClaims] = useState<Row[]>([]); const [stats, setStats] = useState<Row>({}); const [settings, setSettings] = useState<Row>({}); const [reports, setReports] = useState<Row>({});
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [dialog, setDialog] = useState<DialogState | null>(null); const [detail, setDetail] = useState<Row | null>(null); const [page, setPage] = useState(0); const [totalPages, setTotalPages] = useState(1); const [q, setQ] = useState(''); const [role, setRole] = useState(''); const [enabled, setEnabled] = useState(''); const [kyc, setKyc] = useState('');
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [dialog, setDialog] = useState<DialogState | null>(null); const [detail, setDetail] = useState<Row | null>(null); const [page, setPage] = useState(0); const [totalPages, setTotalPages] = useState(1); const [q, setQ] = useState(''); const [debouncedQ, setDebouncedQ] = useState(''); const [lotQuery, setLotQuery] = useState(''); const [role, setRole] = useState(''); const [enabled, setEnabled] = useState(''); const [kyc, setKyc] = useState('');
+  useEffect(() => { const timer = setTimeout(() => { setDebouncedQ(q); setPage(0); }, 300); return () => clearTimeout(timer); }, [q]);
   const [assetId, setAssetId] = useState(0); const [telemetry, setTelemetry] = useState<Row[]>([]); const [sound, setSound] = useState(false); const [streamStatus, setStreamStatus] = useState('Đang kết nối');
   const admin = currentUser?.roles.includes('ROLE_ADMIN');
   useEffect(() => { if (!authLoading && !currentUser) router.replace('/dang-nhap?redirect=/admin'); else if (!authLoading && !admin && currentUser) router.replace(portalFor(currentUser.roles)); }, [authLoading, currentUser, admin, router]);
@@ -67,7 +233,7 @@ export default function AdminConsole() {
     if (!admin) return; setBusy(true); setError('');
     try {
       if (tab === 'overview') setStats(await api<Row>('admin/dashboard/stats'));
-      if (tab === 'users') { const result = await api<{ data: Row[]; totalPages: number }>(`admin/users?${new URLSearchParams({ page: String(page), q, role, ...(enabled ? { enabled } : {}), kyc })}`); setRows(result.data); setTotalPages(result.totalPages); }
+      if (tab === 'users') { const result = await api<{ data: Row[]; totalPages: number }>(`admin/users?${new URLSearchParams({ page: String(page), q: debouncedQ, role, ...(enabled ? { enabled } : {}), kyc })}`); setRows(result.data); setTotalPages(result.totalPages); }
       if (tab === 'lots') {
         const [lotsData, categories] = await Promise.all([api<any>('admin/harvest-lots'), api<Row[]>('categories')]);
         const rawLots: Row[] = Array.isArray(lotsData) ? lotsData : (lotsData?.content || []);
@@ -81,7 +247,7 @@ export default function AdminConsole() {
       if (tab === 'shipments') { const [shipments, assets] = await Promise.all([api<Row[]>('admin/shipments'), api<Row[]>('admin/cold-assets')]); setRows(shipments); setExtra(assets); }
       if (tab === 'accounting') { const [data, config] = await Promise.all([api<Row>('admin/accounting/vas-reports'), api<Row>('admin/settings')]); setReports(data); setSettings(config); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); } finally { setBusy(false); }
-  }, [admin, tab, page, q, role, enabled, kyc, assetId]);
+  }, [admin, tab, page, debouncedQ, role, enabled, kyc, assetId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (tab !== 'iot' || !admin) return;
@@ -112,8 +278,8 @@ export default function AdminConsole() {
     <main className="p-4 sm:p-8 space-y-6"><div className="flex justify-between items-center print:hidden"><p className="text-sm text-gray-500">Dữ liệu từ hệ thống vận hành</p><button onClick={() => void load()} disabled={busy} className="flex gap-2 items-center text-sm"><RefreshCw size={15} className={busy ? 'animate-spin' : ''} />Tải lại</button></div>
     {error && <p role="alert" className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4">{error}</p>}
     {tab === 'overview' && <><div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">{[['users', 'Tài khoản'], ['pendingKyc', 'Hồ sơ chờ duyệt'], ['lots', 'Lô nông sản'], ['activeShipments', 'Chuyến đang giao'], ['gmv', 'Tổng giá trị hợp đồng (đ)'], ['heldFunds', 'Quỹ giữ hộ · TK 3388 (đ)'], ['serviceRevenue', 'Doanh thu dịch vụ (đ)'], ['escrow', 'Tiền ngân hàng · TK 112 (đ)']].map(([key, label]) => <div key={key} className="bg-white border rounded-2xl p-5"><p className="text-sm text-gray-500">{label}</p><p className="text-2xl font-bold mt-3 text-green-900">{money(stats[key])}</p></div>)}</div><section className="bg-white border rounded-2xl p-6"><h2 className="font-semibold mb-4">Dòng tiền theo ngày</h2>{((stats.cashflow as Row[]) || []).map((day, i) => <div className="grid grid-cols-3 text-sm border-t p-3" key={i}><span>{str(day.day)}</span><span className="text-green-800">Thu {money(day.incoming)} đ</span><span className="text-orange-700">Chi {money(day.outgoing)} đ</span></div>)}{!(stats.cashflow as Row[])?.length && <p className="text-sm text-gray-500">Chưa có giao dịch được đối soát.</p>}</section></>}
-    {tab === 'users' && <><div className="flex flex-wrap gap-3 items-center"><div className="flex bg-white border rounded-xl px-3 items-center gap-2"><Search size={16} /><input aria-label="Tìm tài khoản" className="p-3 outline-none" placeholder="Tên, email, doanh nghiệp…" value={q} onChange={e => { setQ(e.target.value); setPage(0); }} /></div><select aria-label="Lọc vai trò" className="border rounded-xl p-3" value={role} onChange={e => { setRole(e.target.value); setPage(0); }}><option value="">Tất cả vai trò</option>{['ADMIN', 'FARMER', 'BUYER', 'WAREHOUSE_QC', 'DRIVER', 'ACCOUNTANT'].map(r => <option key={r}>{r}</option>)}</select><select aria-label="Lọc hoạt động" className="border rounded-xl p-3" value={enabled} onChange={e => { setEnabled(e.target.value); setPage(0); }}><option value="">Tất cả tài khoản</option><option value="true">Hoạt động</option><option value="false">Bị khóa</option></select><select aria-label="Lọc KYC" className="border rounded-xl p-3" value={kyc} onChange={e => { setKyc(e.target.value); setPage(0); }}><option value="">Tất cả KYC</option>{['PENDING', 'VERIFIED', 'REJECTED'].map(s => <option key={s}>{s}</option>)}</select>{button('Cấp nhân sự', () => open('Mời nhân sự nội bộ', 'admin/users/provision', [f('username', 'Username'), f('fullName', 'Họ và tên'), f('email', 'Email', 'email'), select('role', 'Vai trò', ['WAREHOUSE_QC', 'DRIVER', 'ACCOUNTANT'])]))}</div><DataTable rows={rows} columns={[['id', 'ID'], ['fullName', 'Họ tên'], ['email', 'Email'], ['roles', 'Vai trò'], ['companyName', 'Đơn vị'], ['kycStatus', 'KYC'], ['emailVerified', 'Email xác thực'], ['enabled', 'Hoạt động']]} actions={row => <>{button('Hồ sơ', () => setDetail(row))}{!(row.roles as string[]).includes('ROLE_ADMIN') && button(row.enabled ? 'Khóa' : 'Mở khóa', () => open('Xác nhận thay đổi trạng thái tài khoản', `admin/users/${row.id}/toggle-status`, [], 'PATCH'), true)}{button('Thu hồi phiên', () => open('Thu hồi toàn bộ phiên tài khoản', `admin/users/${row.id}/revoke-sessions`, []))}{(row.roles as string[]).some(r => ['ROLE_FARMER', 'ROLE_BUYER'].includes(r)) && <>{button('Duyệt KYC', () => open('Phê duyệt hồ sơ', `admin/users/${row.id}/kyc-status`, [f('note', 'Ghi chú xác minh')], 'PATCH', { status: 'VERIFIED' }))}{button('Từ chối', () => open('Từ chối hồ sơ', `admin/users/${row.id}/kyc-status`, [f('note', 'Lý do từ chối')], 'PATCH', { status: 'REJECTED' }), true)}</>}{!row.emailVerified && !(row.roles as string[]).some(r => ['ROLE_FARMER', 'ROLE_BUYER', 'ROLE_ADMIN'].includes(r)) && button('Gửi lại lời mời', () => void update(`admin/users/${row.id}/resend-invitation`))}</>} /><div className="flex items-center gap-4"><button disabled={!page} onClick={() => setPage(x => x - 1)}>← Trước</button><span>Trang {page + 1} / {Math.max(1, totalPages)}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(x => x + 1)}>Sau →</button></div></>}
-    {tab === 'lots' && <><div className="flex flex-wrap gap-3">{button('Tạo lô cho nông trại', () => open('Đăng lô chờ duyệt', 'admin/harvest-lots', [f('farmerId', 'ID FARMER đã duyệt KYC', 'number'), ...lotFields]))}{button('Thêm ngành hàng', () => open('Thêm ngành hàng', 'categories', [f('name', 'Tên ngành hàng'), f('description', 'Mô tả'), f('imageUrl', 'Ảnh đại diện', 'url')]))}{button('Đồng bộ vector tìm kiếm', () => open('Tái tạo vector tìm kiếm', 'ai/sync-embeddings', []))}</div><DataTable rows={rows} columns={[['id', 'ID'], ['lot_code', 'Mã lô'], ['product_name', 'Nông sản'], ['farmer_name', 'Nông trại'], ['available_weight_kg', 'Còn lại (kg)'], ['expiry_date', 'Hết hạn'], ['status', 'Trạng thái']]} actions={row => <>{button('Chi tiết', () => setDetail(row))}{['OPEN', 'REJECTED', 'LOCKED'].map(status => <span key={status}>{button(status === 'OPEN' ? 'Duyệt bán' : status === 'LOCKED' ? 'Tạm khóa' : 'Từ chối', () => open('Kiểm duyệt lô', `admin/harvest-lots/${row.id}/status`, [f('note', 'Ghi chú kiểm duyệt')], 'PATCH', { status }))}</span>)}</>} /><h2 className="font-bold">Danh mục ngành hàng</h2><DataTable rows={extra} columns={[['id', 'ID'], ['name', 'Ngành hàng'], ['slug', 'Đường dẫn'], ['description', 'Mô tả']]} actions={row => <>{button('Sửa', () => open('Sửa ngành hàng', `categories/${row.id}`, [f('name', 'Tên', 'text', str(row.name)), f('description', 'Mô tả', 'text', str(row.description)), f('imageUrl', 'Ảnh', 'url', String(row.imageUrl || ''))], 'PUT'))}{button('Xóa', () => open('Xác nhận xóa ngành hàng', `categories/${row.id}`, [], 'DELETE'), true)}</>} /></>}
+    {tab === 'users' && <><div className="flex flex-wrap gap-3 items-center"><div className="flex bg-white border rounded-xl px-3 items-center gap-2"><Search size={16} /><input aria-label="Tìm tài khoản" className="p-3 outline-none" placeholder="Tên, email, doanh nghiệp…" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { setDebouncedQ(q); setPage(0); } }} />{q && <button type="button" onClick={() => { setQ(''); setDebouncedQ(''); setPage(0); }} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>}</div><select aria-label="Lọc vai trò" className="border rounded-xl p-3 text-xs text-[#2C3E2E] bg-white cursor-pointer" value={role} onChange={e => { setRole(e.target.value); setPage(0); }}><option value="">Tất cả vai trò</option><option value="ADMIN">Admin</option><option value="FARMER">Nông trại</option><option value="BUYER">Thương lái</option><option value="WAREHOUSE_QC">QC Trạm</option><option value="DRIVER">Tài xế</option><option value="ACCOUNTANT">Kế toán</option></select><select aria-label="Lọc hoạt động" className="border rounded-xl p-3 text-xs text-[#2C3E2E] bg-white cursor-pointer" value={enabled} onChange={e => { setEnabled(e.target.value); setPage(0); }}><option value="">Tất cả trạng thái</option><option value="true">Đang hoạt động</option><option value="false">Bị khóa</option></select><select aria-label="Lọc KYC" className="border rounded-xl p-3 text-xs text-[#2C3E2E] bg-white cursor-pointer" value={kyc} onChange={e => { setKyc(e.target.value); setPage(0); }}><option value="">Tất cả KYC</option><option value="PENDING">Chờ duyệt</option><option value="VERIFIED">Đã xác minh</option><option value="REJECTED">Đã từ chối</option></select>{button('Cấp nhân sự', () => open('Mời nhân sự nội bộ', 'admin/users/provision', [f('username', 'Username'), f('fullName', 'Họ và tên'), f('email', 'Email', 'email'), select('role', 'Vai trò', ['WAREHOUSE_QC', 'DRIVER', 'ACCOUNTANT'])]))}</div><DataTable rows={rows} columns={[['id', 'ID'], ['fullName', 'Họ tên'], ['email', 'Email'], ['roles', 'Vai trò'], ['companyName', 'Đơn vị'], ['kycStatus', 'KYC'], ['emailVerified', 'Email xác thực'], ['enabled', 'Hoạt động']]} actions={row => <>{button('Hồ sơ', () => setDetail(row))}{!(row.roles as string[]).includes('ROLE_ADMIN') && button(row.enabled ? 'Khóa' : 'Mở khóa', () => open('Xác nhận thay đổi trạng thái tài khoản', `admin/users/${row.id}/toggle-status`, [], 'PATCH'), true)}{button('Thu hồi phiên', () => open('Thu hồi toàn bộ phiên tài khoản', `admin/users/${row.id}/revoke-sessions`, []))}{(row.roles as string[]).some(r => ['ROLE_FARMER', 'ROLE_BUYER'].includes(r)) && <>{button('Duyệt KYC', () => open('Phê duyệt hồ sơ', `admin/users/${row.id}/kyc-status`, [f('note', 'Ghi chú xác minh')], 'PATCH', { status: 'VERIFIED' }))}{button('Từ chối', () => open('Từ chối hồ sơ', `admin/users/${row.id}/kyc-status`, [f('note', 'Lý do từ chối')], 'PATCH', { status: 'REJECTED' }), true)}</>}{!row.emailVerified && !(row.roles as string[]).some(r => ['ROLE_FARMER', 'ROLE_BUYER', 'ROLE_ADMIN'].includes(r)) && button('Gửi lại lời mời', () => void update(`admin/users/${row.id}/resend-invitation`))}</>} /><div className="flex items-center gap-4"><button disabled={!page} onClick={() => setPage(x => x - 1)}>← Trước</button><span>Trang {page + 1} / {Math.max(1, totalPages)}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(x => x + 1)}>Sau →</button></div></>}
+    {tab === 'lots' && <><div className="flex flex-wrap gap-3 items-center"><div className="flex bg-white border rounded-xl px-3 items-center gap-2"><Search size={16} /><input aria-label="Tìm lô nông sản" className="p-3 outline-none" placeholder="Mã lô, tên nông sản, nông trại…" value={lotQuery} onChange={e => setLotQuery(e.target.value)} />{lotQuery && <button type="button" onClick={() => setLotQuery('')} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>}</div>{button('Tạo lô cho nông trại', () => open('Đăng lô chờ duyệt', 'admin/harvest-lots', [f('farmerId', 'ID FARMER đã duyệt KYC', 'number'), ...lotFields]))}{button('Thêm ngành hàng', () => open('Thêm ngành hàng', 'categories', [f('name', 'Tên ngành hàng'), f('description', 'Mô tả'), f('imageUrl', 'Ảnh đại diện', 'url')]))}{button('Đồng bộ vector tìm kiếm', () => open('Tái tạo vector tìm kiếm', 'ai/sync-embeddings', []))}</div><DataTable rows={rows.filter(r => { if (!lotQuery.trim()) return true; const lq = lotQuery.trim().toLowerCase(); return [r.lot_code, r.product_name, r.farmer_name, r.status].filter(Boolean).some(s => String(s).toLowerCase().includes(lq)); })} columns={[['id', 'ID'], ['lot_code', 'Mã lô'], ['product_name', 'Nông sản'], ['farmer_name', 'Nông trại'], ['available_weight_kg', 'Còn lại (kg)'], ['expiry_date', 'Hết hạn'], ['status', 'Trạng thái']]} actions={row => <>{button('Chi tiết', () => setDetail(row))}{['OPEN', 'REJECTED', 'LOCKED'].map(status => <span key={status}>{button(status === 'OPEN' ? 'Duyệt bán' : status === 'LOCKED' ? 'Tạm khóa' : 'Từ chối', () => open('Kiểm duyệt lô', `admin/harvest-lots/${row.id}/status`, [f('note', 'Ghi chú kiểm duyệt')], 'PATCH', { status }))}</span>)}</>} /><h2 className="font-bold">Danh mục ngành hàng</h2><DataTable rows={extra} columns={[['id', 'ID'], ['name', 'Ngành hàng'], ['slug', 'Đường dẫn'], ['description', 'Mô tả']]} actions={row => <>{button('Sửa', () => open('Sửa ngành hàng', `categories/${row.id}`, [f('name', 'Tên', 'text', str(row.name)), f('description', 'Mô tả', 'text', str(row.description)), f('imageUrl', 'Ảnh', 'url', String(row.imageUrl || ''))], 'PUT'))}{button('Xóa', () => open('Xác nhận xóa ngành hàng', `categories/${row.id}`, [], 'DELETE'), true)}</>} /></>}
     {tab === 'contracts' && <><div className="grid sm:grid-cols-3 gap-4">{[['heldFunds', 'Quỹ tạm giữ'], ['serviceRevenue', 'Doanh thu dịch vụ'], ['gmv', 'Giá trị hợp đồng']].map(([key, label]) => <div className="bg-white p-5 border rounded-2xl" key={key}><p className="text-sm text-gray-500">{label}</p><p className="font-bold text-xl mt-2">{money(stats[key])} đ</p></div>)}</div><div className="flex gap-3">{button('Tạo RFQ', () => open('Tạo RFQ thay mặt bên mua', 'admin/contracts', [f('buyerId', 'ID BUYER đã duyệt KYC', 'number'), f('lotId', 'ID lô đang mở bán', 'number'), f('weightKg', 'Khối lượng (kg)', 'number'), f('pricePerKg', 'Đơn giá thỏa thuận (đ/kg)', 'number'), f('logisticsFee', 'Phí vận chuyển và lưu trạm (đ)', 'number', 0), f('deliveryAddress', 'Địa chỉ giao hàng')]))}{button('Lập biên bản sự cố', () => open('Biên bản sự cố', 'admin/claims', [f('contractId', 'ID hợp đồng', 'number'), f('damagedWeightKg', 'Khối lượng hư hỏng (kg)', 'number'), f('cause', 'Nguyên nhân'), select('liableParty', 'Bên chịu trách nhiệm', ['PLATFORM', 'FARMER'])]))}</div><DataTable rows={rows} columns={[['id', 'ID'], ['contract_code', 'Hợp đồng'], ['product_name', 'Nông sản'], ['offered_weight_kg', 'Khối lượng (kg)'], ['total_goods_amount', 'Giá trị (đ)'], ['deposit_received', 'Đã nhận cọc (đ)'], ['status', 'Trạng thái']]} actions={row => <>{button('Chi tiết', () => setDetail(row))}{nextState[str(row.status)] && button(`→ ${nextState[str(row.status)]}`, () => { void advance(row).catch(e => setError(String(e))); })}</>} /><h2 className="font-bold">Tranh chấp & bồi thường</h2><DataTable rows={claims} columns={[['id', 'ID'], ['contract_id', 'ID hợp đồng'], ['cause', 'Nguyên nhân'], ['damaged_weight_kg', 'Hư hỏng (kg)'], ['compensation_amount', 'Thiệt hại (đ)'], ['liable_party', 'Trách nhiệm'], ['status', 'Trạng thái']]} actions={row => row.status === 'OPEN' && button('Xử lý', () => open('Phán quyết tranh chấp', `admin/contracts/${row.contract_id}/resolve-dispute`, [select('action', 'Hình thức', ['DISMISS', 'COMPENSATE', 'REFUND']), f('reference', 'Mã quyết định / Giao dịch đã thực hiện'), f('note', 'Nội dung quyết định')], 'POST', { claimId: row.id }))} /></>}
     {tab === 'qc' && <><div className="flex gap-3">{button('Thêm buồng lạnh', () => open('Thêm buồng / Xe', 'admin/cold-assets', assetForm))}{button('Lập kiểm định QC', () => open('Nghiệm thu tại trạm', 'admin/hub-inspections', [f('contractId', 'ID hợp đồng đã nhận cọc', 'number'), f('coldRoomId', 'ID buồng lạnh', 'number'), f('receivedWeightKg', 'Khối lượng nhập (kg)', 'number'), f('qualifiedWeightKg', 'Khối lượng đạt chuẩn (kg)', 'number'), f('brix', 'Độ ngọt Brix', 'number', 0), f('moisture', 'Độ ẩm (%)', 'number', 85), f('note', 'Ghi chú QC')]))}</div><DataTable rows={rows.filter(r => r.asset_type === 'COLD_ROOM')} columns={[['id', 'ID'], ['asset_code', 'Mã buồng'], ['asset_name', 'Buồng lạnh'], ['capacity_kg', 'Sức chứa (kg)'], ['occupied_kg', 'Đang lưu (kg)'], ['current_temp', 'Nhiệt độ (°C)'], ['status', 'Trạng thái']]} /><h2 className="font-bold">Ưu tiên xuất kho FEFO</h2><DataTable rows={extra} columns={[['inspection_code', 'Kiểm định'], ['contract_code', 'Hợp đồng'], ['product_name', 'Nông sản'], ['qualified_weight_kg', 'Đạt (kg)'], ['rejected_weight_kg', 'Loại (kg)'], ['expiry_date', 'Hết hạn'], ['fefo_priority_score', 'Số ngày còn lại']]} actions={row => <>{Number(row.fefo_priority_score) < 2 && <span className="text-red-700 font-semibold text-xs">Ưu tiên xuất ngay</span>}{button('Biên bản', () => setDetail(row))}</>} /></>}
     {tab === 'iot' && <><div className="flex flex-wrap gap-4 items-center"><select aria-label="Chọn tài sản" className="border rounded-xl p-3" value={assetId} onChange={e => setAssetId(Number(e.target.value))}><option value={0}>Chọn buồng / Xe để xem lịch sử</option>{rows.map(row => <option key={str(row.id)} value={Number(row.id)}>{str(row.asset_code)} · {str(row.asset_name)}</option>)}</select><label className="text-sm flex gap-2"><input type="checkbox" checked={sound} onChange={e => setSound(e.target.checked)} />Bật âm thanh cảnh báo</label><span className="text-xs text-gray-500">{streamStatus}</span></div><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">{rows.map(row => <div key={str(row.id)} className={`p-5 border-2 rounded-2xl bg-white ${row.status === 'TEMP_WARNING' ? 'border-red-500' : 'border-green-200'}`}><p className="font-bold">{str(row.asset_code)} · {str(row.asset_name)}</p><p className={`text-3xl font-bold my-3 ${Number(row.current_temp) > 8 || Number(row.current_temp) < 1 ? 'text-red-600' : Number(row.current_temp) > 6 ? 'text-amber-600' : 'text-green-800'}`}>{str(row.current_temp)}°C <span className="text-base text-gray-500">· {str(row.current_humidity)}%</span></p><div className="flex flex-wrap gap-2">{button('Mô phỏng 15°C', () => void update('admin/iot/inject-fault', 'POST', { assetId: row.id, mode: 'TEMP_SPIKE' }), true)}{button('Mô phỏng cửa hở', () => void update('admin/iot/inject-fault', 'POST', { assetId: row.id, mode: 'DOOR_OPEN' }))}{button('Phục hồi 4°C', () => void update('admin/iot/reset-fault', 'POST', { assetId: row.id }))}{button('Lập biên bản', () => open('Biên bản sự cố chuỗi lạnh', 'admin/claims', [f('contractId', 'ID hợp đồng liên quan', 'number'), f('damagedWeightKg', 'Khối lượng hỏng thực tế (kg)', 'number'), f('cause', 'Nguyên nhân', 'text', 'COOLING_FAILURE'), select('liableParty', 'Trách nhiệm', ['PLATFORM', 'FARMER'])]))}</div></div>)}</div>{assetId > 0 && <section className="bg-white border rounded-2xl p-5"><h2 className="font-bold mb-3">Nhiệt độ theo thời gian · dữ liệu mô phỏng</h2>{telemetry.length > 1 && <svg viewBox="0 0 600 160" className="w-full max-h-56" role="img" aria-label="Biểu đồ nhiệt độ"><line x1="0" y1="128" x2="600" y2="128" stroke="#ddd" /><polyline fill="none" stroke="#15803d" strokeWidth="3" points={[...telemetry].reverse().map((r, i) => `${i * 600 / Math.max(1, telemetry.length - 1)},${150 - Number(r.temperature) * 7}`).join(' ')} /></svg>}<DataTable rows={telemetry.slice(0, 10)} columns={[['recorded_at', 'Thời gian'], ['temperature', 'Nhiệt độ (°C)'], ['humidity', 'Độ ẩm (%)'], ['alert_message', 'Ghi nhận']]} /></section>}</>}
@@ -121,6 +287,6 @@ export default function AdminConsole() {
     {tab === 'accounting' && <><div className="flex flex-wrap gap-3 print:hidden">{button('Xuất CSV', () => download((reports.documents as Row[]) || []))}{button('In / Lưu PDF', () => window.print())}{button('Cấu hình sàn', () => open('Tham số vận hành', 'admin/settings', [f('platformFeeRate', 'Phí sàn (%) · 1 đến 5', 'number', Number(settings.platform_fee_rate)), f('depositRate', 'Tỷ lệ cọc (%)', 'number', Number(settings.deposit_rate)), f('tempMin', 'Nhiệt độ thấp nhất (°C)', 'number', Number(settings.temp_min)), f('tempMax', 'Nhiệt độ cao nhất (°C)', 'number', Number(settings.temp_max)), f('serviceVatRate', 'Thuế dịch vụ (%) · 8 hoặc 10', 'number', Number(settings.service_vat_rate))], 'PUT'))}</div><h2 className="font-bold">Bảng kê quyết toán nội bộ</h2><p className="text-sm text-gray-500">Dữ liệu phục vụ đối soát và lập chứng từ.</p><DataTable rows={(reports.documents as Row[]) || []} columns={[['contract_code', 'Hợp đồng'], ['company_name', 'Nông trại / HTX'], ['tax_code', 'Mã số thuế'], ['document_type', 'Loại bảng kê'], ['total_goods_amount', 'Giá trị hợp đồng'], ['payout_amount', 'Đã giải ngân']]} actions={row => button('Chi tiết chứng từ', () => setDetail(row))} /><h2 className="font-bold">Sổ nhật ký chung</h2><DataTable rows={(reports.entries as Row[]) || []} columns={[['id', 'ID'], ['contract_code', 'Hợp đồng'], ['event', 'Nghiệp vụ'], ['reference', 'Tham chiếu'], ['created_at', 'Thời điểm']]} /><DataTable rows={(reports.lines as Row[]) || []} columns={[['entry_id', 'Bút toán'], ['account', 'Tài khoản'], ['debit', 'Nợ (đ)'], ['credit', 'Có (đ)']]} /></>}
     </main></div>
     {dialog && <FormDialog value={dialog} onClose={() => setDialog(null)} onDone={() => { setDialog(null); void load(); }} />}
-    {detail && <div className="fixed inset-0 z-[150] bg-black/40 p-4 flex justify-center items-center"><section className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-auto"><div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Hồ sơ chi tiết</h2><button aria-label="Đóng" onClick={() => setDetail(null)}><X /></button></div><dl className="space-y-3 text-sm">{Object.entries(detail).map(([key, value]) => <div key={key} className="border-b pb-2"><dt className="text-gray-500">{key}</dt><dd className="break-words mt-1">{(key === 'epod_photo_url' || key === 'epod_signature_data' || key === 'certificationUrl' || key === 'certification_url' || key === 'imageUrl' || key === 'image_url') && typeof value === 'string' && (value.startsWith('https://') || value.startsWith('http://') || value.startsWith('data:image/')) ? <img src={value} alt={key} className="max-h-64 max-w-full rounded-xl border border-gray-200 mt-1 object-contain" /> : str(value)}</dd></div>)}</dl></section></div>}
+    {detail && <div className="fixed inset-0 z-[150] bg-black/40 p-4 flex justify-center items-center"><section className="bg-white rounded-3xl p-6 max-w-3xl w-full max-h-[90vh] overflow-auto"><div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Hồ sơ chi tiết</h2><button aria-label="Đóng" onClick={() => setDetail(null)}><X /></button></div><dl className="space-y-3 text-sm">{Object.entries(detail).map(([key, value]) => <div key={key} className="border-b pb-2 flex justify-between gap-4"><dt className="text-gray-500 font-medium shrink-0">{VIETNAMESE_LABELS[key] || key}</dt><dd className="break-words mt-1 text-right font-bold text-[#2C3E2E]">{(key === 'epod_photo_url' || key === 'epod_signature_data' || key === 'certificationUrl' || key === 'certification_url' || key === 'imageUrl' || key === 'image_url') && typeof value === 'string' && (value.startsWith('https://') || value.startsWith('http://') || value.startsWith('data:image/')) ? <img src={value} alt={VIETNAMESE_LABELS[key] || key} className="max-h-64 max-w-full rounded-xl border border-gray-200 mt-1 object-contain inline-block" /> : str(value)}</dd></div>)}</dl></section></div>}
   </div>;
 }
