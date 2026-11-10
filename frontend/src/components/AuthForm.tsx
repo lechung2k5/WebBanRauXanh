@@ -5,6 +5,7 @@ import Script from 'next/script';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { Eye, EyeOff } from 'lucide-react';
 import { api, AuthResult, isChallenge, OtpChallenge, portalFor } from '@/services/auth';
 import { useApp } from '@/context/AppContext';
 import type { AuthResponse } from '@/types';
@@ -118,11 +119,13 @@ const VIETNAM_BANKS = [
 ];
 
 /* ─── Shared style tokens ─── */
-const INPUT_CLS =
-  'mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 ' +
+const INPUT_BASE_CLS =
+  'w-full rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 ' +
   'transition-all placeholder:text-gray-400 ' +
   'focus:outline-none focus:border-[#10542C] focus:ring-2 focus:ring-[#10542C]/15 focus:bg-white ' +
   'hover:border-gray-300';
+
+const INPUT_CLS = `mt-1.5 ${INPUT_BASE_CLS}`;
 
 const LABEL_CLS = 'block text-[13px] font-semibold text-gray-600 tracking-wide';
 
@@ -152,6 +155,10 @@ export default function AuthForm({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -422,16 +429,36 @@ export default function AuthForm({
             {(mode === 'reset' || mode === 'activate') && (
               <label className="block text-left">
                 <span className={LABEL_CLS}>Mật khẩu mới (tối thiểu 10 ký tự) *</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={10}
-                  maxLength={72}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={INPUT_CLS}
-                />
+                <div className="relative mt-1.5">
+                  <input
+                    type={showResetPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    minLength={10}
+                    maxLength={72}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${INPUT_BASE_CLS} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onMouseEnter={() => setShowResetPassword(true)}
+                    onMouseLeave={() => setShowResetPassword(false)}
+                    onMouseDown={(e) => { e.preventDefault(); setShowResetPassword(true); }}
+                    onMouseUp={() => setShowResetPassword(false)}
+                    onTouchStart={() => setShowResetPassword(true)}
+                    onTouchEnd={() => setShowResetPassword(false)}
+                    onFocus={() => setShowResetPassword(true)}
+                    onBlur={() => setShowResetPassword(false)}
+                    onClick={(e) => { e.preventDefault(); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                    aria-label="Rê chuột để hiển thị mật khẩu"
+                    title="Rê chuột để hiển thị mật khẩu"
+                  >
+                    {showResetPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                  </button>
+                </div>
               </label>
             )}
 
@@ -545,19 +572,70 @@ export default function AuthForm({
                 <div className="grid sm:grid-cols-2 gap-3">
                   <label className="block">
                     <span className={LABEL_CLS}>Mật khẩu (≥10 ký tự) <span className="text-red-500">*</span></span>
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete="new-password"
-                      required
-                      minLength={10}
-                      maxLength={72}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className={INPUT_CLS}
-                    />
+                    <div className="relative mt-1.5">
+                      <input
+                        name="password"
+                        type={showRegisterPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={`${INPUT_BASE_CLS} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onMouseEnter={() => setShowRegisterPassword(true)}
+                        onMouseLeave={() => setShowRegisterPassword(false)}
+                        onMouseDown={(e) => { e.preventDefault(); setShowRegisterPassword(true); }}
+                        onMouseUp={() => setShowRegisterPassword(false)}
+                        onTouchStart={() => setShowRegisterPassword(true)}
+                        onTouchEnd={() => setShowRegisterPassword(false)}
+                        onFocus={() => setShowRegisterPassword(true)}
+                        onBlur={() => setShowRegisterPassword(false)}
+                        onClick={(e) => { e.preventDefault(); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                        aria-label="Rê chuột để hiển thị mật khẩu"
+                        title="Rê chuột để hiển thị mật khẩu"
+                      >
+                        {showRegisterPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </label>
-                  {field('confirmPassword', 'Xác nhận mật khẩu', 'password', true)}
+                  <label className="block">
+                    <span className={LABEL_CLS}>Xác nhận mật khẩu <span className="text-red-500">*</span></span>
+                    <div className="relative mt-1.5">
+                      <input
+                        name="confirmPassword"
+                        type={showRegisterConfirmPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        className={`${INPUT_BASE_CLS} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onMouseEnter={() => setShowRegisterConfirmPassword(true)}
+                        onMouseLeave={() => setShowRegisterConfirmPassword(false)}
+                        onMouseDown={(e) => { e.preventDefault(); setShowRegisterConfirmPassword(true); }}
+                        onMouseUp={() => setShowRegisterConfirmPassword(false)}
+                        onTouchStart={() => setShowRegisterConfirmPassword(true)}
+                        onTouchEnd={() => setShowRegisterConfirmPassword(false)}
+                        onFocus={() => setShowRegisterConfirmPassword(true)}
+                        onBlur={() => setShowRegisterConfirmPassword(false)}
+                        onClick={(e) => { e.preventDefault(); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                        aria-label="Rê chuột để hiển thị mật khẩu"
+                        title="Rê chuột để hiển thị mật khẩu"
+                      >
+                        {showRegisterConfirmPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </label>
                 </div>
 
                 {/* Thông tin cơ sở đối tác */}
@@ -763,31 +841,60 @@ export default function AuthForm({
                     </label>
 
                     <label className="block">
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className={LABEL_CLS}>Mật khẩu</span>
+                      <span className={LABEL_CLS}>Mật khẩu</span>
+                      <div className="relative mt-1.5">
+                        <input
+                          name="password"
+                          type={showLoginPassword ? 'text' : 'password'}
+                          autoComplete="current-password"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className={`${INPUT_BASE_CLS} pr-10`}
+                        />
                         <button
                           type="button"
-                          className="text-xs font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
-                          onClick={() => { setMode('reset'); setError(''); }}
+                          tabIndex={-1}
+                          onMouseEnter={() => setShowLoginPassword(true)}
+                          onMouseLeave={() => setShowLoginPassword(false)}
+                          onMouseDown={(e) => { e.preventDefault(); setShowLoginPassword(true); }}
+                          onMouseUp={() => setShowLoginPassword(false)}
+                          onTouchStart={() => setShowLoginPassword(true)}
+                          onTouchEnd={() => setShowLoginPassword(false)}
+                          onFocus={() => setShowLoginPassword(true)}
+                          onBlur={() => setShowLoginPassword(false)}
+                          onClick={(e) => { e.preventDefault(); }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                          aria-label="Rê chuột để hiển thị mật khẩu"
+                          title="Rê chuột để hiển thị mật khẩu"
                         >
-                          Quên mật khẩu?
+                          {showLoginPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
                         </button>
                       </div>
-                      <input
-                        name="password"
-                        type="password"
-                        autoComplete="current-password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className={INPUT_CLS}
-                      />
                     </label>
 
-                    <label className="flex items-center gap-2.5 cursor-pointer group">
-                      <input name="remember" type="checkbox" className="rounded border-gray-300 text-[#10542C]" />
-                      <span className="text-xs text-gray-500 group-hover:text-gray-700 transition-colors">Ghi nhớ đăng nhập</span>
-                    </label>
+                    <div className="flex items-center justify-between text-xs pt-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          name="remember"
+                          type="checkbox"
+                          className="rounded border-gray-300 text-[#10542C] focus:ring-[#10542C]"
+                        />
+                        <span className="text-gray-500 group-hover:text-gray-700 transition-colors">
+                          Ghi nhớ đăng nhập
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        className="font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
+                        onClick={() => {
+                          setMode('reset');
+                          setError('');
+                        }}
+                      >
+                        Quên mật khẩu?
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   /* Đăng nhập bằng OTP */
