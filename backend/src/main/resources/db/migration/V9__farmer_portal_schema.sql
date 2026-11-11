@@ -94,6 +94,8 @@ ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS hub_name VARCHAR(200);
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS delivery_time_slot VARCHAR(50);
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS truck_type VARCHAR(100);
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS delivery_notes TEXT;
+ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS quantity_kg NUMERIC(12,2);
+ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS agreed_price_per_kg NUMERIC(12,2);
 
 -- 4. QC Inspections
 CREATE TABLE IF NOT EXISTS qc_inspections (

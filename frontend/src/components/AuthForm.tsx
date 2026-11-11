@@ -5,6 +5,7 @@ import Script from 'next/script';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { Eye, EyeOff, X, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react';
 import { api, AuthResult, isChallenge, OtpChallenge, portalFor } from '@/services/auth';
 import { useApp } from '@/context/AppContext';
 import type { AuthResponse } from '@/types';
@@ -16,57 +17,270 @@ type GoogleWindow = Window & {
     accounts: {
       id: {
         initialize: (options: { client_id: string; callback: (value: { credential: string }) => void }) => void;
-        renderButton: (element: HTMLElement, options: { theme: string; size: string; width?: string; text?: string }) => void;
+        renderButton: (
+          element: HTMLElement,
+          options: {
+            type?: string;
+            theme?: string;
+            size?: string;
+            shape?: string;
+            text?: string;
+            width?: number | string;
+            locale?: string;
+            logo_alignment?: string;
+          }
+        ) => void;
       };
     };
   };
 };
 
+function GoogleSetupGuideModal({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const snippet = 'NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com';
+
+  const copy = () => {
+    void navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-50 border border-gray-200">
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900 text-base">Cấu hình Google Sign-In</h3>
+              <p className="text-xs text-gray-500">Kích hoạt đăng nhập Google cho HoNa Fresh</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
+            aria-label="Đóng"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Instructions */}
+        <div className="space-y-3.5 text-xs text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+          <p>
+            Hệ thống đã tích hợp đầy đủ tính năng Đăng nhập bằng Google kèm xác thực 2 lớp qua mã OTP Email. Để sử dụng, bạn chỉ cần tạo <strong>OAuth 2.0 Client ID</strong> trên Google Cloud:
+          </p>
+
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3.5 space-y-2.5">
+            <p className="font-semibold text-gray-800">Các bước thực hiện nhanh:</p>
+            <ol className="list-decimal pl-4 space-y-2 text-gray-700">
+              <li>
+                Truy cập <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-[#10542C] font-semibold underline inline-flex items-center gap-0.5 hover:text-green-900">Google Cloud Credentials <ExternalLink size={11} /></a> và tạo dự án mới.
+              </li>
+              <li>
+                Vào <strong>Create Credentials</strong> → chọn <strong>OAuth client ID</strong> (loại <em>Web application</em>).
+              </li>
+              <li>
+                Tại <strong>Authorized JavaScript origins</strong>, thêm:
+                <code className="block mt-1 bg-white px-2.5 py-1 rounded border border-gray-200 font-mono text-[11px] text-[#10542C] select-all">
+                  http://localhost:3000
+                </code>
+              </li>
+              <li>
+                Tại <strong>Authorized redirect URIs</strong>, thêm:
+                <code className="block mt-1 bg-white px-2.5 py-1 rounded border border-gray-200 font-mono text-[11px] text-[#10542C] select-all">
+                  http://localhost:3000
+                </code>
+              </li>
+              <li>
+                Dán mã <strong>Client ID</strong> vào file <code className="font-semibold text-gray-900">frontend/.env.local</code>:
+              </li>
+            </ol>
+
+            <div className="relative mt-2 rounded-lg bg-gray-900 p-2.5 text-gray-100 font-mono text-[11px] flex items-center justify-between">
+              <span className="truncate pr-2 select-all">{snippet}</span>
+              <button
+                type="button"
+                onClick={copy}
+                className="shrink-0 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 transition-colors cursor-pointer"
+                title="Sao chép cú pháp"
+              >
+                {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-900 flex items-start gap-2.5">
+            <HelpCircle size={16} className="text-emerald-700 shrink-0 mt-0.5" />
+            <div className="text-[11.5px] leading-relaxed">
+              <strong>Tài liệu chi tiết:</strong> Hãy mở file <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-[#10542C]">HUONG_DAN_CAU_HINH_GOOGLE_LOGIN.md</code> tại thư mục gốc của dự án để xem hướng dẫn từng bước chi tiết kèm cách khắc phục mọi sự cố.
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 pt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-[#10542C] px-5 py-2 text-xs font-bold text-white hover:bg-[#0d4524] transition-all cursor-pointer shadow-xs"
+          >
+            Đã hiểu
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GoogleButton({ onCredential }: { onCredential: (credential: string) => void }) {
   const element = useRef<HTMLDivElement>(null);
   const callback = useRef(onCredential);
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+
   useEffect(() => {
     callback.current = onCredential;
   }, [onCredential]);
 
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
-  const init = () => {
-    const google = (window as GoogleWindow).google;
-    if (google && element.current && clientId) {
-      google.accounts.id.initialize({
-        client_id: clientId,
-        callback: (value) => callback.current(value.credential),
-      });
-      google.accounts.id.renderButton(element.current, {
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-      });
-    }
-  };
+  useEffect(() => {
+    if (!clientId) return;
 
-  return clientId ? (
-    <div className="flex flex-col items-center">
-      <Script src="https://accounts.google.com/gsi/client" onReady={init} strategy="afterInteractive" />
-      <div ref={element} className="w-full flex justify-center min-h-[44px]" />
-    </div>
-  ) : (
-    <p className="text-xs text-center text-gray-400 py-1">
-      Google Sign-In khả dụng khi cấu hình <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>.
-    </p>
+    let mounted = true;
+    let timer: NodeJS.Timeout | null = null;
+
+    const renderBtn = () => {
+      const google = (window as GoogleWindow).google;
+      if (!mounted || !google?.accounts?.id || !element.current) return false;
+
+      try {
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (res) => {
+            if (res?.credential) {
+              callback.current(res.credential);
+            }
+          },
+        });
+        element.current.innerHTML = '';
+        google.accounts.id.renderButton(element.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          shape: 'pill',
+          text: 'signin_with',
+          width: 320,
+          locale: 'vi',
+        });
+        return true;
+      } catch (err) {
+        console.error('Lỗi khởi tạo Google Sign-In:', err);
+        return false;
+      }
+    };
+
+    // Khởi tạo ngay nếu SDK Google đã sẵn sàng, nếu chưa thì lắng nghe định kỳ
+    if (!renderBtn()) {
+      timer = setInterval(() => {
+        if (renderBtn() && timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }, 300);
+    }
+
+    return () => {
+      mounted = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [clientId, scriptLoaded]);
+
+  return (
+    <>
+      <div className="flex flex-col items-center gap-1.5 w-full">
+        {clientId ? (
+          <>
+            <Script
+              src="https://accounts.google.com/gsi/client"
+              strategy="afterInteractive"
+              onLoad={() => setScriptLoaded(true)}
+            />
+            <div ref={element} className="w-full flex justify-center min-h-[44px]" />
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowSetupModal(true)}
+              className="w-full max-w-[320px] flex items-center justify-center gap-3 px-5 py-2.5 rounded-full border border-gray-300 bg-white hover:bg-gray-50 active:scale-[0.99] text-gray-700 font-semibold text-xs sm:text-sm shadow-xs hover:border-gray-400 transition-all cursor-pointer group"
+              title="Nhấp để xem hướng dẫn cấu hình đăng nhập Google"
+            >
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+              <span>Đăng nhập bằng Google</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSetupModal(true)}
+              className="text-[11px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100/70 border border-amber-200/80 rounded-full px-3 py-0.5 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Chưa cấu hình Google Client ID · Nhấp xem hướng dẫn
+            </button>
+          </>
+        )}
+      </div>
+
+      {showSetupModal && <GoogleSetupGuideModal onClose={() => setShowSetupModal(false)} />}
+    </>
   );
 }
 
-function OtpInput({ value, onChange }: { value: string; onChange: (s: string) => void }) {
+function OtpInput({
+  value,
+  onChange,
+  onComplete,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (s: string) => void;
+  onComplete?: (code: string) => void;
+  disabled?: boolean;
+}) {
   const fields = useRef<(HTMLInputElement | null)[]>([]);
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (disabled) return;
     const code = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     onChange(code);
     const targetIdx = Math.min(code.length, 5);
     fields.current[targetIdx]?.focus();
+    if (code.length === 6) {
+      onComplete?.(code);
+    }
   };
 
   return (
@@ -77,21 +291,28 @@ function OtpInput({ value, onChange }: { value: string; onChange: (s: string) =>
           ref={(el) => {
             fields.current[i] = el;
           }}
+          disabled={disabled}
           aria-label={`Chữ số OTP ${i + 1}`}
           inputMode="numeric"
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
           maxLength={1}
           value={value[i] || ''}
-          className="w-11 h-14 sm:w-12 sm:h-14 border-2 border-gray-200 rounded-xl text-center text-2xl font-bold font-mono text-[#10542C] focus:border-[#10542C] focus:bg-green-50/30 focus:outline-none transition-all shadow-xs"
+          className="w-11 h-14 sm:w-12 sm:h-14 border-2 border-gray-200 rounded-xl text-center text-2xl font-bold font-mono text-[#10542C] focus:border-[#10542C] focus:bg-green-50/30 focus:outline-none transition-all shadow-xs disabled:opacity-50"
           onChange={(e) => {
+            if (disabled) return;
             const digit = e.target.value.replace(/\D/g, '').slice(-1);
             const chars = value.padEnd(6, ' ').split('');
             chars[i] = digit || ' ';
             const updated = chars.join('').trimEnd();
             onChange(updated);
             if (digit && i < 5) fields.current[i + 1]?.focus();
+            const cleanDigits = updated.replace(/\s/g, '');
+            if (cleanDigits.length === 6) {
+              onComplete?.(cleanDigits);
+            }
           }}
           onKeyDown={(e) => {
+            if (disabled) return;
             if (e.key === 'Backspace' && !value[i] && i > 0) {
               fields.current[i - 1]?.focus();
             }
@@ -119,11 +340,13 @@ const VIETNAM_BANKS = [
 ];
 
 /* ─── Shared style tokens ─── */
-const INPUT_CLS =
-  'mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 ' +
+const INPUT_BASE_CLS =
+  'w-full rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 ' +
   'transition-all placeholder:text-gray-400 ' +
   'focus:outline-none focus:border-[#10542C] focus:ring-2 focus:ring-[#10542C]/15 focus:bg-white ' +
   'hover:border-gray-300';
+
+const INPUT_CLS = `mt-1.5 ${INPUT_BASE_CLS}`;
 
 const LABEL_CLS = 'block text-[13px] font-semibold text-gray-600 tracking-wide';
 
@@ -131,21 +354,24 @@ export default function AuthForm({
   initialMode = 'login',
   onSuccess,
 }: {
-  initialMode?: 'login' | 'register' | 'activate' | 'reset';
+  initialMode?: 'login' | 'register' | 'activate' | 'reset' | 'profile';
   onSuccess?: (u: AuthResponse) => void;
 }) {
   const router = useRouter();
   const { setCurrentUser } = useApp();
-  const [mode, setMode] = useState<'login' | 'register' | 'reset' | 'activate'>(() => {
+  const [mode, setMode] = useState<'login' | 'register' | 'reset' | 'activate' | 'profile'>(() => {
     if (typeof window !== 'undefined') {
       const paramMode = new URLSearchParams(window.location.search).get('mode');
       if (paramMode === 'reset' || paramMode === 'forgot') return 'reset';
       if (paramMode === 'register') return 'register';
       if (paramMode === 'login') return 'login';
       if (paramMode === 'activate') return 'activate';
+      if (paramMode === 'profile') return 'profile';
     }
     return initialMode;
   });
+  const [isGoogleLogin, setIsGoogleLogin] = useState(false);
+  const [googleUser, setGoogleUser] = useState<AuthResponse | null>(null);
   const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password');
   const [role, setRole] = useState<'FARMER' | 'BUYER'>('BUYER');
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
@@ -155,6 +381,10 @@ export default function AuthForm({
   const [username, setUsername] = useState('');
   const [address, setAddress] = useState('');
   const [warehouseAddress, setWarehouseAddress] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -216,6 +446,25 @@ export default function AuthForm({
       setCooldown(result.resendAfterSeconds);
       setExpires(result.otpExpirySeconds);
     } else {
+      // Nếu đăng nhập Google lần đầu (chưa hoàn thiện thông tin hồ sơ):
+      if (
+        isGoogleLogin &&
+        !result.profileComplete &&
+        (result.roles.includes('ROLE_FARMER') || result.roles.includes('ROLE_BUYER'))
+      ) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('xanhfarm_user', JSON.stringify(result));
+        }
+        setCurrentUser(result);
+        setGoogleUser(result);
+        setChallenge(null);
+        setMode('profile');
+        if (result.roles.includes('ROLE_FARMER')) setRole('FARMER');
+        if (result.roles.includes('ROLE_BUYER')) setRole('BUYER');
+        setEmail(result.email);
+        setMessage('Xác thực Google thành công! Vui lòng hoàn tất thông tin cá nhân bên dưới để kích hoạt tài khoản.');
+        return;
+      }
       handleSuccess(result);
     }
   };
@@ -233,26 +482,70 @@ export default function AuthForm({
     }
   };
 
+  const verifyOtp = (codeToVerify?: string) => {
+    if (!challenge || busy) return;
+    const cleanOtp = (codeToVerify ?? otp).replace(/\s/g, '');
+    if (cleanOtp.length !== 6) return;
+
+    void run(async () => {
+      if (mode === 'reset' || mode === 'activate') {
+        if (!password || password.length < 10) {
+          setError('Vui lòng nhập mật khẩu mới (tối thiểu 10 ký tự)');
+          return;
+        }
+        await api(`auth/${mode === 'reset' ? 'reset-password' : 'activate-staff'}`, 'POST', {
+          email,
+          otp: cleanOtp,
+          password,
+        });
+        setChallenge(null);
+        setMode('login');
+        setPassword('');
+        setMessage('Đã đặt mật khẩu thành công. Bạn có thể đăng nhập ngay.');
+        return;
+      }
+      const endpoint = challenge.otpType === 'REGISTER_VERIFICATION' ? 'verify-register-otp' : 'gmail-otp/verify';
+      accept(await api<AuthResult>(`auth/${endpoint}`, 'POST', { email, otp: cleanOtp, type: challenge.otpType }));
+    });
+  };
+
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void run(async () => {
+      // 0. Luồng Hoàn tất thông tin cá nhân (Google lần đầu)
+      if (mode === 'profile') {
+        const values = Object.fromEntries(form.entries());
+        const resolvedBankName =
+          role === 'FARMER' && !skipBank
+            ? bankCode === 'OTHER'
+              ? customBankName.trim()
+              : VIETNAM_BANKS.find((b) => b.code === bankCode)?.name || bankCode
+            : '';
+        const resolvedBankAccount =
+          role === 'FARMER' && !skipBank ? ((values.bankAccountNo as string) || '').trim() : '';
+
+        const updated = await api<AuthResponse>('auth/profile', 'PUT', {
+          companyName: ((values.companyName as string) || '').trim(),
+          taxCode: ((values.taxCode as string) || '').trim(),
+          isHouseholdFarmer: household,
+          bankAccountNo: resolvedBankAccount,
+          bankName: resolvedBankName,
+          warehouseAddress: ((values.warehouseAddress as string) || '').trim(),
+          pucCode: ((values.pucCode as string) || '').trim(),
+          certification: ((values.certification as string) || '').trim(),
+          certificationUrl: ((values.certificationUrl as string) || '').trim(),
+          phone: ((values.phone as string) || '').trim(),
+          address: ((values.address as string) || '').trim(),
+        });
+
+        handleSuccess(updated);
+        return;
+      }
+
       // 1. Luồng Xác thực OTP
       if (challenge) {
-        if (mode === 'reset' || mode === 'activate') {
-          await api(`auth/${mode === 'reset' ? 'reset-password' : 'activate-staff'}`, 'POST', {
-            email,
-            otp,
-            password,
-          });
-          setChallenge(null);
-          setMode('login');
-          setPassword('');
-          setMessage('Đã đặt mật khẩu thành công. Bạn có thể đăng nhập ngay.');
-          return;
-        }
-        const endpoint = challenge.otpType === 'REGISTER_VERIFICATION' ? 'verify-register-otp' : 'gmail-otp/verify';
-        accept(await api<AuthResult>(`auth/${endpoint}`, 'POST', { email, otp, type: challenge.otpType }));
+        verifyOtp();
         return;
       }
 
@@ -349,6 +642,8 @@ export default function AuthForm({
   /* ─── Title map ─── */
   const pageTitle = challenge
     ? 'Xác thực OTP'
+    : mode === 'profile'
+    ? 'Thông tin cá nhân'
     : mode === 'register'
     ? 'Đăng ký tài khoản'
     : mode === 'reset'
@@ -424,21 +719,43 @@ export default function AuthForm({
               </div>
             </div>
 
-            <OtpInput value={otp} onChange={setOtp} />
+            <OtpInput
+              value={otp}
+              onChange={setOtp}
+              onComplete={(code) => {
+                if ((mode === 'reset' || mode === 'activate') && (!password || password.length < 10)) {
+                  return;
+                }
+                verifyOtp(code);
+              }}
+              disabled={busy}
+            />
 
             {(mode === 'reset' || mode === 'activate') && (
               <label className="block text-left">
                 <span className={LABEL_CLS}>Mật khẩu mới (tối thiểu 10 ký tự) *</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={10}
-                  maxLength={72}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={INPUT_CLS}
-                />
+                <div className="relative mt-1.5">
+                  <input
+                    type={showResetPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    minLength={10}
+                    maxLength={72}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${INPUT_BASE_CLS} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowResetPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                    aria-label={showResetPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                    title={showResetPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                  >
+                    {showResetPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                  </button>
+                </div>
               </label>
             )}
 
@@ -474,6 +791,94 @@ export default function AuthForm({
         ) : (
           /* ══════ MÀN HÌNH ĐIỀN FORM ══════ */
           <>
+            {mode === 'profile' && (
+              <>
+                {/* Welcome Google Verified Card */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-950 space-y-1.5 shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-sm text-[#10542C]">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#10542C] text-white text-xs">✓</span>
+                    Xác thực Google thành công
+                  </div>
+                  <p className="text-gray-600 leading-relaxed">
+                    Tài khoản <strong className="text-gray-900">{email}</strong> đã liên kết thành công. Vui lòng hoàn tất thông tin cá nhân bên dưới để kích hoạt tài khoản.
+                  </p>
+                </div>
+
+                {/* Lựa chọn vai trò */}
+                <div className="space-y-2">
+                  <span className={LABEL_CLS}>Vai trò tài khoản:</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setRole('FARMER')}
+                      className={`relative text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
+                        role === 'FARMER'
+                          ? 'border-[#10542C] bg-green-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-green-200 hover:bg-green-50/30'
+                      }`}
+                    >
+                      {role === 'FARMER' && (
+                        <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#10542C]">
+                          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                      )}
+                      <span className="text-lg">🚜</span>
+                      <p className="mt-1 font-bold text-sm text-[#10542C]">Nông dân / Hợp tác xã</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRole('BUYER')}
+                      className={`relative text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
+                        role === 'BUYER'
+                          ? 'border-[#10542C] bg-green-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-green-200 hover:bg-green-50/30'
+                      }`}
+                    >
+                      {role === 'BUYER' && (
+                        <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#10542C]">
+                          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                      )}
+                      <span className="text-lg">🏢</span>
+                      <p className="mt-1 font-bold text-sm text-[#10542C]">Thương lái / Mua sỉ</p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Thông tin định danh cơ bản */}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {field('fullName', 'Họ và tên người đại diện', 'text', true, googleUser?.fullName || '')}
+                  <label className="block">
+                    <span className={LABEL_CLS}>Email tài khoản</span>
+                    <div className="relative mt-1.5">
+                      <input
+                        type="email"
+                        value={email}
+                        disabled
+                        className={`${INPUT_BASE_CLS} bg-gray-100/80 text-gray-500 cursor-not-allowed pr-28`}
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                        </svg>
+                        Đã xác thực
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {field('phone', 'Số điện thoại', 'tel', true)}
+                  {field('address', 'Địa chỉ', 'text', true)}
+                </div>
+              </>
+            )}
+
             {mode === 'register' && (
               <>
                 {/* Lựa chọn vai trò */}
@@ -560,21 +965,60 @@ export default function AuthForm({
                 <div className="grid sm:grid-cols-2 gap-3">
                   <label className="block">
                     <span className={LABEL_CLS}>Mật khẩu (≥10 ký tự) <span className="text-red-500">*</span></span>
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete="new-password"
-                      required
-                      minLength={10}
-                      maxLength={72}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className={INPUT_CLS}
-                    />
+                    <div className="relative mt-1.5">
+                      <input
+                        name="password"
+                        type={showRegisterPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={`${INPUT_BASE_CLS} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setShowRegisterPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                        aria-label={showRegisterPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                        title={showRegisterPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                      >
+                        {showRegisterPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </label>
-                  {field('confirmPassword', 'Xác nhận mật khẩu', 'password', true)}
+                  <label className="block">
+                    <span className={LABEL_CLS}>Xác nhận mật khẩu <span className="text-red-500">*</span></span>
+                    <div className="relative mt-1.5">
+                      <input
+                        name="confirmPassword"
+                        type={showRegisterConfirmPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        className={`${INPUT_BASE_CLS} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setShowRegisterConfirmPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                        aria-label={showRegisterConfirmPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                        title={showRegisterConfirmPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                      >
+                        {showRegisterConfirmPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </label>
                 </div>
+              </>
+            )}
 
+            {(mode === 'register' || mode === 'profile') && (
+              <>
                 {/* Thông tin cơ sở đối tác */}
                 <div className="rounded-xl border border-gray-100 bg-gray-50/50 px-4 pt-3 pb-4 space-y-3">
                   <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
@@ -779,31 +1223,52 @@ export default function AuthForm({
                     </label>
 
                     <label className="block">
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className={LABEL_CLS}>Mật khẩu</span>
+                      <span className={LABEL_CLS}>Mật khẩu</span>
+                      <div className="relative mt-1.5">
+                        <input
+                          name="password"
+                          type={showLoginPassword ? 'text' : 'password'}
+                          autoComplete="current-password"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className={`${INPUT_BASE_CLS} pr-10`}
+                        />
                         <button
                           type="button"
-                          className="text-xs font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
-                          onClick={() => { setMode('reset'); setError(''); }}
+                          tabIndex={-1}
+                          onClick={() => setShowLoginPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#10542C] transition-colors p-1 cursor-pointer focus:outline-none"
+                          aria-label={showLoginPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                          title={showLoginPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
                         >
-                          Quên mật khẩu?
+                          {showLoginPassword ? <EyeOff size={18} className="text-[#10542C]" /> : <Eye size={18} />}
                         </button>
                       </div>
-                      <input
-                        name="password"
-                        type="password"
-                        autoComplete="current-password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className={INPUT_CLS}
-                      />
                     </label>
 
-                    <label className="flex items-center gap-2.5 cursor-pointer group">
-                      <input name="remember" type="checkbox" className="rounded border-gray-300 text-[#10542C]" />
-                      <span className="text-xs text-gray-500 group-hover:text-gray-700 transition-colors">Ghi nhớ đăng nhập</span>
-                    </label>
+                    <div className="flex items-center justify-between text-xs pt-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          name="remember"
+                          type="checkbox"
+                          className="rounded border-gray-300 text-[#10542C] focus:ring-[#10542C]"
+                        />
+                        <span className="text-gray-500 group-hover:text-gray-700 transition-colors">
+                          Ghi nhớ đăng nhập
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        className="font-semibold text-[#10542C] hover:underline cursor-pointer transition-colors"
+                        onClick={() => {
+                          setMode('reset');
+                          setError('');
+                        }}
+                      >
+                        Quên mật khẩu?
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   /* Đăng nhập bằng OTP */
@@ -862,6 +1327,8 @@ export default function AuthForm({
             </span>
           ) : challenge ? (
             mode === 'reset' ? 'Đặt lại mật khẩu' : 'Xác nhận OTP'
+          ) : mode === 'profile' ? (
+            'Lưu thông tin & Bắt đầu'
           ) : mode === 'register' ? (
             'Đăng ký'
           ) : mode === 'activate' ? (
@@ -876,8 +1343,8 @@ export default function AuthForm({
         </button>
       </form>
 
-      {/* ─── Đăng nhập với Google ─── */}
-      {!challenge && mode === 'login' && (
+      {/* ─── Đăng nhập / Đăng ký nhanh với Google ─── */}
+      {!challenge && mode !== 'profile' && (mode === 'login' || mode === 'register') && (
         <div className="space-y-3 pt-1">
           {/* Divider */}
           <div className="relative flex items-center gap-3">
@@ -888,28 +1355,31 @@ export default function AuthForm({
             <div className="flex-1 h-px bg-gray-200" />
           </div>
 
-          <div className="flex items-center justify-center gap-2 text-xs">
-            <span className="text-gray-500">Vai trò nếu tạo tài khoản mới:</span>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'FARMER' | 'BUYER')}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-[#10542C] focus:outline-none focus:border-[#10542C] cursor-pointer"
-            >
-              <option value="BUYER">Thương lái / Mua sỉ</option>
-              <option value="FARMER">Nông dân / Hợp tác xã</option>
-            </select>
-          </div>
+          {mode === 'login' && (
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <span className="text-gray-500">Vai trò nếu tạo tài khoản mới:</span>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as 'FARMER' | 'BUYER')}
+                className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-[#10542C] focus:outline-none focus:border-[#10542C] cursor-pointer"
+              >
+                <option value="BUYER">Thương lái / Mua sỉ</option>
+                <option value="FARMER">Nông dân / Hợp tác xã</option>
+              </select>
+            </div>
+          )}
 
           <GoogleButton
             onCredential={(idToken) =>
-              void run(async () =>
+              void run(async () => {
+                setIsGoogleLogin(true);
                 accept(
                   await api<OtpChallenge>('auth/google-login', 'POST', {
                     idToken,
                     roleIfNewUser: role,
                   })
-                )
-              )
+                );
+              })
             }
           />
         </div>
@@ -933,7 +1403,25 @@ export default function AuthForm({
 
       {/* ─── Điều hướng chuyển trang ─── */}
       <div className="flex flex-wrap justify-between items-center gap-2 border-t border-gray-100 pt-4 text-xs">
-        {mode === 'reset' ? (
+        {mode === 'profile' ? (
+          <button
+            type="button"
+            onClick={() => {
+              void api('auth/logout', 'POST').catch(() => {});
+              setCurrentUser(null);
+              if (typeof window !== 'undefined') {
+                sessionStorage.removeItem('xanhfarm_user');
+                localStorage.removeItem('xanhfarm_user');
+              }
+              setMode('login');
+              setChallenge(null);
+              setError('');
+            }}
+            className="font-semibold text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
+          >
+            ← Đăng xuất tài khoản này
+          </button>
+        ) : mode === 'reset' ? (
           <button
             type="button"
             onClick={() => { setMode('login'); setChallenge(null); setError(''); }}
@@ -951,7 +1439,7 @@ export default function AuthForm({
         )}
 
         <div className="flex items-center gap-3 text-gray-400">
-          {mode !== 'login' && mode !== 'reset' && (
+          {mode !== 'login' && mode !== 'reset' && mode !== 'profile' && (
             <button
               type="button"
               onClick={() => { setMode('login'); setChallenge(null); setError(''); }}
@@ -960,9 +1448,11 @@ export default function AuthForm({
               Về đăng nhập
             </button>
           )}
-          <Link href="/kich-hoat" className="hover:underline hover:text-gray-600 transition-colors">
-            Kích hoạt tài khoản
-          </Link>
+          {mode !== 'profile' && (
+            <Link href="/kich-hoat" className="hover:underline hover:text-gray-600 transition-colors">
+              Kích hoạt tài khoản
+            </Link>
+          )}
         </div>
       </div>
     </div>
