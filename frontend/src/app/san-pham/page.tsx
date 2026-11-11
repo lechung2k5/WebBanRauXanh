@@ -12,6 +12,7 @@ import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import { getProducts } from '@/services/api';
 import { trackProductView } from '@/services/recommendationService';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import {
   Filter,
   SlidersHorizontal,
@@ -27,10 +28,11 @@ import {
 
 const normalizeCategory = (cat: string | null): string | null => {
   if (!cat) return null;
-  if (cat === '1' || cat === 'rau-sach' || cat === 'rau-an-la') return 'rau-sach';
-  if (cat === '2' || cat === 'cu' || cat === 'cu-qua-tuoi') return 'cu';
-  if (cat === '3' || cat === 'nam-tuoi' || cat === 'nam-tuoi-huu-co') return 'nam-tuoi';
-  if (cat === '4' || cat === 'combo' || cat === 'rau-gia-vi') return 'rau-gia-vi';
+  const c = cat.toLowerCase().replace(/_/g, '-');
+  if (c === '1' || c === 'rau-sach' || c === 'rau-an-la') return 'rau-sach';
+  if (c === '2' || c === 'cu' || c === 'cu-qua-tuoi' || c === 'cu-qua') return 'cu';
+  if (c === '3' || c === 'nam-tuoi' || c === 'nam-tuoi-huu-co' || c === 'nam') return 'nam-tuoi';
+  if (c === '4' || c === 'combo' || c === 'rau-gia-vi' || c === 'rau-gia-vi-thao-moc' || c === 'gia-vi') return 'rau-gia-vi';
   return cat;
 };
 
@@ -67,31 +69,53 @@ function ProductListContent() {
     setSidebarInput(''); // Reset ô nhập ở sidebar về trống
   }, [searchParams]);
 
-  useEffect(() => {
-    const fetchList = async () => {
-      setLoading(true);
-      try {
-        const res = await getProducts({
-          keyword: appliedKeyword || undefined,
-          categorySlug: selectedCategorySlug || undefined,
-          maxPrice: priceRange < 100000 ? priceRange : undefined,
-          isOrganic: selectedCert === 'organic' ? true : undefined,
-          page: currentPage,
-          size: pageSize,
-        });
-        setProducts(res.products);
-        setTotalProducts(res.totalElements);
-        setTotalProductPages(Math.max(1, res.totalPages));
-        setIsSemanticResult(Boolean(res.isSemanticSearch));
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchList = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getProducts({
+        keyword: appliedKeyword || undefined,
+        categorySlug: selectedCategorySlug || undefined,
+        maxPrice: priceRange < 100000 ? priceRange : undefined,
+        isOrganic: selectedCert === 'organic' ? true : undefined,
+        page: currentPage,
+        size: pageSize,
+      });
+      setProducts(res.products);
+      setTotalProducts(res.totalElements);
+      setTotalProductPages(Math.max(1, res.totalPages));
+      setIsSemanticResult(Boolean(res.isSemanticSearch));
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage, pageSize]);
 
-    fetchList();
-  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage]);
+  useEffect(() => {
+    void fetchList();
+  }, [fetchList]);
+
+  // Lắng nghe sự kiện duyệt lô từ Admin để cập nhật ngay lập tức lên sàn
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchList();
+      }
+    });
+    const handleStorage = () => void fetchList();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+    };
+  }, [fetchList]);
 
   // Apply sorting
   const sortedProducts = [...products].sort((a, b) => {

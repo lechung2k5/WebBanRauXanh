@@ -199,6 +199,12 @@ export default function BuyerManagementConsole() {
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       // Nhận sự kiện thời gian thực từ kênh đồng bộ
       if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void loadCatalogData();
+      } else if (
         event.type === 'RFQ_UPDATED' ||
         event.type === 'RFQ_CREATED' ||
         event.type === 'CONTRACT_CREATED' ||
@@ -213,8 +219,19 @@ export default function BuyerManagementConsole() {
       }
     });
 
-    return () => unsubscribe();
-  }, [loadAllData]);
+    const handleStorage = () => {
+      void loadCatalogData();
+      void loadAllData();
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+    };
+  }, [loadAllData, loadCatalogData]);
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);

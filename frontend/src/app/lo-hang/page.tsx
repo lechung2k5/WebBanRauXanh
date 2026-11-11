@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/services/auth';
+import { getPublicHarvestLotsApi } from '@/services/api';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { HarvestLot } from '@/types';
 import { useApp } from '@/context/AppContext';
 import { FormDialog, type Row, type Field } from '@/components/admin/AdminConsole';
 import Pagination from '@/components/Pagination';
@@ -33,35 +36,64 @@ export default function LotsPage() {
   const { currentUser } = useApp();
   const router = useRouter();
 
-  useEffect(() => {
-    let active = true;
+  const fetchLots = useCallback(async () => {
     setLoading(true);
-    api<any>(`harvest-lots?page=${page - 1}&size=${PAGE_SIZE}`)
-      .then((res) => {
-        if (!active) return;
-        const list: Row[] = Array.isArray(res) ? res : (res?.data || res?.content || []);
-        setLots(list.map((lot) => ({
+    try {
+      const res = await getPublicHarvestLotsApi({ page: page - 1, size: PAGE_SIZE, status: 'OPEN' });
+      const list: HarvestLot[] = res?.data || [];
+      setLots(
+        list.map((lot) => ({
           ...lot,
-          lot_code: lot.lot_code || lot.lotCode,
-          product_name: lot.product_name || lot.productName,
-          farmer_name: lot.farmer_name || lot.farmerName,
-          puc_code: lot.puc_code || lot.pucCode,
-          base_price_per_kg: lot.base_price_per_kg ?? lot.basePricePerKg,
-          available_weight_kg: lot.available_weight_kg ?? lot.availableWeightKg,
-          expiry_date: lot.expiry_date || lot.expiryDate,
-          req_temp_min: lot.req_temp_min ?? lot.reqTempMin,
-          req_temp_max: lot.req_temp_max ?? lot.reqTempMax,
-          tier_pricing_json: lot.tier_pricing_json || lot.tierPricingJson,
-          image_url: lot.image_url || lot.imageUrl,
-        })));
-        const count = Number(res?.totalElements ?? list.length);
-        setTotalElements(count);
-        setTotalPages(Math.max(1, Number(res?.totalPages ?? Math.ceil(count / PAGE_SIZE))));
-      })
-      .catch((e) => active && setError(String(e)))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
+          id: lot.id,
+          lot_code: lot.lotCode,
+          product_name: lot.productName,
+          farmer_name: lot.farmerName,
+          puc_code: lot.pucCode,
+          base_price_per_kg: lot.basePricePerKg,
+          available_weight_kg: lot.availableWeightKg,
+          expiry_date: lot.expiryDate,
+          req_temp_min: lot.reqTempMin,
+          req_temp_max: lot.reqTempMax,
+          tier_pricing_json: lot.tierPricingJson,
+          image_url: lot.imageUrl,
+          status: lot.status,
+        }))
+      );
+      const count = Number(res?.totalElements ?? list.length);
+      setTotalElements(count);
+      setTotalPages(Math.max(1, Number(res?.totalPages ?? Math.ceil(count / PAGE_SIZE))));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
+
+  useEffect(() => {
+    void fetchLots();
+  }, [fetchLots]);
+
+  // Lắng nghe sự kiện đồng bộ thời gian thực từ Admin (Duyệt lô mới, cập nhật trạng thái)
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchLots();
+      }
+    });
+    const handleStorage = () => void fetchLots();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+    };
+  }, [fetchLots]);
 
   const rfq = (lot: Row) => {
     if (!currentUser) { router.push('/dang-nhap?redirect=/lo-hang'); return; }

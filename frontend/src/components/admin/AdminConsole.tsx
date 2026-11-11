@@ -14,46 +14,51 @@ type DialogState = { title: string; fields: Field[]; submit: (value: Row) => Pro
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
 
 export const cleanVietnamese = (s: string, code?: string): string => {
-  if (code) {
-    if (code === 'CR-DL-01') return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
-    if (code === 'CR-DG-02') return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
-    if (code === 'TRK-51D-88234') return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
-    if (code === 'TRK-49C-67890') return 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)';
-    if (code === 'buyer_coop') return 'Nguyễn Thị Minh Hạnh';
-    if (code === 'buyer_winmart') return 'Phạm Hoàng Nam';
-    if (code === 'buyer_lotte') return 'Lê Trọng Đạt';
-    if (code === 'buyer_sg') return 'Trần Thị Thương';
-    if (code === 'qc_tram1') return 'Kỹ Thuật Viên Kiểm Định 01';
-    if (code === 'driver_tms') return 'Tài Xế Nguyễn Văn Tài';
-    if (code === 'accountant_vas') return 'Kế Toán Viên Lê Thị Thu';
-  }
-  if (!s || !s.includes('?')) return s;
+  const normCode = String(code || '').trim().toUpperCase();
 
-  // Sửa lỗi phông chữ tài sản lạnh
-  if (s.includes('CR-DL-01') || (s.includes('Bu') && (s.includes('DL') || s.includes('L???t') || s.includes('Tr??m ????')))) {
-    return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
+  // Ưu tiên 1: Chuẩn hóa theo mã thiết bị / mã tài khoản
+  if (normCode) {
+    if (normCode === 'CR-DL-01' || normCode.includes('CR-DL')) return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
+    if (normCode === 'CR-DG-02' || normCode.includes('CR-DG')) return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
+    if (normCode === 'TRK-51D-88234' || normCode.includes('51D')) return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
+    if (normCode === 'TRK-49C-67890' || normCode.includes('49C')) return 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)';
+    if (normCode.toLowerCase() === 'buyer_coop') return 'Nguyễn Thị Minh Hạnh';
+    if (normCode.toLowerCase() === 'buyer_winmart') return 'Phạm Hoàng Nam';
+    if (normCode.toLowerCase() === 'buyer_lotte') return 'Lê Trọng Đạt';
+    if (normCode.toLowerCase() === 'buyer_sg') return 'Trần Thị Thương';
+    if (normCode.toLowerCase() === 'qc_tram1') return 'Kỹ Thuật Viên Kiểm Định 01';
+    if (normCode.toLowerCase() === 'driver_tms') return 'Tài Xế Nguyễn Văn Tài';
+    if (normCode.toLowerCase() === 'accountant_vas') return 'Kế Toán Viên Lê Thị Thu';
   }
-  if (s.includes('CR-DG-02') || (s.includes('Bu') && (s.includes('DG') || s.includes('Gi??y') || s.includes('D???u')))) {
-    return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
-  }
-  if (s.includes('Bu') && s.includes('nh')) {
-    return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
-  }
-  if (s.includes('TRK-51D') || s.includes('51D-882.34') || (s.includes('Xe') && s.includes('Isuzu'))) {
+
+  if (!s || typeof s !== 'string') return String(s || '');
+
+  // Nếu không chứa dấu lỗi phông chữ '?'
+  if (!s.includes('?')) return s;
+
+  // Ưu tiên 2: Nhận diện theo biển số / mã đặc thù có trong chuỗi
+  if (s.includes('51D-882') || s.includes('51D') || s.includes('Isuzu')) {
     return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
   }
-  if (s.includes('TRK-49C') || s.includes('49C-678.90') || (s.includes('Xe') && (s.includes('Hino') || s.includes('L??m')))) {
+  if (s.includes('49C-678') || s.includes('49C') || s.includes('Hino')) {
     return 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)';
   }
-  if (s.includes('Xe') && (s.includes('T') || s.includes('nh'))) {
-    return 'Xe Tải Lạnh HoNa Express';
+  if (s.includes('CR-DG-02') || s.includes('B2') || s.includes('Chuy') || s.includes('Gi') || s.includes('DG')) {
+    return 'Buồng Lạnh Trung Chuyển Dầu Giây B2';
+  }
+  if (s.includes('CR-DL-01') || s.includes('A1') || s.includes('DL') || s.includes('L') || s.includes('Tr')) {
+    return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
   }
 
-  // Sửa lỗi phông chữ người dùng
-  if (s.includes('Nguy') || s.includes('Minh H') || s.includes('H???nh')) return 'Nguyễn Thị Minh Hạnh';
-  if (s.includes('Ph') || s.includes('Nam') || s.includes('Ho??ng')) return 'Phạm Hoàng Nam';
-  if (s.includes('L') && (s.includes('Tr') || s.includes('t') || s.includes('????t'))) return 'Lê Trọng Đạt';
-  if (s.includes('Th') && s.includes('ng') && s.includes('Tr')) return 'Trần Thị Thương';
+  // Nhận diện theo tên người dùng
+  if (s.includes('Nguy') || s.includes('Minh H') || s.includes('Hạnh') || s.includes('H???nh')) return 'Nguyễn Thị Minh Hạnh';
+  if (s.includes('Ph') || s.includes('Nam') || s.includes('Hoàng') || s.includes('Ho??ng')) return 'Phạm Hoàng Nam';
+  if (s.includes('Đạt') || s.includes('????t') || (s.includes('L') && s.includes('Tr'))) return 'Lê Trọng Đạt';
+  if (s.includes('Thương') || (s.includes('Th') && s.includes('Tr'))) return 'Trần Thị Thương';
+
+  // Fallback buồng lạnh / xe tải chung
+  if (s.includes('Xe') || s.includes('TRK')) return 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)';
+  if (s.includes('Bu') || s.includes('CR-')) return 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1';
 
   return s;
 };

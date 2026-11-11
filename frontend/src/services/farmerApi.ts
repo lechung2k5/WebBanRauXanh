@@ -16,6 +16,7 @@ import {
 import {
   getSyncContracts,
   getSyncRfqs,
+  notifySyncEvent,
   B2bSyncContract,
 } from '@/services/b2bSyncService';
 
@@ -367,8 +368,8 @@ export const getFarmerStatsApi = async (): Promise<FarmerStats> => {
       const syncContracts = getSyncContracts();
       const syncRfqs = getSyncRfqs();
       const localLots: HarvestLot[] = JSON.parse(localStorage.getItem('b2b_farmer_lots') || '[]');
-
-      openLots = Math.max(3, 3 + localLots.length);
+      const localOpenLots = localLots.filter((l) => l.status === 'OPEN').length;
+      openLots = 3 + localOpenLots;
 
       // Doanh thu thật: Hợp đồng đã tất toán hoàn tất (Mốc 6 hoặc finalPaidStatus === 'PAID')
       const completedContracts = syncContracts.filter(
@@ -477,14 +478,20 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
     // fallback
   }
 
-  // Nếu API kết nối thành công, chỉ lấy các lô do farmer đó đăng từ máy chủ
-  const baseLots = isApiSuccess ? serverLots : [...localLots];
+  // Khi API kết nối thành công, lấy dữ liệu Server làm chuẩn để không bị đè bởi local stale data
+  if (isApiSuccess && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('b2b_farmer_lots', JSON.stringify(serverLots));
+    } catch {}
+  }
 
-  // Kết hợp Lô người dùng vừa tạo với Lô thực tế từ Database (Lô vừa tạo lên đầu)
+  const primaryLots = isApiSuccess ? serverLots : localLots;
+  const secondaryLots = isApiSuccess ? localLots : [];
+
   const seenCodes = new Set<string>();
   const merged: HarvestLot[] = [];
 
-  for (const lot of [...localLots, ...baseLots]) {
+  for (const lot of [...primaryLots, ...secondaryLots]) {
     const key = lot.lotCode || String(lot.id);
     if (!seenCodes.has(key)) {
       seenCodes.add(key);
@@ -504,6 +511,7 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
 export const createHarvestLotApi = async (lotData: {
   productName: string;
   categorySlug?: string;
+  category?: string;
   imageUrl?: string;
   pucCode: string;
   harvestDate: string;
@@ -512,23 +520,48 @@ export const createHarvestLotApi = async (lotData: {
   unit?: string;
   minTemp?: number;
   maxTemp?: number;
+  reqTempMin?: number;
+  reqTempMax?: number;
+  basePricePerKg?: number;
   tierPricingJson: string;
   hubLocation?: string;
 }): Promise<HarvestLot> => {
-  let basePricePerKg = 15000;
+  let normalizedTiers: any[] = [];
   try {
     const parsed = JSON.parse(lotData.tierPricingJson || '[]');
-    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].pricePerKg || parsed[0].price)) {
-      basePricePerKg = Number(parsed[0].pricePerKg || parsed[0].price);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      normalizedTiers = parsed.map((item: any) => {
+        const p = Number(item.price ?? item.pricePerKg ?? item.price_per_kg ?? 0);
+        return {
+          minKg: Number(item.minKg || item.quantity || 0),
+          price: p,
+          pricePerKg: p,
+        };
+      });
     }
   } catch (_) {}
+
+  const basePricePerKg =
+    lotData.basePricePerKg !== undefined && lotData.basePricePerKg !== null
+      ? Number(lotData.basePricePerKg)
+      : (normalizedTiers.length > 0 ? normalizedTiers[0].price : 0);
+
+  const minTemp = Number(lotData.minTemp ?? lotData.reqTempMin ?? 2.0);
+  const maxTemp = Number(lotData.maxTemp ?? lotData.reqTempMax ?? 6.0);
+  const normalizedTierPricingJson = JSON.stringify(normalizedTiers);
 
   const payload = {
     ...lotData,
     totalWeightKg: lotData.totalQuantity,
     availableWeightKg: lotData.totalQuantity,
     basePricePerKg,
+    minTemp,
+    maxTemp,
+    reqTempMin: minTemp,
+    reqTempMax: maxTemp,
+    tierPricingJson: normalizedTierPricingJson,
     pucCode: lotData.pucCode || 'PUC-LD-001',
+    status: 'PENDING_APPROVAL',
   };
 
   try {
@@ -541,8 +574,26 @@ export const createHarvestLotApi = async (lotData: {
     const data: ApiResponse<HarvestLot> = await res.json();
     const resultLot = data.result || (data as unknown as { data: HarvestLot }).data;
     if (res.ok && resultLot) {
-      saveLocalLot(resultLot);
-      return resultLot;
+      const finalLot: HarvestLot = {
+        ...resultLot,
+        basePricePerKg: resultLot.basePricePerKg || basePricePerKg,
+        minTemp: resultLot.minTemp ?? resultLot.reqTempMin ?? minTemp,
+        maxTemp: resultLot.maxTemp ?? resultLot.reqTempMax ?? maxTemp,
+        reqTempMin: resultLot.reqTempMin ?? resultLot.minTemp ?? minTemp,
+        reqTempMax: resultLot.reqTempMax ?? resultLot.maxTemp ?? maxTemp,
+        tierPricingJson: resultLot.tierPricingJson || normalizedTierPricingJson,
+        tierPricing: normalizedTiers,
+        status: resultLot.status || 'PENDING_APPROVAL',
+        auditNote: resultLot.auditNote || 'Đang chờ Quản trị viên xét duyệt & bổ sung thông số.',
+      };
+      saveLocalLot(finalLot);
+      // Khi FARMER đăng lô hàng mới: Gửi thông báo cho ADMIN để Admin duyệt & bổ sung field còn thiếu
+      notifySyncEvent('LOT_CREATED', {
+        lot: finalLot,
+        source: 'FARMER',
+        creatorRole: 'FARMER',
+      });
+      return finalLot;
     }
   } catch (err: unknown) {
     console.warn('Backend API create lot error, saving locally:', err);
@@ -553,11 +604,11 @@ export const createHarvestLotApi = async (lotData: {
     lotCode: `LOT-2026-DL-${Math.floor(100 + Math.random() * 900)}`,
     farmerName: 'HTX Nông Nghiệp Đà Lạt GAP',
     productName: lotData.productName,
-    category: 'RAU_AN_LA',
+    category: lotData.category || 'RAU_AN_LA',
     categorySlug: lotData.categorySlug || 'rau-an-la',
     totalWeightKg: lotData.totalQuantity,
     availableWeightKg: lotData.totalQuantity,
-    basePricePerKg: 15000,
+    basePricePerKg: basePricePerKg,
     imageUrl: lotData.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600',
     pucCode: lotData.pucCode,
     harvestDate: lotData.harvestDate,
@@ -565,14 +616,24 @@ export const createHarvestLotApi = async (lotData: {
     totalQuantity: lotData.totalQuantity,
     remainingQuantity: lotData.totalQuantity,
     unit: lotData.unit || 'kg',
-    minTemp: lotData.minTemp ?? 2.0,
-    maxTemp: lotData.maxTemp ?? 6.0,
+    minTemp: minTemp,
+    maxTemp: maxTemp,
+    reqTempMin: minTemp,
+    reqTempMax: maxTemp,
     hubLocation: lotData.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-    status: 'OPEN',
-    tierPricingJson: lotData.tierPricingJson,
-    tierPricing: JSON.parse(lotData.tierPricingJson || '[]'),
+    warehouseLocation: lotData.hubLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+    status: 'PENDING_APPROVAL',
+    auditNote: 'Lô nông sản do nông dân đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.',
+    tierPricingJson: normalizedTierPricingJson,
+    tierPricing: normalizedTiers,
   };
   saveLocalLot(mockLot);
+  // Khi FARMER đăng lô hàng mới: Gửi thông báo cho ADMIN
+  notifySyncEvent('LOT_CREATED', {
+    lot: mockLot,
+    source: 'FARMER',
+    creatorRole: 'FARMER',
+  });
   return mockLot;
 };
 

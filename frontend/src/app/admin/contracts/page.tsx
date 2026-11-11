@@ -30,25 +30,16 @@ import {
   ShieldCheck,
   QrCode,
 } from 'lucide-react';
-import { FormDialog, Row, Field } from '@/components/admin/AdminConsole';
+import { FormDialog, Row, Field, cleanVietnamese } from '@/components/admin/AdminConsole';
 import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
 
-const cleanVietnamese = (s: string) => {
-  if (s.includes('?')) {
-    if (s.includes('Nguy') || s.includes('Minh H') || s.includes('H???nh')) return 'Nguyễn Thị Minh Hạnh';
-    if (s.includes('Ph') || s.includes('Nam') || s.includes('Ho??ng')) return 'Phạm Hoàng Nam';
-    if (s.includes('L?') && (s.includes('Tr') || s.includes('t') || s.includes('????t'))) return 'Lê Trọng Đạt';
-  }
-  return s;
-};
-
-const str = (value: unknown) => {
+const str = (value: unknown, code?: string) => {
   if (value == null) return '—';
   const val = typeof value === 'object' ? JSON.stringify(value) : String(value);
-  return cleanVietnamese(val);
+  return cleanVietnamese(val, code);
 };
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({ name, label, type, value });
 const select = (name: string, label: string, options: string[]): Field => ({ name, label, options });

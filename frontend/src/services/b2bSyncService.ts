@@ -37,6 +37,8 @@ export interface B2bNotification {
   title: string;
   message: string;
   rfqCode?: string;
+  lotCode?: string;
+  lotId?: number;
   read: boolean;
   createdAt: string;
 }
@@ -402,12 +404,249 @@ function createNotificationForEvent(type: string, payload: any) {
       message: `Hợp đồng ${contractCode} đã hoàn tất quyết toán 100%.`,
       rfqCode,
     });
+  } else if (type === 'LOT_CREATED') {
+    const lot = (payload as any)?.lot || payload;
+    const lotCode = lot?.lotCode || 'Lô nông sản';
+    const productName = lot?.productName || 'Nông sản';
+    const farmerName = lot?.farmerName || 'Nhà vườn';
+    const source = (payload as any)?.source || (payload as any)?.creatorRole;
+
+    if (source === 'ADMIN') {
+      // 1. Khi ADMIN đăng lô hàng: Đã có đầy đủ thông tin, CHỈ CẦN gửi thông báo cho FARMER
+      addNotification({
+        audience: 'FARMER',
+        type: 'LOT_CREATED_BY_ADMIN',
+        title: 'Ban quản trị đã đăng lô nông sản mới',
+        message: `Ban quản trị đã đăng lô nông sản "${productName}" (${lotCode}) cho nhà vườn với đầy đủ thông số kiểm định và mở bán sỉ trên sàn B2B.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+    } else {
+      // 2. Khi FARMER đăng lô hàng mới: Gửi thông báo cho ADMIN để Admin bấm vào chuyển tới lô hàng bổ sung field còn thiếu
+      addNotification({
+        audience: 'ADMIN',
+        type: 'LOT_CREATED_BY_FARMER',
+        title: 'Lô thu hoạch mới chờ duyệt & bổ sung thông số',
+        message: `Nhà vườn ${farmerName} vừa đăng lô thu hoạch "${productName}" (${lotCode}). Bấm vào đây để đến lô hàng trong mục Nguồn cung & danh mục để bổ sung các trường còn thiếu.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+      addNotification({
+        audience: 'FARMER',
+        type: 'LOT_SUBMITTED',
+        title: 'Đã gửi đăng ký lô thu hoạch',
+        message: `Lô thu hoạch "${productName}" (${lotCode}) đã gửi đến Quản trị viên. Đang chờ Ban quản trị kiểm duyệt và bổ sung thông số trước khi mở bán.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+    }
+  } else if (type === 'LOT_STATUS_UPDATED') {
+    const lot = (payload as any)?.lot || payload;
+    const lotCode = lot?.lotCode || (payload as any)?.lotCode || 'Lô nông sản';
+    const productName = lot?.productName || (payload as any)?.productName || 'Nông sản';
+    const newStatus = (payload as any)?.status || lot?.status;
+    const reason = (payload as any)?.rejectionReason || lot?.rejectionReason;
+    const note = (payload as any)?.auditNote || lot?.auditNote;
+
+    if (newStatus === 'OPEN') {
+      addNotification({
+        audience: 'FARMER',
+        type: 'LOT_APPROVED',
+        title: 'Lô thu hoạch đã được phê duyệt!',
+        message: `Lô "${productName}" (${lotCode}) đã được Admin phê duyệt và chính thức mở bán sỉ trên sàn!${note ? ` Ghi chú: ${note}` : ''}`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+      addNotification({
+        audience: 'ADMIN',
+        type: 'LOT_STATUS_CHANGED',
+        title: 'Đã duyệt mở bán lô hàng',
+        message: `Lô "${productName}" (${lotCode}) đã được mở bán công khai trên sàn sỉ.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+    } else if (newStatus === 'REJECTED') {
+      addNotification({
+        audience: 'FARMER',
+        type: 'LOT_REJECTED',
+        title: 'Lô thu hoạch chưa được duyệt',
+        message: `Lô "${productName}" (${lotCode}) bị từ chối phê duyệt. Lý do: ${reason || note || 'Chưa đạt chuẩn kiểm nghiệm'}.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+    } else if (newStatus === 'SUSPENDED') {
+      addNotification({
+        audience: 'FARMER',
+        type: 'LOT_SUSPENDED',
+        title: 'Lô thu hoạch bị tạm khóa',
+        message: `Lô "${productName}" (${lotCode}) đã bị Admin tạm khóa kiểm tra. Lý do: ${reason || note || 'Khiếu nại dư lượng hoặc sự cố kho lạnh'}.`,
+        rfqCode: lotCode,
+        lotCode,
+        lotId: lot?.id,
+      });
+    }
+  } else if (type === 'LOT_UPDATED') {
+    const lot = (payload as any)?.lot || payload;
+    const updated = (payload as any)?.updatedLot || payload;
+    const lotCode = lot?.lotCode || updated?.lotCode || 'Lô nông sản';
+    const productName = updated?.productName || lot?.productName || 'Nông sản';
+    addNotification({
+      audience: 'FARMER',
+      type: 'LOT_UPDATED_BY_ADMIN',
+      title: 'Admin đã bổ sung thông tin lô hàng',
+      message: `Quản trị viên vừa cập nhật thông số và tiêu chuẩn cho lô "${productName}" (${lotCode}).`,
+      rfqCode: lotCode,
+      lotCode,
+      lotId: lot?.id,
+    });
   }
 }
 
-function notifySyncEvent(type: string, payload: unknown) {
+export function syncLotStatusToFarmerStorage(
+  lotCode?: string,
+  newStatus?: string,
+  rejectionReason?: string,
+  auditNote?: string,
+  lotId?: number | string
+) {
+  if (typeof window === 'undefined' || !newStatus) return;
+  try {
+    const raw = localStorage.getItem('b2b_farmer_lots');
+    if (!raw) return;
+    const lots = JSON.parse(raw);
+    if (!Array.isArray(lots)) return;
+    const updated = lots.map((l: any) => {
+      const matchCode = lotCode && (l.lotCode === lotCode || String(l.id) === String(lotCode));
+      const matchId = lotId && (l.id === lotId || String(l.id) === String(lotId));
+      if (matchCode || matchId) {
+        return {
+          ...l,
+          status: newStatus,
+          rejectionReason: rejectionReason !== undefined ? rejectionReason : l.rejectionReason,
+          auditNote: auditNote !== undefined ? auditNote : l.auditNote,
+        };
+      }
+      return l;
+    });
+    localStorage.setItem('b2b_farmer_lots', JSON.stringify(updated));
+  } catch {}
+}
+
+export function syncLotFieldsToFarmerStorage(updatedLot: any) {
+  if (typeof window === 'undefined' || !updatedLot) return;
+  const minTemp = updatedLot.reqTempMin ?? updatedLot.minTemp ?? 2.0;
+  const maxTemp = updatedLot.reqTempMax ?? updatedLot.maxTemp ?? 6.0;
+  const basePrice = updatedLot.basePricePerKg ?? 15000;
+
+  let normalizedTiers: any[] = [];
+  if (updatedLot.tierPricing && Array.isArray(updatedLot.tierPricing)) {
+    normalizedTiers = updatedLot.tierPricing.map((t: any) => {
+      const p = Number(t.price ?? t.pricePerKg ?? 0);
+      return { minKg: Number(t.minKg), price: p, pricePerKg: p };
+    });
+  } else if (updatedLot.tierPricingJson) {
+    try {
+      const parsed = JSON.parse(updatedLot.tierPricingJson);
+      if (Array.isArray(parsed)) {
+        normalizedTiers = parsed.map((t: any) => {
+          const p = Number(t.price ?? t.pricePerKg ?? 0);
+          return { minKg: Number(t.minKg), price: p, pricePerKg: p };
+        });
+      }
+    } catch {}
+  }
+
+  const enrichedLot = {
+    ...updatedLot,
+    minTemp,
+    maxTemp,
+    reqTempMin: minTemp,
+    reqTempMax: maxTemp,
+    basePricePerKg: basePrice,
+    tierPricing: normalizedTiers.length > 0 ? normalizedTiers : updatedLot.tierPricing,
+    tierPricingJson: normalizedTiers.length > 0 ? JSON.stringify(normalizedTiers) : updatedLot.tierPricingJson,
+    warehouseLocation: updatedLot.warehouseLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+    hubLocation: updatedLot.warehouseLocation || updatedLot.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
+  };
+
+  try {
+    const raw = localStorage.getItem('b2b_farmer_lots');
+    if (raw) {
+      const lots = JSON.parse(raw);
+      if (Array.isArray(lots)) {
+        const updated = lots.map((l: any) => {
+          if (l.id === updatedLot.id || (updatedLot.lotCode && l.lotCode === updatedLot.lotCode)) {
+            return { ...l, ...enrichedLot };
+          }
+          return l;
+        });
+        localStorage.setItem('b2b_farmer_lots', JSON.stringify(updated));
+      }
+    }
+  } catch {}
+
+  try {
+    const raw = localStorage.getItem('xanhfarm_custom_harvest_lots');
+    if (raw) {
+      const lots = JSON.parse(raw);
+      if (Array.isArray(lots)) {
+        const updated = lots.map((l: any) => {
+          if (l.id === updatedLot.id || (updatedLot.lotCode && l.lotCode === updatedLot.lotCode)) {
+            return { ...l, ...enrichedLot };
+          }
+          return l;
+        });
+        localStorage.setItem('xanhfarm_custom_harvest_lots', JSON.stringify(updated));
+      }
+    }
+  } catch {}
+}
+
+export function notifySyncEvent(type: string, payload: unknown) {
   if (typeof window === 'undefined') return;
   createNotificationForEvent(type, payload);
+
+  // Đồng bộ storage khi có sự kiện tạo mới, thay đổi trạng thái hoặc cập nhật lô hàng
+  if (type === 'LOT_CREATED') {
+    const p = payload as any;
+    const lot = p?.lot || p;
+    if (lot && typeof window !== 'undefined') {
+      try {
+        const rawCustom = localStorage.getItem('xanhfarm_custom_harvest_lots');
+        const customLots = rawCustom ? JSON.parse(rawCustom) : [];
+        const filteredCustom = customLots.filter((l: any) => l.id !== lot.id && l.lotCode !== lot.lotCode);
+        localStorage.setItem('xanhfarm_custom_harvest_lots', JSON.stringify([lot, ...filteredCustom]));
+      } catch {}
+
+      try {
+        const rawFarmer = localStorage.getItem('b2b_farmer_lots');
+        const farmerLots = rawFarmer ? JSON.parse(rawFarmer) : [];
+        const filteredFarmer = farmerLots.filter((l: any) => l.id !== lot.id && l.lotCode !== lot.lotCode);
+        localStorage.setItem('b2b_farmer_lots', JSON.stringify([lot, ...filteredFarmer]));
+      } catch {}
+    }
+  } else if (type === 'LOT_STATUS_UPDATED') {
+    const p = payload as any;
+    const lotCode = p?.lotCode || p?.lot?.lotCode;
+    const status = p?.status || p?.lot?.status;
+    const lotId = p?.lotId || p?.lot?.id;
+    if ((lotCode || lotId) && status) {
+      syncLotStatusToFarmerStorage(lotCode, status, p?.rejectionReason, p?.auditNote, lotId);
+    }
+  } else if (type === 'LOT_UPDATED') {
+    const p = payload as any;
+    const updatedLot = p?.updatedLot || p?.lot || p;
+    if (updatedLot) {
+      syncLotFieldsToFarmerStorage(updatedLot);
+    }
+  }
+
   const channel = getChannel();
   if (channel) {
     channel.postMessage({ type, payload, timestamp: Date.now() });
@@ -416,6 +655,7 @@ function notifySyncEvent(type: string, payload: unknown) {
   try {
     window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type, payload } }));
     window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: payload }));
+    window.dispatchEvent(new CustomEvent('b2b_lot_updated', { detail: payload }));
   } catch {}
 }
 

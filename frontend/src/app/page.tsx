@@ -8,6 +8,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Category, Product, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import B2BDepositModal from '@/components/B2BDepositModal';
@@ -95,27 +96,49 @@ export default function HomePage() {
     // Authentication is restored by the shared AppProvider.
   }, []);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [catData, prodData] = await Promise.all([
-          getCategories(),
-          getProducts({ categoryId: selectedCategory || undefined, keyword: activeSearchKeyword || undefined, page: catalogPage, size: catalogPageSize }),
-        ]);
-        setCategories(catData);
-        setProducts(prodData.products);
-        setTotalCatalogItems(prodData.totalElements);
-        setServerCatalogPages(Math.max(1, prodData.totalPages));
-      } catch (err) {
-        console.error('Error loading catalog:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [catData, prodData] = await Promise.all([
+        getCategories(),
+        getProducts({ categoryId: selectedCategory || undefined, keyword: activeSearchKeyword || undefined, page: catalogPage, size: catalogPageSize }),
+      ]);
+      setCategories(catData);
+      setProducts(prodData.products);
+      setTotalCatalogItems(prodData.totalElements);
+      setServerCatalogPages(Math.max(1, prodData.totalPages));
+    } catch (err) {
+      console.error('Error loading catalog:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCategory, catalogPage, activeSearchKeyword, catalogPageSize]);
 
-    fetchData();
-  }, [selectedCategory, catalogPage, activeSearchKeyword]);
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  // Lắng nghe sự kiện duyệt lô từ Admin để cập nhật hàng mới mở bán lên trang chủ
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchData();
+      }
+    });
+    const handleStorage = () => void fetchData();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+    };
+  }, [fetchData]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

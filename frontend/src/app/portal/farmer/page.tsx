@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Calendar,
   AlertTriangle,
+  AlertCircle,
   RefreshCw,
   RotateCcw,
   ExternalLink,
@@ -162,12 +163,12 @@ function FarmerPortalContent() {
     maxTemp: 6.0,
     hubLocation: 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
     imageUrl: 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop&q=80',
-    tier1Min: 500,
-    tier1Price: 15000,
-    tier2Min: 2000,
-    tier2Price: 13500,
-    tier3Min: 5000,
-    tier3Price: 12000,
+    tier1Min: 200,
+    tier1Price: 0,
+    tier2Min: 1000,
+    tier2Price: 0,
+    tier3Min: 3000,
+    tier3Price: 0,
   });
 
   // Open Create Lot Modal with dynamic dates in event handler (không gọi Date.now trong render)
@@ -257,6 +258,7 @@ function FarmerPortalContent() {
       productName: val,
       minTemp: advice.minTemp,
       maxTemp: advice.maxTemp,
+      categorySlug: advice.categorySlug || prev.categorySlug || 'rau-an-la',
     }));
     if (lotFormErrors.productName) {
       setLotFormErrors((prev) => {
@@ -275,6 +277,7 @@ function FarmerPortalContent() {
       ...prev,
       minTemp: advice.minTemp,
       maxTemp: advice.maxTemp,
+      categorySlug: advice.categorySlug || prev.categorySlug || 'rau-an-la',
     }));
   };
 
@@ -319,11 +322,11 @@ function FarmerPortalContent() {
       hubLocation: 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
       imageUrl: 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop&q=80',
       tier1Min: 200,
-      tier1Price: 15000,
+      tier1Price: 0,
       tier2Min: 1000,
-      tier2Price: 13500,
+      tier2Price: 0,
       tier3Min: 3000,
-      tier3Price: 12000,
+      tier3Price: 0,
     });
     setAiTempAdvice(null);
     setLotFormErrors({});
@@ -578,12 +581,14 @@ function FarmerPortalContent() {
     setCurrentUser(getStoredUser());
     loadPortalData();
 
-    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ từ Trang Chủ hoặc Buyer Portal
+    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ hoặc Admin duyệt/sửa lô hàng
     const handleRfqUpdate = (e?: Event) => {
       console.log('Farmer Portal: Sync event received, reloading data...', e);
       loadPortalData();
     };
     window.addEventListener('b2b_rfq_updated', handleRfqUpdate);
+    window.addEventListener('b2b_lot_updated', handleRfqUpdate);
+    window.addEventListener('b2b_sync_event', handleRfqUpdate);
     window.addEventListener('storage', handleRfqUpdate);
 
     // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal & Quản Trị Viên)
@@ -601,12 +606,41 @@ function FarmerPortalContent() {
       } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER') {
         setRealtimeNotification('Thương lái đã đồng ý mức giá đàm phán và tạo hợp đồng!');
         setTimeout(() => setRealtimeNotification(null), 5000);
+      } else if (event.type === 'LOT_STATUS_UPDATED') {
+        const payload: any = event.payload;
+        const status = payload?.status || payload?.lot?.status;
+        const lotCode = payload?.lotCode || payload?.lot?.lotCode || 'Lô nông sản';
+        if (status === 'OPEN') {
+          setRealtimeNotification(`Lô hàng ${lotCode} đã được Quản trị viên duyệt mở bán sỉ thành công!`);
+        } else if (status === 'REJECTED') {
+          setRealtimeNotification(`Lô hàng ${lotCode} bị từ chối phê duyệt: ${payload?.rejectionReason || 'Vui lòng kiểm tra lại'}`);
+        } else if (status === 'SUSPENDED') {
+          setRealtimeNotification(`Lô hàng ${lotCode} đã bị Quản trị viên tạm khóa.`);
+        }
+        setTimeout(() => setRealtimeNotification(null), 6000);
+      } else if (event.type === 'LOT_UPDATED') {
+        const payload: any = event.payload;
+        const lotCode = payload?.lotCode || payload?.lot?.lotCode || 'Lô nông sản';
+        setRealtimeNotification(`Quản trị viên vừa cập nhật/bổ sung thông số cho lô ${lotCode}.`);
+        setTimeout(() => setRealtimeNotification(null), 6000);
+      } else if (event.type === 'LOT_CREATED') {
+        const payload: any = event.payload;
+        const source = payload?.source || payload?.creatorRole;
+        const lot = payload?.lot || payload;
+        const productName = lot?.productName || 'Nông sản';
+        const lotCode = lot?.lotCode || '';
+        if (source === 'ADMIN') {
+          setRealtimeNotification(`Ban quản trị vừa đăng lô "${productName}" (${lotCode}) với đầy đủ thông số và mở bán sỉ trên sàn B2B!`);
+          setTimeout(() => setRealtimeNotification(null), 6000);
+        }
       }
       loadPortalData();
     });
 
     return () => {
       window.removeEventListener('b2b_rfq_updated', handleRfqUpdate);
+      window.removeEventListener('b2b_lot_updated', handleRfqUpdate);
+      window.removeEventListener('b2b_sync_event', handleRfqUpdate);
       window.removeEventListener('storage', handleRfqUpdate);
       unsubscribeSync();
     };
@@ -677,7 +711,9 @@ function FarmerPortalContent() {
     if (Number(newLot.tier1Min) >= Number(newLot.tier2Min) || Number(newLot.tier2Min) >= Number(newLot.tier3Min)) {
       errors.tierQty = 'Khối lượng mua sỉ bậc sau phải lớn hơn bậc trước (Bậc 1 < Bậc 2 < Bậc 3).';
     }
-    if (Number(newLot.tier1Price) < Number(newLot.tier2Price) || Number(newLot.tier2Price) < Number(newLot.tier3Price)) {
+    if (Number(newLot.tier1Price) <= 0 || Number(newLot.tier2Price) <= 0 || Number(newLot.tier3Price) <= 0) {
+      errors.tierPrice = 'Vui lòng nhập đơn giá sỉ hợp lệ (> 0 đ/kg) cho cả 3 bậc giá.';
+    } else if (Number(newLot.tier1Price) < Number(newLot.tier2Price) || Number(newLot.tier2Price) < Number(newLot.tier3Price)) {
       errors.tierPrice = 'Đơn giá sỉ mua số lượng lớn phải ưu đãi hơn hoặc bằng (Bậc 1 >= Bậc 2 >= Bậc 3).';
     }
 
@@ -689,10 +725,14 @@ function FarmerPortalContent() {
     setLotFormErrors({});
 
     try {
+      const minTemp = Number(newLot.minTemp);
+      const maxTemp = Number(newLot.maxTemp);
+      const basePrice = Number(newLot.tier1Price) || 0;
+
       const tierPricing = [
-        { minKg: Number(newLot.tier1Min), pricePerKg: Number(newLot.tier1Price) },
-        { minKg: Number(newLot.tier2Min), pricePerKg: Number(newLot.tier2Price) },
-        { minKg: Number(newLot.tier3Min), pricePerKg: Number(newLot.tier3Price) },
+        { minKg: Number(newLot.tier1Min), pricePerKg: Number(newLot.tier1Price), price: Number(newLot.tier1Price) },
+        { minKg: Number(newLot.tier2Min), pricePerKg: Number(newLot.tier2Price), price: Number(newLot.tier2Price) },
+        { minKg: Number(newLot.tier3Min), pricePerKg: Number(newLot.tier3Price), price: Number(newLot.tier3Price) },
       ];
 
       // MÃ SỐ VÙNG TRỒNG (PUC) ÁP CỨNG TỪ HỒ SƠ VÙNG TRỒNG ĐÃ XÁC THỰC
@@ -705,18 +745,23 @@ function FarmerPortalContent() {
         expiryDate: newLot.expiryDate,
         totalQuantity: Number(newLot.totalQuantity),
         unit: newLot.unit,
-        minTemp: Number(newLot.minTemp),
-        maxTemp: Number(newLot.maxTemp),
+        minTemp: minTemp,
+        maxTemp: maxTemp,
+        reqTempMin: minTemp,
+        reqTempMax: maxTemp,
+        basePricePerKg: basePrice,
         hubLocation: newLot.hubLocation,
         tierPricingJson: JSON.stringify(tierPricing),
       });
 
       setLots((prev) => [createdLot, ...prev]);
-      if (stats) {
+      if (stats && createdLot.status === 'OPEN') {
         setStats({ ...stats, openLotsCount: stats.openLotsCount + 1 });
       }
 
-      alert('Đăng bán Lô Vụ Mùa thành công! Mã PUC (' + activePuc + ') đã được bảo chứng xuất xứ.');
+      alert(
+        'Đăng ký Lô Nông Sản thành công! Lô hàng đang ở trạng thái "Chờ Quản trị viên xét duyệt & bổ sung thông số". Hệ thống đã gửi thông báo đến Quản trị viên.'
+      );
       setIsLotModalOpen(false);
       setActiveTab('lots');
     } catch (err: unknown) {
@@ -1221,19 +1266,91 @@ function FarmerPortalContent() {
                         </div>
                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-xs text-[#10542C] text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
                           <Thermometer className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{lot.minTemp}°C - {lot.maxTemp}°C</span>
+                          <span>{(lot.minTemp ?? lot.reqTempMin ?? 2.0)}°C - {(lot.maxTemp ?? lot.reqTempMax ?? 6.0)}°C</span>
                         </div>
                       </div>
 
                       <div className="p-4 space-y-3">
-                        <div>
+                        <div className="flex items-center justify-between gap-2">
                           <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
                             PUC: {lot.pucCode}
                           </span>
-                          <h4 className="font-heading font-bold text-sm text-gray-900 mt-1 line-clamp-1">
-                            {lot.productName}
-                          </h4>
+                          {/* Badge trạng thái đồng bộ với Admin */}
+                          {(!lot.status || lot.status === 'PENDING_APPROVAL') && (
+                            <span className="text-[10px] bg-amber-50 text-amber-800 font-bold px-2.5 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                              Chờ Admin duyệt & bổ sung
+                            </span>
+                          )}
+                          {lot.status === 'OPEN' && (
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Đang mở bán sỉ
+                            </span>
+                          )}
+                          {lot.status === 'REJECTED' && (
+                            <span className="text-[10px] bg-red-50 text-red-700 font-bold px-2.5 py-0.5 rounded-full border border-red-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                              Bị từ chối
+                            </span>
+                          )}
+                          {lot.status === 'SUSPENDED' && (
+                            <span className="text-[10px] bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 rounded-full border border-rose-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                              Tạm khóa
+                            </span>
+                          )}
+                          {lot.status === 'SOLD_OUT' && (
+                            <span className="text-[10px] bg-gray-100 text-gray-700 font-bold px-2.5 py-0.5 rounded-full border border-gray-200 flex items-center gap-1">
+                              Đã bán hết
+                            </span>
+                          )}
                         </div>
+
+                        <h4 className="font-heading font-bold text-sm text-gray-900 mt-1 line-clamp-1">
+                          {lot.productName}
+                        </h4>
+
+                        {/* Thông tin phản hồi / Ghi chú thẩm định từ Admin */}
+                        {(!lot.status || lot.status === 'PENDING_APPROVAL') && (
+                          <div className="p-2.5 bg-amber-50/90 border border-amber-200 rounded-xl text-[11px] space-y-0.5 text-amber-900">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Đang chờ Admin duyệt & bổ sung thông số:</span>
+                            </div>
+                            <p className="text-amber-800 text-[10px] leading-relaxed">
+                              {lot.auditNote || 'Hồ sơ lô hàng đang được rà soát và bổ sung thông số bảo quản trước khi mở bán chính thức.'}
+                            </p>
+                          </div>
+                        )}
+                        {lot.status === 'REJECTED' && (
+                          <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-[11px] space-y-0.5 text-red-900">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                              <span>Lý do từ chối phê duyệt:</span>
+                            </div>
+                            <p className="text-red-700 text-[10px] leading-relaxed">
+                              {lot.rejectionReason || lot.auditNote || 'Chưa đạt chuẩn kiểm nghiệm hoặc thông tin vùng trồng chưa hợp lệ.'}
+                            </p>
+                          </div>
+                        )}
+                        {lot.status === 'SUSPENDED' && (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] space-y-0.5 text-rose-900">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              <span>Lô hàng đang tạm khóa:</span>
+                            </div>
+                            <p className="text-rose-700 text-[10px] leading-relaxed">
+                              {lot.rejectionReason || lot.auditNote || 'Đang tạm dừng giao dịch để kiểm tra chất lượng chuỗi lạnh.'}
+                            </p>
+                          </div>
+                        )}
+                        {lot.status === 'OPEN' && lot.auditNote && (
+                          <div className="p-2 bg-emerald-50/70 border border-emerald-200 rounded-xl text-emerald-800 text-[10px] flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                            <span><strong className="font-bold">Đã thẩm định:</strong> {lot.auditNote}</span>
+                          </div>
+                        )}
 
                         {/* Harvest & Expiry Dates */}
                         <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600">
@@ -1262,33 +1379,99 @@ function FarmerPortalContent() {
 
                         {/* Tier Pricing Matrix */}
                         <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[11px] font-bold text-gray-700">Đơn giá sỉ khởi điểm:</span>
+                            <span className="font-bold text-[#10542C]">
+                              {formatVnd(Number(lot.basePricePerKg ?? (lot.tierPricing && lot.tierPricing[0] ? (lot.tierPricing[0].pricePerKg ?? (lot.tierPricing[0] as any).price) : 0)))} / kg
+                            </span>
+                          </div>
                           <p className="text-[11px] font-bold text-gray-700">Bảng giá sỉ phân tầng (Tier Pricing):</p>
                           <div className="space-y-1">
-                            {(lot.tierPricing || []).map((tp, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-center justify-between text-[11px] bg-emerald-50/50 px-2 py-1 rounded-lg text-emerald-950 font-medium"
-                              >
-                                <span>Mua từ {tp.minKg.toLocaleString()} kg:</span>
-                                <strong className="text-[#10542C] font-bold">
-                                  {formatVnd(tp.pricePerKg)}/kg
-                                </strong>
-                              </div>
-                            ))}
+                            {(() => {
+                              let tiers = lot.tierPricing;
+                              if (!tiers || !Array.isArray(tiers) || tiers.length === 0) {
+                                if (lot.tierPricingJson) {
+                                  try {
+                                    tiers = JSON.parse(lot.tierPricingJson);
+                                  } catch {}
+                                }
+                              }
+                              return (tiers || []).map((tp: any, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between text-[11px] bg-emerald-50/50 px-2 py-1 rounded-lg text-emerald-950 font-medium"
+                                >
+                                  <span>Mua từ {Number(tp.minKg || 0).toLocaleString()} kg:</span>
+                                  <strong className="text-[#10542C] font-bold">
+                                    {formatVnd(Number(tp.pricePerKg ?? tp.price ?? 0))}/kg
+                                  </strong>
+                                </div>
+                              ));
+                            })()}
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="p-4 pt-0">
-                      <button type="button"
-                        onClick={() => {
-                          alert(`Lô nông sản ${lot.lotCode} đã được đồng bộ công khai lên danh sách chào sỉ B2B toàn quốc.`);
-                        }}
-                        className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-200 transition cursor-pointer"
-                      >
-                        ✓ Đang Mở Bán Sỉ Trên Sàn
-                      </button>
+                      {(!lot.status || lot.status === 'PENDING_APPROVAL') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(
+                              `Lô nông sản ${lot.lotCode} đang được Quản trị viên xét duyệt và bổ sung thông số kỹ thuật (dải nhiệt độ, chuẩn VietGAP/GlobalGAP, buồng lưu trữ). Vui lòng đợi thông báo từ Quản trị viên!`
+                            );
+                          }}
+                          className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl border border-amber-300 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Chờ Quản Trị Viên Xét Duyệt</span>
+                        </button>
+                      )}
+                      {lot.status === 'OPEN' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(`Lô nông sản ${lot.lotCode} đã được đồng bộ công khai lên danh sách chào sỉ B2B toàn quốc.`);
+                          }}
+                          className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-200 transition cursor-pointer"
+                        >
+                          ✓ Đang Mở Bán Sỉ Trên Sàn
+                        </button>
+                      )}
+                      {lot.status === 'REJECTED' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(`Lô nông sản ${lot.lotCode} bị từ chối mở bán. Lý do: ${lot.rejectionReason || lot.auditNote || 'Chưa đạt chuẩn kiểm nghiệm'}`);
+                          }}
+                          className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl border border-red-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <XCircle className="w-3.5 h-3.5 text-red-600" />
+                          <span>Lô Bị Từ Chối Mở Bán</span>
+                        </button>
+                      )}
+                      {lot.status === 'SUSPENDED' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(`Lô nông sản ${lot.lotCode} đang tạm khóa giao dịch. Lý do: ${lot.rejectionReason || lot.auditNote || 'Kiểm tra dư lượng BVTV'}`);
+                          }}
+                          className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Lô Hàng Đang Tạm Khóa</span>
+                        </button>
+                      )}
+                      {lot.status === 'SOLD_OUT' && (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-2 bg-gray-100 text-gray-500 font-bold text-xs rounded-xl border border-gray-200 cursor-not-allowed"
+                        >
+                          Đã Bán Hết Sản Lượng
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2962,8 +3145,8 @@ function FarmerPortalContent() {
             </div>
 
             <form onSubmit={handleCreateLot} className="space-y-4 text-xs">
-              {/* TÊN NÔNG SẢN & MÃ PUC ÁP CỨNG */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* TÊN NÔNG SẢN, NGÀNH HÀNG & MÃ PUC ÁP CỨNG */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1">
                     Tên Nông Sản Thu Hoạch *
@@ -2974,7 +3157,7 @@ function FarmerPortalContent() {
                     value={newLot.productName}
                     onChange={(e) => handleLotProductNameChange(e.target.value)}
                     placeholder="VD: Cà Chua Beef Đà Lạt VietGAP"
-                    className={`w-full px-3.5 py-2.5 rounded-xl border font-bold text-gray-900 focus:outline-none ${
+                    className={`w-full px-3 py-2.5 rounded-xl border font-bold text-gray-900 focus:outline-none ${
                       lotFormErrors.productName ? 'border-red-500 bg-red-50/30' : 'border-gray-300 focus:border-[#10542C]'
                     }`}
                   />
@@ -2982,7 +3165,26 @@ function FarmerPortalContent() {
                     <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {lotFormErrors.productName}</p>
                   )}
                   <p className="text-[10px] text-gray-500 mt-1">
-                    * Nhập tên để AI tự động phân loại và gợi ý dải nhiệt độ bảo quản lạnh tối ưu.
+                    * AI tự động phân loại dải nhiệt lạnh và ngành hàng.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Ngành Hàng Nông Sản *
+                  </label>
+                  <select
+                    value={newLot.categorySlug}
+                    onChange={(e) => setNewLot({ ...newLot, categorySlug: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-300 font-semibold text-[#10542C] bg-white focus:outline-none focus:border-[#10542C]"
+                  >
+                    <option value="rau-an-la">🥬 Rau Ăn Lá</option>
+                    <option value="cu-qua-tuoi">🥕 Củ & Quả Tươi</option>
+                    <option value="nam-tuoi-huu-co">🍄 Nấm Tươi & Hữu Cơ</option>
+                    <option value="rau-gia-vi">🌿 Rau Gia Vị & Thảo Mộc</option>
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    * AI gợi ý tự động hoặc chọn thủ công.
                   </p>
                 </div>
 
@@ -2990,20 +3192,20 @@ function FarmerPortalContent() {
                   <label className="block font-semibold text-gray-700 mb-1 flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5 text-gray-500" />
-                      Mã Số Vùng Trồng (PUC) *
+                      Mã PUC *
                     </span>
-                    <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
-                      ✓ Khóa cứng theo hồ sơ
+                    <span className="text-[9px] text-emerald-800 font-bold bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                      ✓ Đã duyệt
                     </span>
                   </label>
                   <input
                     type="text"
                     readOnly
                     value={profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849'}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono font-black text-[#10542C] bg-gray-100 cursor-not-allowed select-none"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-300 font-mono font-black text-[#10542C] bg-gray-100 cursor-not-allowed select-none"
                   />
                   <p className="text-[10px] text-gray-500 mt-1">
-                    🔒 Mã PUC áp cố định theo hồ sơ vùng trồng đã Chi cục thẩm định, không được sửa thủ công.
+                    🔒 Áp cố định theo hồ sơ vùng trồng.
                   </p>
                 </div>
               </div>
@@ -3222,9 +3424,12 @@ function FarmerPortalContent() {
                     />
                     <input
                       type="number"
-                      placeholder="Giá/kg (đ)"
+                      placeholder="0"
                       value={newLot.tier1Price}
-                      onChange={(e) => setNewLot({ ...newLot, tier1Price: Number(e.target.value) })}
+                      onFocus={(e) => {
+                        if (Number(newLot.tier1Price) === 0) e.target.select();
+                      }}
+                      onChange={(e) => setNewLot({ ...newLot, tier1Price: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                       className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white mt-1 font-bold text-[#10542C]"
                     />
                   </div>
@@ -3238,9 +3443,12 @@ function FarmerPortalContent() {
                     />
                     <input
                       type="number"
-                      placeholder="Giá/kg (đ)"
+                      placeholder="0"
                       value={newLot.tier2Price}
-                      onChange={(e) => setNewLot({ ...newLot, tier2Price: Number(e.target.value) })}
+                      onFocus={(e) => {
+                        if (Number(newLot.tier2Price) === 0) e.target.select();
+                      }}
+                      onChange={(e) => setNewLot({ ...newLot, tier2Price: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                       className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white mt-1 font-bold text-[#10542C]"
                     />
                   </div>
@@ -3254,13 +3462,19 @@ function FarmerPortalContent() {
                     />
                     <input
                       type="number"
-                      placeholder="Giá/kg (đ)"
+                      placeholder="0"
                       value={newLot.tier3Price}
-                      onChange={(e) => setNewLot({ ...newLot, tier3Price: Number(e.target.value) })}
+                      onFocus={(e) => {
+                        if (Number(newLot.tier3Price) === 0) e.target.select();
+                      }}
+                      onChange={(e) => setNewLot({ ...newLot, tier3Price: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                       className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white mt-1 font-bold text-[#10542C]"
                     />
                   </div>
                 </div>
+                {(lotFormErrors.tierPrice || lotFormErrors.tierQty) && (
+                  <p className="text-[11px] text-red-600 font-semibold mt-1">✕ {lotFormErrors.tierPrice || lotFormErrors.tierQty}</p>
+                )}
               </div>
 
               {/* HÀNG NÚT THAO TÁC: LÀM MỚI, HỦY BỎ, CÔNG KHAI */}
@@ -3287,7 +3501,7 @@ function FarmerPortalContent() {
                     className="px-5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Công Khai Lên Sàn B2B</span>
+                    <span>Gửi Duyệt & Mở Bán Sỉ B2B</span>
                   </button>
                 </div>
               </div>
