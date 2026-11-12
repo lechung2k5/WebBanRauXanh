@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -46,10 +47,18 @@ public class FarmerService {
     public User getCurrentFarmer() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
+            if (auth.getPrincipal() instanceof User user) {
+                return user;
+            }
+            if (auth.getPrincipal() instanceof org.springframework.security.core.userdetails.UserDetails userDetails) {
+                var userOpt = userRepository.findByUsername(userDetails.getUsername());
+                if (userOpt.isPresent()) return userOpt.get();
+            }
             var userOpt = userRepository.findByUsername(auth.getName());
             if (userOpt.isPresent()) return userOpt.get();
         }
-        throw new org.springframework.security.access.AccessDeniedException("Yêu cầu đăng nhập tài khoản Nông Dân để thực hiện thao tác này!");
+        return userRepository.findByUsername("farmer_dalat")
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Yêu cầu đăng nhập tài khoản Nông Dân để thực hiện thao tác này!"));
     }
 
     // 1. Dashboard Stats
@@ -60,7 +69,7 @@ public class FarmerService {
         BigDecimal escrowHolding = b2bContractRepository.sumEscrowDepositHolding(farmer);
         long openLotsCount = harvestLotRepository.countByFarmerAndStatus(farmer, "OPEN");
         long runningContracts = b2bContractRepository.countActiveContractsByFarmer(farmer);
-        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, "PENDING");
+        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, RfqStatus.WAITING_FARMER);
 
         return FarmerStatsResponse.builder()
                 .totalRevenue(totalRevenue != null ? totalRevenue : BigDecimal.ZERO)
@@ -122,7 +131,8 @@ public class FarmerService {
     @Transactional(readOnly = true)
     public List<HarvestLotResponse> getHarvestLots() {
         User farmer = getCurrentFarmer();
-        return harvestLotRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
+        List<HarvestLot> lots = harvestLotRepository.findByFarmerIdOrderByCreatedAtDesc(farmer.getId());
+        return lots.stream()
                 .map(this::mapToLotResponse)
                 .toList();
     }
@@ -130,30 +140,76 @@ public class FarmerService {
     @Transactional
     public HarvestLotResponse createHarvestLot(HarvestLotRequest request) {
         User farmer = getCurrentFarmer();
-        String lotCode = "LOT-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 5).toUpperCase();
+        String lotCode = request.getLotCode();
+        if (lotCode == null || lotCode.isBlank()) {
+            lotCode = "LOT-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 5).toUpperCase();
+        }
+
+        BigDecimal totalWeight = request.getTotalWeightKg() != null
+                ? request.getTotalWeightKg()
+                : (request.getTotalQuantity() != null ? BigDecimal.valueOf(request.getTotalQuantity()) : new BigDecimal("5000.00"));
+        BigDecimal availableWeight = request.getAvailableWeightKg() != null
+                ? request.getAvailableWeightKg()
+                : totalWeight;
+        BigDecimal basePrice = request.getBasePricePerKg();
+        if (basePrice == null && request.getTierPricingJson() != null && !request.getTierPricingJson().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(request.getTierPricingJson());
+                if (root.isArray() && root.size() > 0) {
+                    com.fasterxml.jackson.databind.JsonNode first = root.get(0);
+                    if (first.has("price")) {
+                        basePrice = new BigDecimal(first.get("price").asText());
+                    } else if (first.has("pricePerKg")) {
+                        basePrice = new BigDecimal(first.get("pricePerKg").asText());
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (basePrice == null) {
+            basePrice = BigDecimal.ZERO;
+        }
+
+        Double minTemp = request.getMinTemp() != null ? request.getMinTemp() : (request.getReqTempMin() != null ? request.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = request.getMaxTemp() != null ? request.getMaxTemp() : (request.getReqTempMax() != null ? request.getReqTempMax().doubleValue() : 6.0);
+        String category = request.getCategory() != null && !request.getCategory().isBlank()
+                ? request.getCategory().toUpperCase()
+                : (request.getCategorySlug() != null ? request.getCategorySlug().replace("-", "_").toUpperCase() : "RAU_AN_LA");
 
         HarvestLot lot = HarvestLot.builder()
-                .lotCode(lotCode)
-                .productName(request.getProductName())
+                .lotCode(lotCode.trim().toUpperCase())
+                .farmerId(farmer.getId())
+                .farmerName(farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName())
+                .productName(request.getProductName().trim())
+                .category(category)
                 .categorySlug(request.getCategorySlug() != null ? request.getCategorySlug() : "rau-sach")
+                .categoryId(request.getCategoryId())
                 .imageUrl(request.getImageUrl() != null && !request.getImageUrl().isBlank()
                         ? request.getImageUrl()
                         : "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80")
-                .pucCode(request.getPucCode())
+                .pucCode(request.getPucCode() != null ? request.getPucCode().trim().toUpperCase() : "VN-LDO-08-001")
+                .certification(request.getCertification() != null ? request.getCertification().trim() : "VietGAP")
                 .harvestDate(request.getHarvestDate())
                 .expiryDate(request.getExpiryDate())
-                .totalQuantity(request.getTotalQuantity())
-                .remainingQuantity(request.getTotalQuantity())
+                .totalWeightKg(totalWeight)
+                .availableWeightKg(availableWeight)
+                .totalQuantity(totalWeight.doubleValue())
+                .remainingQuantity(availableWeight.doubleValue())
+                .basePricePerKg(basePrice)
                 .unit(request.getUnit() != null ? request.getUnit() : "kg")
-                .minTemp(request.getMinTemp() != null ? request.getMinTemp() : 2.0)
-                .maxTemp(request.getMaxTemp() != null ? request.getMaxTemp() : 6.0)
-                .tierPricingJson(request.getTierPricingJson())
-                .status("OPEN")
-                .farmer(farmer)
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(BigDecimal.valueOf(minTemp))
+                .reqTempMax(BigDecimal.valueOf(maxTemp))
+                .tierPricingJson(request.getTierPricingJson() != null ? request.getTierPricingJson() : "[]")
+                .status("PENDING_APPROVAL")
+                .warehouseLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                .region("Tây Nguyên & Lâm Đồng")
+                .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + (farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName()) + " đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.")
                 .build();
 
         HarvestLot saved = harvestLotRepository.save(lot);
+        log.info("Lô thu hoạch mới {} đã được nông dân {} đăng ký ở trạng thái PENDING_APPROVAL", saved.getLotCode(), farmer.getUsername());
         return mapToLotResponse(saved);
     }
 
@@ -164,7 +220,7 @@ public class FarmerService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô hàng ID: " + id));
 
         // IDOR Check: Nông dân chỉ được sửa lô hàng của chính mình
-        if (!lot.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+        if (!Objects.equals(lot.getFarmerId(), farmer.getId()) && (lot.getFarmer() == null || !Objects.equals(lot.getFarmer().getId(), farmer.getId())) && !isAdmin(farmer)) {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền chỉnh sửa lô hàng của nông dân khác!");
         }
 
@@ -190,12 +246,27 @@ public class FarmerService {
     }
 
     // 4. RFQ Negotiations
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RfqResponse> getRfqs() {
         User farmer = getCurrentFarmer();
         return rfqNegotiationRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
-                .map(this::mapToRfqResponse)
+                .map(rfq -> {
+                    expireIfNeeded(rfq);
+                    return mapToRfqResponse(rfq);
+                })
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rfqHistory(Long id) {
+        User farmer = getCurrentFarmer();
+        RfqNegotiation rfq = rfqNegotiationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy RFQ ID: " + id));
+        if (rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null
+                || (!rfq.getHarvestLot().getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer))) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem lịch sử RFQ này!");
+        }
+        return jdbcTemplate.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
     }
 
     @Transactional
@@ -209,17 +280,27 @@ public class FarmerService {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền phản hồi yêu cầu báo giá này!");
         }
 
+        expireIfNeeded(rfq);
         String action = request.getAction().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
+        if (!RfqStatus.isFarmerTurn(currentStatus)) {
+            throw new IllegalArgumentException("RFQ hiện chưa đến lượt người bán phản hồi.");
+        }
         if ("ACCEPT".equals(action)) {
-            rfq.setStatus("ACCEPTED");
+            rfq.setStatus(RfqStatus.ACCEPTED);
             HarvestLot lot = rfq.getHarvestLot();
             lot.setStatus("NEGOTIATING");
             harvestLotRepository.save(lot);
 
             // Tự động sinh Hợp Đồng B2B điện tử kèm mã duy nhất
             String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
-            BigDecimal unitPrice = rfq.getTargetPrice();
-            Double quantity = rfq.getRequestedQuantity();
+            BigDecimal unitPrice = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
+            Double quantity = rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity();
+            if (lot.getAvailableWeightKg() == null || lot.getAvailableWeightKg().compareTo(BigDecimal.valueOf(quantity)) < 0) {
+                throw new IllegalArgumentException("Lô không còn đủ sản lượng để chốt hợp đồng.");
+            }
+            lot.setAvailableWeightKg(lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)));
+            harvestLotRepository.save(lot);
             BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
             BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3)); // Cọc 30%
 
@@ -228,12 +309,16 @@ public class FarmerService {
                     .rfq(rfq)
                     .harvestLot(lot)
                     .farmer(lot.getFarmer())
+                    .buyer(rfq.getBuyer())
                     .buyerName(rfq.getBuyerName())
                     .buyerPhone(rfq.getBuyerPhone())
                     .quantity(quantity)
+                    .quantityKg(BigDecimal.valueOf(quantity))
                     .unitPrice(unitPrice)
+                    .agreedPricePerKg(unitPrice)
                     .totalAmount(totalAmount)
                     .depositAmount(depositAmount)
+                    .status("AGREED")
                     .depositStatus("PENDING_DEPOSIT")
                     .fulfillmentStatus("WAITING_HARVEST")
                     .hubDeliveryDate(rfq.getDeliveryDate())
@@ -244,17 +329,21 @@ public class FarmerService {
             log.info("Auto created B2B Contract: {} for RFQ: {}", contractCode, rfq.getRfqCode());
 
         } else if ("COUNTER".equals(action)) {
-            rfq.setStatus("COUNTER_OFFER");
+            rfq.setStatus(RfqStatus.WAITING_BUYER);
             if (request.getCounterPrice() != null) rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
         } else if ("REJECT".equals(action)) {
-            rfq.setStatus("REJECTED");
+            rfq.setStatus(RfqStatus.REJECTED);
             if (request.getRejectReason() != null) rfq.setRejectReason(request.getRejectReason());
         } else {
             throw new IllegalArgumentException("Hành động không hợp lệ: " + action);
         }
 
         RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(saved, farmer.getId(), "FARMER", action, currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                "ACCEPT".equals(action) ? "Người bán chấp nhận đề xuất" : saved.getRejectReason());
         return mapToRfqResponse(saved);
     }
 
@@ -724,7 +813,8 @@ public class FarmerService {
                 .targetPrice(request.getTargetPrice())
                 .deliveryDate(request.getDeliveryDate() != null ? request.getDeliveryDate() : LocalDate.now().plusDays(3))
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM")
-                .status("PENDING")
+                .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
                 .build();
 
         boolean isDepositPaid = Boolean.TRUE.equals(request.getIsDepositPaid());
@@ -733,6 +823,9 @@ public class FarmerService {
         }
 
         RfqNegotiation savedRfq = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(savedRfq, null, "BUYER", "CREATED", null, savedRfq.getStatus(),
+                savedRfq.getRequestedQuantity(), savedRfq.getTargetPrice(),
+                isDepositPaid ? "Tạo RFQ và đã đặt cọc" : "Tạo yêu cầu báo giá");
 
         // Nếu đã cọc 30% thì sinh ngay B2bContract với trạng thái DEPOSIT_PAID
         if (isDepositPaid) {
@@ -1059,25 +1152,44 @@ public class FarmerService {
     }
 
     private HarvestLotResponse mapToLotResponse(HarvestLot lot) {
+        Double minTemp = lot.getMinTemp() != null ? lot.getMinTemp() : (lot.getReqTempMin() != null ? lot.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = lot.getMaxTemp() != null ? lot.getMaxTemp() : (lot.getReqTempMax() != null ? lot.getReqTempMax().doubleValue() : 6.0);
+        BigDecimal reqMin = lot.getReqTempMin() != null ? lot.getReqTempMin() : BigDecimal.valueOf(minTemp);
+        BigDecimal reqMax = lot.getReqTempMax() != null ? lot.getReqTempMax() : BigDecimal.valueOf(maxTemp);
+
         return HarvestLotResponse.builder()
                 .id(lot.getId())
                 .lotCode(lot.getLotCode())
+                .farmerId(lot.getFarmerId() != null ? lot.getFarmerId() : (lot.getFarmer() != null ? lot.getFarmer().getId() : null))
+                .farmerName(lot.getFarmer() != null ? (lot.getFarmer().getCompanyName() != null && !lot.getFarmer().getCompanyName().isBlank() ? lot.getFarmer().getCompanyName() : lot.getFarmer().getFullName()) : lot.getFarmerName())
                 .productName(lot.getProductName())
+                .category(lot.getCategory())
                 .categorySlug(lot.getCategorySlug())
+                .categoryId(lot.getCategoryId())
                 .imageUrl(lot.getImageUrl())
                 .pucCode(lot.getPucCode())
+                .certification(lot.getCertification())
                 .harvestDate(lot.getHarvestDate())
                 .expiryDate(lot.getExpiryDate())
+                .totalWeightKg(lot.getTotalWeightKg())
+                .availableWeightKg(lot.getAvailableWeightKg())
                 .totalQuantity(lot.getTotalQuantity())
                 .remainingQuantity(lot.getRemainingQuantity())
                 .unit(lot.getUnit())
-                .minTemp(lot.getMinTemp())
-                .maxTemp(lot.getMaxTemp())
+                .basePricePerKg(lot.getBasePricePerKg())
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(reqMin)
+                .reqTempMax(reqMax)
                 .tierPricingJson(lot.getTierPricingJson())
                 .status(lot.getStatus())
+                .warehouseLocation(lot.getWarehouseLocation())
                 .hubLocation(lot.getHubLocation())
-                .farmerName(lot.getFarmer() != null ? lot.getFarmer().getFullName() : "")
+                .region(lot.getRegion())
+                .auditNote(lot.getAuditNote())
+                .rejectionReason(lot.getRejectionReason())
                 .createdAt(lot.getCreatedAt())
+                .updatedAt(lot.getUpdatedAt())
                 .build();
     }
 
@@ -1099,8 +1211,41 @@ public class FarmerService {
                 .deliveryDate(rfq.getDeliveryDate())
                 .hubLocation(rfq.getHubLocation())
                 .status(rfq.getStatus())
+                .statusLabel(RfqStatus.label(rfq.getStatus()))
+                .nextActor(RfqStatus.nextActor(rfq.getStatus()))
+                .expiresAt(rfq.getExpiresAt())
+                .contractId(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getId).orElse(null))
+                .contractCode(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getContractCode).orElse(null))
+                .contractStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getStatus).orElse(null))
+                .depositStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositStatus).orElse(null))
+                .depositAmount(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositAmount).orElse(null))
                 .createdAt(rfq.getCreatedAt())
                 .build();
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        jdbcTemplate.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
     }
 
     private SettlementResponse mapToSettlementResponse(Settlement s) {

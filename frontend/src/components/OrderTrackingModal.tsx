@@ -5,45 +5,26 @@ import {
   X,
   Search,
   CheckCircle2,
-  Clock,
   Truck,
-  PackageCheck,
-  Package,
   AlertCircle,
-  RotateCcw,
-  Receipt,
-  UserCheck,
   ShieldCheck,
   FileText,
   ChevronRight,
-  Filter,
   RefreshCw,
   Thermometer,
   Droplets,
   Scale,
-  MapPin,
-  Phone,
-  User,
-  Calendar,
-  ExternalLink,
   Printer,
   Star,
-  ThumbsUp,
-  AlertTriangle,
   BadgeCheck,
-  Layers,
-  Sparkles,
-  ArrowUpRight,
-  ChevronDown,
 } from 'lucide-react';
 import {
-  OrderResponse,
   B2BContract,
   QcInspection,
   ColdChainTelemetry,
   DeliveryProof,
 } from '@/types';
-import { getOrderByCode, getUserOrdersApi } from '@/services/api';
+import { getBuyerB2bContractsApi } from '@/services/api';
 import {
   getFarmerContractsApi,
   getContractQcApi,
@@ -59,8 +40,6 @@ import { useApp } from '@/context/AppContext';
 export interface OrderTrackingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onReorder?: (items: OrderResponse['items']) => void;
-  initialTab?: 'b2b' | 'retail';
   defaultQuery?: string;
 }
 
@@ -103,14 +82,12 @@ const DEFAULT_DELIVERY_PROOF: DeliveryProof = {
 export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose,
-  onReorder,
-  initialTab = 'b2b',
   defaultQuery = '',
 }) => {
   const { currentUser } = useApp();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'b2b' | 'retail'>(initialTab);
+  const activeTab = 'b2b' as const;
   const [searchQuery, setSearchQuery] = useState(defaultQuery);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -129,20 +106,12 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   const [ratingStars, setRatingStars] = useState(5);
   const [buyerFeedback, setBuyerFeedback] = useState('Nông sản tươi ngon, độ ngọt đạt chuẩn, nhiệt độ lạnh bảo quản rất tốt.');
 
-  // Retail Orders State
-  const [retailOrders, setRetailOrders] = useState<OrderResponse[]>([]);
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [retailFilter, setRetailFilter] = useState<'ALL' | 'PENDING' | 'CONFIRMED' | 'SHIPPING' | 'DELIVERED'>('ALL');
-  const [searchedSingleOrder, setSearchedSingleOrder] = useState<OrderResponse | null>(null);
-  const [hasSearchedDirect, setHasSearchedDirect] = useState(false);
-
   // Sync initial tab if requested
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) setActiveTab(initialTab);
       if (defaultQuery) setSearchQuery(defaultQuery);
     }
-  }, [isOpen, initialTab, defaultQuery]);
+  }, [isOpen, defaultQuery]);
 
   // Format tiền tệ VNĐ
   const formatVnd = (amount?: number) => {
@@ -150,130 +119,24 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
 
-  // Nạp toàn bộ dữ liệu Hợp Đồng & Đơn Hàng khi mở Modal
+  // Nạp toàn bộ hợp đồng B2B theo Buyer/Farmer đang đăng nhập khi mở Modal
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Nạp B2B Contracts
-      const contractList = await getFarmerContractsApi();
+      // Nạp đúng dữ liệu B2B theo vai trò đang đăng nhập. Buyer không dùng dữ liệu Farmer/fallback.
+      const contractList = currentUser?.roles?.includes('ROLE_BUYER')
+        ? await getBuyerB2bContractsApi()
+        : currentUser?.roles?.some((role) => ['ROLE_FARMER', 'ROLE_COOPERATIVE'].includes(role))
+        ? await getFarmerContractsApi()
+        : [];
       setContracts(contractList);
       if (contractList.length > 0 && selectedContractId === null) {
         setSelectedContractId(contractList[0].id);
       }
 
-      // 2. Nạp Retail Orders (kết hợp LocalStorage + API)
-      let ordersFromStorage: OrderResponse[] = [];
-      if (typeof window !== 'undefined') {
-        try {
-          ordersFromStorage = JSON.parse(localStorage.getItem('hona_my_orders') || '[]');
-        } catch {}
-      }
+      // Màn hình này chỉ theo dõi hợp đồng B2B; không nạp đơn hàng tiêu dùng/localStorage.
+      return;
 
-      let ordersFromServer: OrderResponse[] = [];
-      if (currentUser?.id) {
-        try {
-          const res = await getUserOrdersApi(currentUser.id, 0, 50);
-          ordersFromServer = res.data || [];
-        } catch {}
-      }
-
-      // Đơn hàng mẫu dự phòng chuẩn hóa TMĐT
-      const fallbackRetailOrders: OrderResponse[] = [
-        {
-          id: 991,
-          orderCode: 'ORD-2026-HN092',
-          recipientName: currentUser?.fullName || 'Nguyễn Minh Quân',
-          recipientPhone: currentUser?.phone || '0912 345 678',
-          shippingAddress: 'Tòa nhà Landmark 81, 720A Điện Biên Phủ, P.22, Bình Thạnh, TP.HCM',
-          note: 'Giao giờ hành chính, gọi trước 10 phút để nhận hàng.',
-          totalAmount: 185000,
-          paymentMethod: 'VIETQR',
-          isPaid: true,
-          status: 'SHIPPING',
-          items: [
-            {
-              id: 1,
-              productId: 1,
-              productName: 'Cà Chua Beef Đà Lạt VietGAP',
-              productImageUrl: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500',
-              unit: 'kg',
-              quantity: 2,
-              unitPrice: 45000,
-              totalPrice: 90000,
-            },
-            {
-              id: 2,
-              productId: 2,
-              productName: 'Xà Lách Lô Lô Xanh Thủy Canh',
-              productImageUrl: 'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=500',
-              unit: 'gói 500g',
-              quantity: 2,
-              unitPrice: 35000,
-              totalPrice: 70000,
-            },
-            {
-              id: 3,
-              productId: 3,
-              productName: 'Bắp Cải Trái Tim Hữu Cơ',
-              productImageUrl: 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500',
-              unit: 'bắp',
-              quantity: 1,
-              unitPrice: 25000,
-              totalPrice: 25000,
-            },
-          ],
-          createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-        },
-        {
-          id: 992,
-          orderCode: 'ORD-2026-HN088',
-          recipientName: currentUser?.fullName || 'Nguyễn Minh Quân',
-          recipientPhone: currentUser?.phone || '0912 345 678',
-          shippingAddress: '45 Lê Duẩn, Phường Bến Nghé, Quận 1, TP.HCM',
-          note: 'Để ở quầy lễ tân tầng 1',
-          totalAmount: 240000,
-          paymentMethod: 'COD',
-          isPaid: true,
-          status: 'DELIVERED',
-          items: [
-            {
-              id: 4,
-              productId: 4,
-              productName: 'Dưa Leo Baby Lâm Đồng VietGAP',
-              productImageUrl: 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500',
-              unit: 'kg',
-              quantity: 3,
-              unitPrice: 38000,
-              totalPrice: 114000,
-            },
-            {
-              id: 5,
-              productId: 5,
-              productName: 'Cà Rốt Baby Đà Lạt Hữu Cơ',
-              productImageUrl: 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500',
-              unit: 'kg',
-              quantity: 2,
-              unitPrice: 63000,
-              totalPrice: 126000,
-            },
-          ],
-          createdAt: new Date(Date.now() - 86400000 * 1.5).toISOString(),
-        },
-      ];
-
-      // Hợp nhất dữ liệu tránh trùng
-      const orderMap = new Map<string, OrderResponse>();
-      [...ordersFromStorage, ...ordersFromServer, ...fallbackRetailOrders].forEach((ord) => {
-        if (!orderMap.has(ord.orderCode)) {
-          orderMap.set(ord.orderCode, ord);
-        }
-      });
-
-      const mergedOrders = Array.from(orderMap.values());
-      setRetailOrders(mergedOrders);
-      if (mergedOrders.length > 0 && selectedOrderId === null) {
-        setSelectedOrderId(mergedOrders[0].id);
-      }
     } catch (err) {
       console.warn('Lỗi khi tải dữ liệu đơn hàng & hợp đồng:', err);
     } finally {
@@ -292,44 +155,22 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
     e.preventDefault();
     const cleanQuery = searchQuery.trim();
     if (!cleanQuery) {
-      setSearchedSingleOrder(null);
-      setHasSearchedDirect(false);
       return;
     }
 
     setLoading(true);
-    setHasSearchedDirect(true);
 
     try {
-      if (cleanQuery.toUpperCase().startsWith('ORD-') || activeTab === 'retail') {
-        const found = await getOrderByCode(cleanQuery);
-        if (found) {
-          setSearchedSingleOrder(found);
-          setSelectedOrderId(found.id);
-          setActiveTab('retail');
-        } else {
-          // Tìm trong list hiện có
-          const localFound = retailOrders.find(
-            (o) =>
-              o.orderCode.toLowerCase().includes(cleanQuery.toLowerCase()) ||
-              o.recipientPhone.includes(cleanQuery)
-          );
-          setSearchedSingleOrder(localFound || null);
-          if (localFound) setSelectedOrderId(localFound.id);
-        }
-      } else {
-        // Tìm hợp đồng B2B
-        const foundContract = contracts.find(
-          (c) =>
-            c.contractCode.toLowerCase().includes(cleanQuery.toLowerCase()) ||
-            c.lotCode.toLowerCase().includes(cleanQuery.toLowerCase()) ||
-            c.buyerPhone.includes(cleanQuery) ||
-            c.productName.toLowerCase().includes(cleanQuery.toLowerCase())
-        );
-        if (foundContract) {
-          setSelectedContractId(foundContract.id);
-          setActiveTab('b2b');
-        }
+      // Chỉ tra cứu hợp đồng B2B của Buyer/Farmer đang đăng nhập.
+      const foundContract = contracts.find(
+        (c) =>
+          c.contractCode.toLowerCase().includes(cleanQuery.toLowerCase()) ||
+          c.lotCode.toLowerCase().includes(cleanQuery.toLowerCase()) ||
+          c.buyerPhone.includes(cleanQuery) ||
+          c.productName.toLowerCase().includes(cleanQuery.toLowerCase())
+      );
+      if (foundContract) {
+        setSelectedContractId(foundContract.id);
       }
     } catch (err) {
       console.warn('Search error:', err);
@@ -366,35 +207,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
       null
     );
   }, [contracts, selectedContractId, filteredContracts]);
-
-  // Danh sách Đơn Hàng Tiêu Dùng sau lọc
-  const filteredRetailOrders = useMemo(() => {
-    if (searchedSingleOrder) return [searchedSingleOrder];
-    return retailOrders.filter((o) => {
-      const q = searchQuery.toLowerCase().trim();
-      const matchQuery =
-        !q ||
-        o.orderCode.toLowerCase().includes(q) ||
-        o.recipientName.toLowerCase().includes(q) ||
-        o.recipientPhone.includes(q) ||
-        o.items?.some((it) => it.productName.toLowerCase().includes(q));
-
-      const matchStatus =
-        retailFilter === 'ALL' || o.status === retailFilter;
-
-      return matchQuery && matchStatus;
-    });
-  }, [retailOrders, searchQuery, retailFilter, searchedSingleOrder]);
-
-  // Đơn hàng đang chọn chi tiết
-  const currentOrder = useMemo(() => {
-    return (
-      retailOrders.find((o) => o.id === selectedOrderId) ||
-      filteredRetailOrders[0] ||
-      retailOrders[0] ||
-      null
-    );
-  }, [retailOrders, selectedOrderId, filteredRetailOrders]);
 
   // Mở chi tiết KCS Trạm Lạnh
   const handleOpenQc = async (contract: B2BContract) => {
@@ -469,32 +281,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
     }
   };
 
-  // Khách hàng xác nhận đã nhận đơn hàng tiêu dùng
-  const handleConfirmRetailDelivered = (orderId: number) => {
-    setRetailOrders((prev) =>
-      prev.map((ord) => {
-        if (ord.id === orderId) {
-          const updated = { ...ord, status: 'DELIVERED', isPaid: true };
-          if (typeof window !== 'undefined') {
-            try {
-              const list: OrderResponse[] = JSON.parse(
-                localStorage.getItem('hona_my_orders') || '[]'
-              );
-              const nextList = list.map((item) =>
-                item.id === orderId ? updated : item
-              );
-              localStorage.setItem('hona_my_orders', JSON.stringify(nextList));
-            } catch {}
-          }
-          return updated;
-        }
-        return ord;
-      })
-    );
-    setSuccessMessage('Cảm ơn bạn đã xác nhận đã nhận đủ rau củ tươi ngon!');
-    setTimeout(() => setSuccessMessage(null), 4000);
-  };
-
   // Stepper B2B: 5 Nấc Chuỗi Cung Ứng Lạnh
   const B2B_STEPS = [
     { key: 'WAITING_HARVEST', label: 'Cọc Escrow 30%', desc: 'Đã bảo chứng vốn sàn', icon: ShieldCheck },
@@ -516,31 +302,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
         return 3;
       case 'COMPLETED':
         return 4;
-      default:
-        return 0;
-    }
-  };
-
-  // Stepper B2C: 4 Nấc Giao Hỏa Tốc
-  const RETAIL_STEPS = [
-    { key: 'PENDING', label: 'Chờ tiếp nhận', desc: 'Đơn mới khởi tạo', icon: Clock },
-    { key: 'CONFIRMED', label: 'Đang đóng gói', desc: 'Tươi chọn tại quầy', icon: Package },
-    { key: 'SHIPPING', label: 'Đang giao 2h', desc: 'Shipper đang tới', icon: Truck },
-    { key: 'DELIVERED', label: 'Đã nhận hàng', desc: 'Hoàn tất nghiệm thu', icon: CheckCircle2 },
-  ];
-
-  const getRetailStepIndex = (status: string) => {
-    switch (status) {
-      case 'PENDING':
-        return 0;
-      case 'CONFIRMED':
-        return 1;
-      case 'SHIPPING':
-        return 2;
-      case 'DELIVERED':
-        return 3;
-      case 'CANCELLED':
-        return -1;
       default:
         return 0;
     }
@@ -615,15 +376,11 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
         {/* ================= TABS NAVIGATION & SEARCH BAR ================= */}
         <div className="p-4 sm:px-6 bg-[#F9FAF9] border-b border-gray-100 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shrink-0">
-          {/* 2 Tabs chuyển đổi */}
+          {/* Theo dõi hợp đồng B2B */}
           <div className="flex items-center bg-gray-200/70 p-1 rounded-2xl gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('b2b');
-                setSearchedSingleOrder(null);
-                setHasSearchedDirect(false);
-              }}
+              onClick={() => setSearchQuery('')}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'b2b'
                   ? 'bg-white text-[#10542C] shadow-sm'
@@ -637,25 +394,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('retail');
-                setSearchedSingleOrder(null);
-                setHasSearchedDirect(false);
-              }}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'retail'
-                  ? 'bg-white text-[#10542C] shadow-sm'
-                  : 'text-slate-600 hover:text-[#10542C]'
-              }`}
-            >
-              <Package className="w-4 h-4 text-amber-600" />
-              <span>Đơn Hàng Tiêu Dùng (2h)</span>
-              <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800">
-                {retailOrders.length}
-              </span>
-            </button>
           </div>
 
           {/* Ô tìm kiếm đa năng */}
@@ -663,11 +401,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
             <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
             <input
               type="text"
-              placeholder={
-                activeTab === 'b2b'
-                  ? 'Tìm theo Mã HĐ (HD-...), Mã Lô, SĐT hoặc Tên rau...'
-                  : 'Tìm theo Mã đơn (ORD-...), Số điện thoại người nhận...'
-              }
+              placeholder="Tìm theo Mã HĐ (HD-...), Mã Lô, SĐT hoặc Tên rau..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-20 py-2 text-xs text-[#2C3E2E] placeholder:text-slate-400 focus:outline-none focus:border-[#10542C] focus:ring-1 focus:ring-[#10542C]"
@@ -677,8 +411,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 type="button"
                 onClick={() => {
                   setSearchQuery('');
-                  setSearchedSingleOrder(null);
-                  setHasSearchedDirect(false);
                 }}
                 className="absolute right-14 text-slate-400 hover:text-slate-600 text-xs px-1 cursor-pointer"
               >
@@ -698,104 +430,15 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
         <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[460px]">
           {/* ================= CỘT TRÁI: DANH SÁCH THẺ (LG: 4 CỘT) ================= */}
           <div className="lg:col-span-5 border-r border-gray-100 overflow-y-auto p-4 space-y-3 bg-[#FAFBF9]/50">
-            {/* Filter Pills */}
+            {/* Bộ lọc tiến trình hợp đồng B2B */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] no-scrollbar">
-              {activeTab === 'b2b' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setB2bFilter('ALL')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      b2bFilter === 'ALL'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Tất cả ({contracts.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2bFilter('WAITING_HARVEST')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      b2bFilter === 'WAITING_HARVEST'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Chờ thu hoạch
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2bFilter('HUB_DELIVERED')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      b2bFilter === 'HUB_DELIVERED'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Tại Hub QC
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2bFilter('IN_TRANSIT')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      b2bFilter === 'IN_TRANSIT'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Xe Lạnh IoT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2bFilter('COMPLETED')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      b2bFilter === 'COMPLETED'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Hoàn tất
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setRetailFilter('ALL')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      retailFilter === 'ALL'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Tất cả ({retailOrders.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRetailFilter('SHIPPING')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      retailFilter === 'SHIPPING'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Đang giao 2h
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRetailFilter('DELIVERED')}
-                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
-                      retailFilter === 'DELIVERED'
-                        ? 'bg-[#10542C] text-white'
-                        : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    Đã nhận
-                  </button>
-                </>
-              )}
+              <button type="button" onClick={() => setB2bFilter('ALL')} className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${b2bFilter === 'ALL' ? 'bg-[#10542C] text-white' : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'}`}>Tất cả ({contracts.length})</button>
+              <button type="button" onClick={() => setB2bFilter('WAITING_HARVEST')} className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${b2bFilter === 'WAITING_HARVEST' ? 'bg-[#10542C] text-white' : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'}`}>Chờ thu hoạch</button>
+              <button type="button" onClick={() => setB2bFilter('HUB_DELIVERED')} className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${b2bFilter === 'HUB_DELIVERED' ? 'bg-[#10542C] text-white' : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'}`}>Tại Hub QC</button>
+              <button type="button" onClick={() => setB2bFilter('IN_TRANSIT')} className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${b2bFilter === 'IN_TRANSIT' ? 'bg-[#10542C] text-white' : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'}`}>Xe Lạnh IoT</button>
+              <button type="button" onClick={() => setB2bFilter('COMPLETED')} className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${b2bFilter === 'COMPLETED' ? 'bg-[#10542C] text-white' : 'bg-white text-slate-600 border border-gray-200 hover:bg-gray-50'}`}>Hoàn tất</button>
             </div>
+
 
             {/* Danh sách Thẻ Hợp Đồng B2B */}
             {activeTab === 'b2b' && (
@@ -874,79 +517,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               </div>
             )}
 
-            {/* Danh sách Thẻ Đơn Hàng Tiêu Dùng */}
-            {activeTab === 'retail' && (
-              <div className="space-y-2.5">
-                {filteredRetailOrders.length === 0 ? (
-                  <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-gray-200">
-                    <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs font-bold text-slate-500">Chưa có đơn hàng nào</p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Đặt mua rau củ tươi trên sàn để theo dõi lộ trình giao hỏa tốc 2 giờ
-                    </p>
-                  </div>
-                ) : (
-                  filteredRetailOrders.map((ord) => {
-                    const isSelected = ord.id === currentOrder?.id;
-                    const isDelivered = ord.status === 'DELIVERED';
-                    const isShipping = ord.status === 'SHIPPING';
-
-                    return (
-                      <div
-                        key={ord.id}
-                        onClick={() => setSelectedOrderId(ord.id)}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-white border-[#10542C] ring-2 ring-[#10542C]/10 shadow-md'
-                            : 'bg-white border-gray-200/80 hover:border-emerald-300 hover:bg-emerald-50/20'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <span className="font-mono text-xs font-black text-[#10542C]">
-                            {ord.orderCode}
-                          </span>
-                          <span
-                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                              isDelivered
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : isShipping
-                                ? 'bg-blue-100 text-blue-800 animate-pulse'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {isDelivered
-                              ? 'Đã Giao Thành Công'
-                              : isShipping
-                              ? 'Shipper Đang Giao'
-                              : ord.status === 'CONFIRMED'
-                              ? 'Đang Đóng Hộp'
-                              : 'Chờ Xác Nhận'}
-                          </span>
-                        </div>
-
-                        <div className="text-xs text-slate-700 line-clamp-1 mb-1">
-                          {ord.items?.map((it) => it.productName).join(', ') || 'Nông sản hữu cơ'}
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-gray-100">
-                          <span>
-                            {ord.items?.length || 1} món rau củ
-                          </span>
-                          <span className="font-bold text-[#10542C]">
-                            {formatVnd(ord.totalAmount)}
-                          </span>
-                        </div>
-
-                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
-                          <span>Người nhận: {ord.recipientName}</span>
-                          <span>{ord.paymentMethod === 'COD' ? 'Tiền mặt COD' : 'VietQR'}</span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
           </div>
 
           {/* ================= CỘT PHẢI: CHI TIẾT TIẾN TRÌNH (LG: 7 CỘT) ================= */}
@@ -1154,192 +724,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               </div>
             )}
 
-            {/* ====== CHI TIẾT ĐƠN HÀNG TIÊU DÙNG B2C ====== */}
-            {activeTab === 'retail' && currentOrder && (
-              <div className="space-y-6">
-                {/* Header Thẻ Đơn Hàng */}
-                <div className="flex items-start justify-between flex-wrap gap-3 pb-4 border-b border-gray-100">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">Mã đơn hàng:</span>
-                      <span className="font-mono text-base font-black text-[#10542C]">
-                        {currentOrder.orderCode}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      Đặt lúc: {new Date(currentOrder.createdAt).toLocaleString('vi-VN')}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {onReorder && currentOrder.items && currentOrder.items.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onReorder(currentOrder.items);
-                          onClose();
-                        }}
-                        className="px-3.5 py-1.5 bg-[#FB8C00] hover:bg-[#E67E00] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Mua Lại Đơn Này</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* STEPPER 4 BƯỚC GIAO HỎA TỐC 2 GIỜ */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <Truck className="w-4 h-4 text-[#10542C]" />
-                      Lộ Trình Giao Nhanh 2 Giờ HoNa Fresh:
-                    </span>
-                    <span className="text-xs font-extrabold text-[#10542C]">
-                      {currentOrder.status === 'DELIVERED'
-                        ? 'Đã giao thành công'
-                        : currentOrder.status === 'SHIPPING'
-                        ? 'Tài xế đang di chuyển'
-                        : currentOrder.status === 'CONFIRMED'
-                        ? 'Đang chuẩn bị rau'
-                        : 'Chờ tiếp nhận'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2">
-                    {RETAIL_STEPS.map((step, idx) => {
-                      const currentIdx = getRetailStepIndex(currentOrder.status);
-                      const isCompleted = idx <= currentIdx;
-                      const isCurrent = idx === currentIdx;
-                      const StepIcon = step.icon;
-
-                      return (
-                        <div key={step.key} className="flex flex-col items-center text-center">
-                          <div
-                            className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${
-                              isCurrent
-                                ? 'bg-[#10542C] text-white ring-4 ring-[#8BC34A]/30 shadow-md scale-105 animate-pulse'
-                                : isCompleted
-                                ? 'bg-emerald-600 text-white shadow-sm'
-                                : 'bg-gray-100 text-gray-400 border border-gray-200'
-                            }`}
-                          >
-                            <StepIcon className="w-5 h-5" />
-                          </div>
-                          <span
-                            className={`text-xs mt-2 leading-tight font-bold ${
-                              isCurrent
-                                ? 'text-[#10542C]'
-                                : isCompleted
-                                ? 'text-slate-800'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {step.label}
-                          </span>
-                          <span className="hidden sm:block text-[10px] text-slate-400 leading-tight mt-0.5">
-                            {step.desc}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* THÔNG TIN NGƯỜI NHẬN & ĐỊA CHỈ */}
-                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                      <UserCheck className="w-4 h-4 text-[#10542C]" />
-                      Người nhận: {currentOrder.recipientName} ({currentOrder.recipientPhone})
-                    </span>
-                    <span className="font-extrabold text-[#10542C]">
-                      {currentOrder.paymentMethod === 'COD' ? 'Tiền mặt COD' : 'VietQR Chuyển Khoản'}
-                    </span>
-                  </div>
-                  <div className="text-slate-600 flex items-start gap-1.5">
-                    <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                    <span>{currentOrder.shippingAddress}</span>
-                  </div>
-                  {currentOrder.note && (
-                    <div className="text-slate-500 italic pl-5">
-                      Ghi chú: {currentOrder.note}
-                    </div>
-                  )}
-                </div>
-
-                {/* DANH SÁCH MÓN RAU CỦ TRONG ĐƠN */}
-                <div className="space-y-3">
-                  <span className="text-xs font-bold text-slate-700 block">
-                    Nông sản trong đơn ({currentOrder.items?.length || 0} món):
-                  </span>
-                  <div className="space-y-2">
-                    {currentOrder.items?.map((it) => (
-                      <div
-                        key={it.id}
-                        className="flex items-center justify-between p-2.5 bg-white border border-gray-200 rounded-xl hover:border-emerald-200 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          {it.productImageUrl ? (
-                            <img
-                              src={it.productImageUrl}
-                              alt={it.productName}
-                              className="w-10 h-10 rounded-lg object-cover border border-gray-100"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs">
-                              Rau
-                            </div>
-                          )}
-                          <div>
-                            <span className="text-xs font-bold text-slate-800 block">
-                              {it.productName}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              {formatVnd(it.unitPrice)} × {it.quantity} {it.unit}
-                            </span>
-                          </div>
-                        </div>
-
-                        <span className="text-xs font-black text-[#10542C]">
-                          {formatVnd(it.totalPrice)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="p-3 bg-[#FAFBF9] rounded-xl border border-gray-200 flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-600">Tổng thanh toán:</span>
-                    <span className="font-heading font-black text-lg text-[#10542C]">
-                      {formatVnd(currentOrder.totalAmount)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* NÚT KHÁCH HÀNG XÁC NHẬN ĐÃ NHẬN HÀNG */}
-                {currentOrder.status !== 'DELIVERED' && (
-                  <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200 flex items-center justify-between gap-3">
-                    <div>
-                      <span className="text-xs font-bold text-[#10542C] block">
-                        Đã nhận được rau tươi ngon?
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Bấm xác nhận để hoàn tất đơn hàng và tích lũy điểm thưởng thành viên
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleConfirmRetailDelivered(currentOrder.id)}
-                      className="px-4 py-2 bg-[#10542C] hover:bg-[#0c3e20] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-[#8BC34A]" />
-                      <span>Đã Nhận Hàng</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 

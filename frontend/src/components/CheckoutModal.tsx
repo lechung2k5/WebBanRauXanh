@@ -3,6 +3,9 @@
 import React, { useState } from 'react';
 import { CartItem, OrderRequest, OrderResponse } from '@/types';
 import { createOrder } from '@/services/api';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
+import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
+import { generateVietQrUrl } from '@/services/sepayService';
 import {
   X,
   Truck,
@@ -44,6 +47,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'BANK_TRANSFER'>('COD');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdOrderForPayment, setCreatedOrderForPayment] = useState<OrderResponse | null>(null);
 
   if (!isOpen) return null;
 
@@ -84,7 +88,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       };
 
       const result = await createOrder(orderReq);
-      onOrderSuccess(result);
+      if (paymentMethod === 'BANK_TRANSFER' && result && result.orderCode) {
+        setCreatedOrderForPayment(result);
+      } else {
+        onOrderSuccess(result);
+      }
     } catch (err: any) {
       setError(err.message || 'Có lỗi xảy ra khi tạo đơn hàng');
     } finally {
@@ -159,16 +167,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[#2C3E2E] mb-1">
-                Địa chỉ chi tiết *
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="Số nhà, tên đường, phường/xã, quận/huyện"
+              <AddressAutocomplete
+                label="Địa chỉ giao hàng chi tiết"
+                required={true}
+                placeholder="Số nhà, tên đường, phường/xã, quận/huyện..."
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-[#EAECE8] rounded-lg text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+                onChange={setAddress}
+                onSelectAddress={(data) => {
+                  if (data.address) setAddress(data.address);
+                }}
+                showCurrentLocationBtn={true}
               />
             </div>
 
@@ -242,21 +250,26 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </label>
             </div>
 
-            {/* Mở rộng hiển thị mã VietQR động nếu chọn chuyển khoản */}
+            {/* Mở rộng hiển thị thông tin VietQR nếu chọn chuyển khoản */}
             {paymentMethod === 'BANK_TRANSFER' && (
               <div className="mt-3 p-3.5 bg-white rounded-xl border border-[#EAECE8] text-center space-y-2">
                 <span className="text-[11px] font-bold text-[#10542C] block">
-                  Quét mã VietQR chuyển khoản nhanh:
+                  Chuyển khoản VietQR tự động qua ngân hàng:
                 </span>
-                <div className="relative w-40 h-40 mx-auto bg-gray-50 rounded-lg p-2 border border-[#EAECE8] flex items-center justify-center">
+                <div className="relative w-36 h-36 mx-auto bg-gray-50 rounded-lg p-2 border border-[#EAECE8] flex items-center justify-center">
                   <img
-                    src={`https://api.vietqr.io/image/970422-0987654321-compact2.jpg?amount=${totalAmount}&addInfo=HONAFRESH%20${phone || 'DONHANG'}`}
-                    alt="VietQR code"
+                    src={generateVietQrUrl({
+                      amount: totalAmount,
+                      content: `HONA ${phone ? phone.replace(/\D/g, '') : 'DONHANG'}`,
+                    })}
+                    alt="Mã VietQR chuyển khoản"
                     className="w-full h-full object-contain"
                   />
                 </div>
                 <div className="text-[11px] text-[#6B7280]">
-                  STK: <strong>0987654321</strong> - MB Bank (HoNa Fresh)
+                  Ngân hàng: <strong>MB Bank</strong> · Số tài khoản: <strong>0987654321</strong>
+                  <br />
+                  <span className="text-[10px] text-emerald-700">Mã QR chính xác sẽ hiển thị ngay sau khi bấm Tiến hành Đặt Hàng</span>
                 </div>
               </div>
             )}
@@ -306,6 +319,27 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             {loading ? 'Đang gửi đơn hàng...' : 'Tiến hành Đặt Hàng'}
           </button>
         </form>
+
+        {/* Modal Quét mã VietQR SePay thời gian thực */}
+        {createdOrderForPayment && (
+          <SepayPaymentModal
+            isOpen={!!createdOrderForPayment}
+            onClose={() => {
+              const order = createdOrderForPayment;
+              setCreatedOrderForPayment(null);
+              onOrderSuccess(order);
+            }}
+            type="ORDER"
+            code={createdOrderForPayment.orderCode}
+            amount={createdOrderForPayment.totalAmount}
+            recipientName={createdOrderForPayment.recipientName}
+            onSuccess={() => {
+              const order = createdOrderForPayment;
+              setCreatedOrderForPayment(null);
+              onOrderSuccess({ ...order, isPaid: true });
+            }}
+          />
+        )}
       </div>
     </div>
   );

@@ -50,8 +50,8 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục
-                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
+                        // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục, Webhook SePay
+                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error", "/sepay/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
                         .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
                         .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()

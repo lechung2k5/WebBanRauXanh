@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS hub_inspections (
  received_weight_kg NUMERIC(12,2) NOT NULL, qualified_weight_kg NUMERIC(12,2) NOT NULL, rejected_weight_kg NUMERIC(12,2) NOT NULL,
  brix_degree NUMERIC(5,2), moisture_pct NUMERIC(5,2), qc_staff_id BIGINT NOT NULL REFERENCES users(id), qc_note TEXT, inspected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CHECK(received_weight_kg>0 AND qualified_weight_kg>0 AND rejected_weight_kg>=0 AND received_weight_kg=qualified_weight_kg+rejected_weight_kg));
+ALTER TABLE hub_inspections ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE hub_inspections ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE hub_inspections ADD COLUMN IF NOT EXISTS moisture_percent NUMERIC(5,2);
 
 CREATE TABLE IF NOT EXISTS shipments (
  id BIGSERIAL PRIMARY KEY, shipment_code VARCHAR(60) UNIQUE NOT NULL, contract_id BIGINT UNIQUE NOT NULL REFERENCES b2b_contracts(id), truck_id BIGINT NOT NULL REFERENCES cold_assets(id),
@@ -48,6 +51,23 @@ CREATE TABLE IF NOT EXISTS shipments (
 CREATE TABLE IF NOT EXISTS iot_sensor_logs (
  id BIGSERIAL PRIMARY KEY, asset_id BIGINT NOT NULL REFERENCES cold_assets(id), temperature NUMERIC(5,2) NOT NULL, humidity NUMERIC(5,2) NOT NULL,
  is_alert BOOLEAN NOT NULL DEFAULT FALSE, alert_message TEXT, simulated BOOLEAN NOT NULL DEFAULT TRUE, recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);
+-- Compatible with databases created by the earlier farmer portal schema.
+-- Keep the old contract_id/alert columns and add the admin-business columns when missing.
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS asset_id BIGINT;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS contract_id BIGINT REFERENCES b2b_contracts(id);
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS alert BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS is_alert BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS alert_message TEXT;
+ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS simulated BOOLEAN NOT NULL DEFAULT TRUE;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'iot_sensor_logs' AND column_name = 'alert'
+    ) THEN
+        EXECUTE 'UPDATE iot_sensor_logs SET is_alert = alert WHERE alert IS NOT NULL AND is_alert = FALSE';
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS iot_asset_recorded ON iot_sensor_logs(asset_id,recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS spoilage_claims (

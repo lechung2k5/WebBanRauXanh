@@ -13,6 +13,8 @@ import {
   Sparkles,
   ArrowRight,
   TrendingUp,
+  CheckCircle2,
+  PhoneCall,
 } from 'lucide-react';
 
 interface ProductCardProps {
@@ -20,6 +22,7 @@ interface ProductCardProps {
   onAddToCart?: (product: Product, quantity?: number) => void;
   onViewDetail?: (product: Product) => void;
   onNegotiate?: (product: Product) => void;
+  layout?: 'horizontal' | 'grid';
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -27,6 +30,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onAddToCart,
   onViewDetail,
   onNegotiate,
+  layout = 'horizontal',
 }) => {
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -64,11 +68,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       : 'bg-blue-50 text-blue-800 border-blue-200';
 
   return (
-    <div className="group bg-white rounded-2xl border border-[#EAECE8] shadow-xs hover:shadow-lg hover:border-[#10542C]/40 transition-all duration-300 flex flex-col md:flex-row items-stretch overflow-hidden">
+    <div className={`group bg-white rounded-2xl border border-[#EAECE8] shadow-xs hover:shadow-lg hover:border-[#10542C]/40 transition-all duration-300 flex items-stretch overflow-hidden ${layout === 'grid' ? 'flex-col' : 'flex-col md:flex-row'}`}>
       {/* CỘT 1: Ảnh sản phẩm sạch sẽ - Không để badge đè lên che khuất ảnh */}
       <div
         onClick={() => onViewDetail && onViewDetail(product)}
-        className="relative w-full md:w-64 lg:w-72 shrink-0 aspect-16/10 md:aspect-auto overflow-hidden bg-[#F9F9F5] cursor-pointer"
+        className={`relative shrink-0 overflow-hidden bg-[#F9F9F5] cursor-pointer ${layout === 'grid' ? 'w-full aspect-[16/9]' : 'w-full md:w-64 lg:w-72 aspect-16/10 md:aspect-auto'}`}
       >
         <img
           src={product.imageUrl}
@@ -96,21 +100,30 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* CỘT 2: Nội dung lô hàng & TẤT CẢ BADGE HIỂN THỊ TRONG CARD */}
       <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between space-y-3">
         <div>
-          {/* Hàng 1: Nguồn gốc Hợp Tác Xã & Vùng trồng */}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B7280] mb-2">
-            <span className="inline-flex items-center gap-1.5 font-bold text-[#10542C] bg-[#10542C]/8 px-2.5 py-1 rounded-lg border border-[#10542C]/15">
-              <Building2 className="w-3.5 h-3.5 text-[#4CAF50]" />
-              <span className="truncate max-w-[220px]">{product.farmName || 'HTX Nông Nghiệp Đơn Dương'}</span>
+          {/* Hàng 1: Nguồn gốc Nông Trại Thật & Vùng Trồng Đã Xác Thực */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#6B7280] mb-2">
+            <span
+              className="inline-flex items-center gap-1.5 font-bold text-[#10542C] bg-[#10542C]/8 px-2.5 py-1 rounded-lg border border-[#10542C]/15 shadow-2xs"
+              title={`Nông trại: ${product.farmName || 'HTX Nông Nghiệp Đơn Dương'}`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-[#4CAF50] shrink-0" />
+              <span className="truncate max-w-[200px]">{product.farmName || 'HTX Nông Nghiệp Đơn Dương'}</span>
             </span>
 
-            <span className="inline-flex items-center gap-1 text-[#4B5563] bg-gray-50 px-2 py-1 rounded-lg border border-gray-200">
-              <MapPin className="w-3 h-3 text-[#8BC34A]" />
-              <span>{product.farmLocation || 'Lâm Đồng'}</span>
+            {/* Huy hiệu Nông Trại Thật Xác Thực */}
+            <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300 shadow-2xs">
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span>Nông Trại Thật</span>
+            </span>
+
+            <span className="inline-flex items-center gap-1 text-[#4B5563] bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-200">
+              <MapPin className="w-3 h-3 text-[#8BC34A] shrink-0" />
+              <span className="truncate max-w-[150px]">{product.farmLocation || 'Lâm Đồng'}</span>
             </span>
 
             {product.pucCode && (
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#2C3E2E] bg-gray-100 px-2 py-1 rounded-lg border border-gray-200">
-                Mã PUC: <strong className="text-[#10542C]">{product.pucCode}</strong>
+              <span className="inline-flex items-center gap-1 font-mono text-[10.5px] text-[#2C3E2E] bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200">
+                PUC: <strong className="text-[#10542C]">{product.pucCode}</strong>
               </span>
             )}
           </div>
@@ -183,7 +196,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* CỘT 3: Bảng giá sỉ & Cụm nút hành động B2B */}
-      <div className="w-full md:w-64 lg:w-72 bg-[#FAFBF9] p-4 sm:p-5 border-t md:border-t-0 md:border-l border-[#EAECE8] flex flex-col justify-between shrink-0 space-y-3">
+      <div className={`w-full bg-[#FAFBF9] p-4 sm:p-5 border-[#EAECE8] flex flex-col justify-between shrink-0 space-y-3 ${layout === 'grid' ? 'border-t' : 'md:w-64 lg:w-72 border-t md:border-t-0 md:border-l'}`}>
         <div>
           <span className="text-[11px] text-[#6B7280] block font-medium">Giá sỉ xuất vườn:</span>
           <div className="flex items-baseline gap-1 mt-0.5">

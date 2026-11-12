@@ -7,13 +7,18 @@ import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
 import com.btl.webbanrau.dto.request.BuyerProfileRequest;
+import com.btl.webbanrau.dto.response.BuyerProfileResponse;
+import com.btl.webbanrau.dto.response.OrderResponse;
+import com.btl.webbanrau.dto.response.PageResponse;
 import com.btl.webbanrau.model.BuyerProfile;
 import com.btl.webbanrau.model.BuyerWarehouse;
 import com.btl.webbanrau.model.HarvestLot;
 import com.btl.webbanrau.model.RfqNegotiation;
+import com.btl.webbanrau.model.RfqStatus;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.BuyerProfileRepository;
 import com.btl.webbanrau.repository.BuyerWarehouseRepository;
+import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.repository.HarvestLotRepository;
 import com.btl.webbanrau.repository.RfqNegotiationRepository;
 import com.btl.webbanrau.repository.UserRepository;
@@ -24,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,8 +45,10 @@ public class BuyerWorkflowService {
     private final RfqNegotiationRepository rfqs;
     private final BuyerProfileRepository profiles;
     private final BuyerWarehouseRepository warehouses;
+    private final B2bContractRepository b2bContracts;
     private final JdbcTemplate db;
     private final AdminBusinessService business;
+    private final OrderService orderService;
     private final ObjectMapper objectMapper;
 
     public User currentBuyer() {
@@ -52,35 +60,45 @@ public class BuyerWorkflowService {
     }
 
     @Transactional
-    public BuyerProfile profile() {
+    public BuyerProfileResponse profile() {
         User buyer = currentBuyer();
-        return profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
+        BuyerProfile profile = profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
                 .user(buyer)
                 .companyName(buyer.getCompanyName())
                 .taxCode(buyer.getTaxCode())
                 .contactName(buyer.getFullName())
                 .contactPhone(buyer.getPhone())
                 .build()));
+        return toProfileResponse(buyer, profile);
     }
 
     @Transactional
-    public BuyerProfile updateProfile(BuyerProfileRequest request) {
-        BuyerProfile profile = profile();
+    public BuyerProfileResponse updateProfile(BuyerProfileRequest request) {
+        User buyer = currentBuyer();
+        BuyerProfile profile = profileEntity(buyer);
         profile.setCompanyName(request.getCompanyName().trim());
         profile.setTaxCode(request.getTaxCode());
-        profile.setContactName(request.getContactName());
-        profile.setContactPhone(request.getContactPhone());
-        return profiles.save(profile);
+        profile.setContactName(blankToDefault(request.getContactName(), request.getFullName()));
+        profile.setContactPhone(blankToDefault(request.getContactPhone(), request.getPhone()));
+
+        buyer.setFullName(request.getFullName().trim());
+        buyer.setCompanyName(request.getCompanyName().trim());
+        buyer.setTaxCode(request.getTaxCode());
+        buyer.setPhone(blankToDefault(request.getPhone(), request.getContactPhone()));
+        buyer.setAddress(request.getAddress());
+        buyer.setWarehouseAddress(request.getWarehouseAddress());
+        users.save(buyer);
+        return toProfileResponse(buyer, profiles.save(profile));
     }
 
     @Transactional
     public List<BuyerWarehouse> addresses() {
-        return warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profile());
+        return warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profileEntity(currentBuyer()));
     }
 
     @Transactional
     public BuyerWarehouse addAddress(BuyerWarehouseRequest request) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         if (request.isDefaultWarehouse() || warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profile).isEmpty()) {
             clearDefault(profile);
         }
@@ -95,7 +113,7 @@ public class BuyerWorkflowService {
 
     @Transactional
     public BuyerWarehouse updateAddress(Long id, BuyerWarehouseRequest request) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         BuyerWarehouse address = ownedAddress(profile, id);
         if (request.isDefaultWarehouse()) clearDefault(profile);
         address.setName(request.getName().trim());
@@ -107,7 +125,7 @@ public class BuyerWorkflowService {
 
     @Transactional
     public void deleteAddress(Long id) {
-        BuyerProfile profile = profile();
+        BuyerProfile profile = profileEntity(currentBuyer());
         BuyerWarehouse address = ownedAddress(profile, id);
         boolean wasDefault = address.isDefaultWarehouse();
         warehouses.delete(address);
@@ -118,6 +136,11 @@ public class BuyerWorkflowService {
                 warehouses.save(remaining.getFirst());
             }
         }
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<OrderResponse> orders(int page, int size) {
+        return orderService.getOrdersByUser(currentBuyer().getId(), page, size);
     }
 
     @Transactional
@@ -145,15 +168,33 @@ public class BuyerWorkflowService {
                 .hubLocation(request.getDeliveryLocation().trim())
                 .shippingOption(request.getShippingOption())
                 .notes(request.getNotes())
-                .status("PENDING")
+                .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
                 .build();
-        return rfqView(rfqs.save(rfq));
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "CREATED", null, RfqStatus.WAITING_FARMER,
+                saved.getRequestedQuantity(), saved.getTargetPrice(), saved.getNotes());
+        return rfqView(saved);
+    }
+
+    @Transactional
+    public List<Map<String, Object>> listRfqs() {
+        User buyer = currentBuyer();
+        return rfqs.findByBuyerOrderByCreatedAtDesc(buyer).stream().map(rfq -> {
+            expireIfNeeded(rfq);
+            return rfqView(rfq);
+        }).toList();
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listRfqs() {
+    public List<Map<String, Object>> rfqHistory(Long id) {
         User buyer = currentBuyer();
-        return rfqs.findByBuyerOrderByCreatedAtDesc(buyer).stream().map(this::rfqView).toList();
+        RfqNegotiation rfq = rfqs.findById(id)
+                .orElseThrow(() -> new AuthException(404, "RFQ_NOT_FOUND", "Không tìm thấy RFQ."));
+        if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
+            throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền xem RFQ này.");
+        }
+        return db.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
     }
 
     @Transactional
@@ -164,24 +205,40 @@ public class BuyerWorkflowService {
         if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
             throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền với RFQ này.");
         }
+        expireIfNeeded(rfq);
         String action = request.getAction().trim().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
         if ("COUNTER".equals(action)) {
+            if (!RfqStatus.isBuyerTurn(currentStatus)) {
+                throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua phản hồi.");
+            }
             if (request.getCounterPrice() == null || request.getCounterPrice().signum() <= 0) {
                 throw new AuthException(400, "COUNTER_PRICE_REQUIRED", "Counter-offer phải có giá hợp lệ.");
             }
             rfq.setCounterPrice(request.getCounterPrice());
             if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
-            rfq.setStatus("COUNTER_OFFER");
-            return rfqView(rfqs.save(rfq));
+            rfq.setStatus(RfqStatus.WAITING_FARMER);
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, buyer.getId(), "BUYER", "COUNTER", currentStatus, saved.getStatus(),
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice(), "Người mua gửi đề xuất mới");
+            return rfqView(saved);
         }
         if ("REJECT".equals(action)) {
+            if (!RfqStatus.isBuyerTurn(currentStatus)) {
+                throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua phản hồi.");
+            }
             rfq.setRejectReason(request.getRejectReason());
-            rfq.setStatus("REJECTED");
-            return rfqView(rfqs.save(rfq));
+            rfq.setStatus(RfqStatus.REJECTED);
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, buyer.getId(), "BUYER", "REJECT", currentStatus, saved.getStatus(),
+                    saved.getRequestedQuantity(), saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    request.getRejectReason());
+            return rfqView(saved);
         }
         if (!"ACCEPT".equals(action)) throw new AuthException(400, "INVALID_RFQ_ACTION", "Chỉ hỗ trợ ACCEPT, COUNTER hoặc REJECT.");
-        if (!"PENDING".equals(rfq.getStatus()) && !"COUNTER_OFFER".equals(rfq.getStatus())) {
-            throw new AuthException(400, "RFQ_NOT_ACTIONABLE", "RFQ hiện không còn chờ xử lý.");
+        if (!RfqStatus.isBuyerTurn(currentStatus)) {
+            throw new AuthException(400, "RFQ_NOT_BUYER_TURN", "RFQ hiện chưa đến lượt người mua chấp nhận.");
         }
 
         BigDecimal price = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
@@ -195,9 +252,13 @@ public class BuyerWorkflowService {
         ObjectNode transition = objectMapper.createObjectNode().put("status", "AGREED");
         business.transition(contractId, transition);
         db.update("UPDATE b2b_contracts SET rfq_id=? WHERE id=?", rfq.getId(), contractId);
-        rfq.setStatus("ACCEPTED");
+        rfq.setStatus(RfqStatus.ACCEPTED);
         rfq.setTargetPrice(price);
-        return rfqView(rfqs.save(rfq));
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "ACCEPT", currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(), price,
+                "Người mua chấp nhận đề xuất và tạo hợp đồng");
+        return rfqView(saved);
     }
 
     @Transactional(readOnly = true)
@@ -206,9 +267,18 @@ public class BuyerWorkflowService {
         return db.queryForList("""
                 SELECT c.id, c.contract_code, c.status, c.total_goods_amount, c.deposit_30_amount,
                        c.deposit_received, c.balance_received, c.refund_amount, c.delivery_address,
-                       c.offered_weight_kg, c.offered_price_per_kg, c.created_at, l.product_name,
-                       l.lot_code, c.rfq_id
-                FROM b2b_contracts c JOIN harvest_lots l ON l.id=c.lot_id
+                       c.offered_weight_kg, c.offered_price_per_kg, c.created_at, c.lot_id,
+                       l.product_name, l.lot_code, l.puc_code, l.image_url,
+                       c.rfq_id, r.rfq_code,
+                       COALESCE(c.buyer_name, bu.full_name) AS buyer_name,
+                       COALESCE(c.buyer_phone, bu.phone) AS buyer_phone,
+                       fu.full_name AS farmer_name, fu.phone AS farmer_phone,
+                       fu.company_name AS farmer_company
+                FROM b2b_contracts c
+                JOIN harvest_lots l ON l.id=c.lot_id
+                LEFT JOIN rfq_negotiations r ON r.id=c.rfq_id
+                LEFT JOIN users bu ON bu.id=c.buyer_id
+                LEFT JOIN users fu ON fu.id=c.farmer_id
                 WHERE c.buyer_id=? ORDER BY c.id DESC
                 """, buyer.getId());
     }
@@ -314,6 +384,38 @@ public class BuyerWorkflowService {
         return address;
     }
 
+    private BuyerProfile profileEntity(User buyer) {
+        return profiles.findByUserId(buyer.getId()).orElseGet(() -> profiles.save(BuyerProfile.builder()
+                .user(buyer)
+                .companyName(buyer.getCompanyName())
+                .taxCode(buyer.getTaxCode())
+                .contactName(buyer.getFullName())
+                .contactPhone(buyer.getPhone())
+                .build()));
+    }
+
+    private BuyerProfileResponse toProfileResponse(User buyer, BuyerProfile profile) {
+        return BuyerProfileResponse.builder()
+                .userId(buyer.getId())
+                .username(buyer.getUsername())
+                .email(buyer.getEmail())
+                .fullName(buyer.getFullName())
+                .phone(buyer.getPhone())
+                .address(buyer.getAddress())
+                .companyName(profile.getCompanyName())
+                .taxCode(profile.getTaxCode())
+                .contactName(profile.getContactName())
+                .contactPhone(profile.getContactPhone())
+                .warehouseAddress(buyer.getWarehouseAddress())
+                .kycStatus(buyer.getKycStatus())
+                .emailVerified(buyer.isEmailVerified())
+                .build();
+    }
+
+    private static String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
     private void clearDefault(BuyerProfile profile) {
         warehouses.findByBuyerProfileOrderByDefaultWarehouseDescNameAsc(profile).forEach(address -> {
             if (address.isDefaultWarehouse()) {
@@ -335,17 +437,59 @@ public class BuyerWorkflowService {
         result.put("id", rfq.getId());
         result.put("rfqCode", rfq.getRfqCode());
         result.put("status", rfq.getStatus());
+        result.put("statusLabel", RfqStatus.label(rfq.getStatus()));
+        result.put("nextActor", RfqStatus.nextActor(rfq.getStatus()));
         result.put("productName", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getProductName());
         result.put("harvestLotId", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getId());
+        result.put("lotCode", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getLotCode());
+        result.put("buyerName", rfq.getBuyerName());
+        result.put("buyerPhone", rfq.getBuyerPhone());
         result.put("buyerCompany", rfq.getBuyerCompany());
         result.put("quantityKg", rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity());
         result.put("requestedQuantityKg", rfq.getRequestedQuantity());
         result.put("proposedPricePerKg", rfq.getTargetPrice());
         result.put("counterPricePerKg", rfq.getCounterPrice());
+        result.put("counterQuantityKg", rfq.getCounterQuantity());
         result.put("deliveryDate", rfq.getDeliveryDate());
         result.put("deliveryLocation", rfq.getHubLocation());
+        result.put("shippingOption", rfq.getShippingOption());
+        result.put("notes", rfq.getNotes());
+        result.put("expiresAt", rfq.getExpiresAt());
+        b2bContracts.findByRfqId(rfq.getId()).ifPresent(contract -> {
+            result.put("contractId", contract.getId());
+            result.put("contractCode", contract.getContractCode());
+            result.put("contractStatus", contract.getStatus());
+            result.put("depositStatus", contract.getDepositStatus());
+            result.put("depositAmount", contract.getDepositAmount());
+        });
         result.put("createdAt", rfq.getCreatedAt());
+        result.put("updatedAt", rfq.getUpdatedAt());
         return result;
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        db.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqs.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
     }
 
     private static BigDecimal decimal(Map<String, Object> map, String key) {

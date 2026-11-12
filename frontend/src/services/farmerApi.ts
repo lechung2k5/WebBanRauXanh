@@ -1,5 +1,6 @@
 import {
   ApiResponse,
+  PageResponse,
   FarmerStats,
   FarmerProfile,
   HarvestLot,
@@ -15,6 +16,7 @@ import {
 import {
   getSyncContracts,
   getSyncRfqs,
+  notifySyncEvent,
   B2bSyncContract,
 } from '@/services/b2bSyncService';
 
@@ -173,7 +175,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 11500,
     deliveryDate: '2026-10-28',
     hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T07:15:00',
   },
   {
@@ -189,7 +191,7 @@ export const FALLBACK_RFQS: RfqItem[] = [
     targetPrice: 18500,
     deliveryDate: '2026-10-29',
     hubLocation: 'Trạm Lạnh Đơn Dương',
-    status: 'PENDING',
+    status: 'WAITING_FARMER',
     createdAt: '2026-10-26T08:00:00',
   },
   {
@@ -345,6 +347,7 @@ export const getFarmerStatsApi = async (): Promise<FarmerStats> => {
     const res = await fetch(`${API_BASE_URL}/farmer/dashboard/stats`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<FarmerStats> = await res.json();
@@ -365,8 +368,8 @@ export const getFarmerStatsApi = async (): Promise<FarmerStats> => {
       const syncContracts = getSyncContracts();
       const syncRfqs = getSyncRfqs();
       const localLots: HarvestLot[] = JSON.parse(localStorage.getItem('b2b_farmer_lots') || '[]');
-
-      openLots = Math.max(3, 3 + localLots.length);
+      const localOpenLots = localLots.filter((l) => l.status === 'OPEN').length;
+      openLots = 3 + localOpenLots;
 
       // Doanh thu thật: Hợp đồng đã tất toán hoàn tất (Mốc 6 hoặc finalPaidStatus === 'PAID')
       const completedContracts = syncContracts.filter(
@@ -406,6 +409,7 @@ export const getFarmerProfileApi = async (): Promise<FarmerProfile> => {
     const res = await fetch(`${API_BASE_URL}/farmer/profile`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (!res.ok) throw new Error('Không thể tải thông tin hồ sơ nông dân');
     const data: ApiResponse<FarmerProfile> = await res.json();
@@ -419,7 +423,7 @@ export const updateFarmerProfileApi = async (profileData: Partial<FarmerProfile>
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/profile`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
       body: JSON.stringify(profileData),
     });
@@ -442,6 +446,13 @@ export const saveLocalLot = (lot: HarvestLot) => {
     const filtered = existing.filter((l) => l.id !== lot.id && l.lotCode !== lot.lotCode);
     filtered.unshift(lot);
     localStorage.setItem('b2b_farmer_lots', JSON.stringify(filtered));
+
+    // Đồng bộ sang xanhfarm_custom_harvest_lots để Admin thấy ngay trong Admin Console
+    const customRaw = localStorage.getItem('xanhfarm_custom_harvest_lots');
+    const customLots: HarvestLot[] = customRaw ? JSON.parse(customRaw) : [];
+    const filteredCustom = customLots.filter((l) => l.id !== lot.id && l.lotCode !== lot.lotCode);
+    filteredCustom.unshift(lot);
+    localStorage.setItem('xanhfarm_custom_harvest_lots', JSON.stringify(filteredCustom));
   } catch {}
 };
 
@@ -454,27 +465,40 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
     } catch {}
   }
 
-  let serverLots = FALLBACK_HARVEST_LOTS;
+  let serverLots: HarvestLot[] = [];
+  let isApiSuccess = false;
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<HarvestLot[]> = await res.json();
-      if (data.result && data.result.length > 0) {
-        serverLots = data.result;
+      const items = data.result || (data as unknown as { data: HarvestLot[] }).data;
+      if (Array.isArray(items)) {
+        serverLots = items;
+        isApiSuccess = true;
       }
     }
   } catch {
     // fallback
   }
 
-  // Kết hợp Lô người dùng vừa tạo với Lô mặc định (Lô vừa tạo lên đầu)
+  // Khi API kết nối thành công, lấy dữ liệu Server làm chuẩn để không bị đè bởi local stale data
+  if (isApiSuccess && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('b2b_farmer_lots', JSON.stringify(serverLots));
+    } catch {}
+  }
+
+  const primaryLots = isApiSuccess ? serverLots : localLots;
+  const secondaryLots = isApiSuccess ? localLots : [];
+
   const seenCodes = new Set<string>();
   const merged: HarvestLot[] = [];
 
-  for (const lot of [...localLots, ...serverLots]) {
+  for (const lot of [...primaryLots, ...secondaryLots]) {
     const key = lot.lotCode || String(lot.id);
     if (!seenCodes.has(key)) {
       seenCodes.add(key);
@@ -493,7 +517,9 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
 
 export const createHarvestLotApi = async (lotData: {
   productName: string;
+  farmerName?: string;
   categorySlug?: string;
+  category?: string;
   imageUrl?: string;
   pucCode: string;
   harvestDate: string;
@@ -502,36 +528,193 @@ export const createHarvestLotApi = async (lotData: {
   unit?: string;
   minTemp?: number;
   maxTemp?: number;
+  reqTempMin?: number;
+  reqTempMax?: number;
+  basePricePerKg?: number;
   tierPricingJson: string;
   hubLocation?: string;
 }): Promise<HarvestLot> => {
+  let normalizedTiers: any[] = [];
+  try {
+    const parsed = JSON.parse(lotData.tierPricingJson || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      normalizedTiers = parsed.map((item: any) => {
+        const p = Number(item.price ?? item.pricePerKg ?? item.price_per_kg ?? 0);
+        return {
+          minKg: Number(item.minKg || item.quantity || 0),
+          price: p,
+          pricePerKg: p,
+        };
+      });
+    }
+  } catch (_) {}
+
+  const basePricePerKg =
+    lotData.basePricePerKg !== undefined && lotData.basePricePerKg !== null
+      ? Number(lotData.basePricePerKg)
+      : (normalizedTiers.length > 0 ? normalizedTiers[0].price : 0);
+
+  const minTemp = Number(lotData.minTemp ?? lotData.reqTempMin ?? 2.0);
+  const maxTemp = Number(lotData.maxTemp ?? lotData.reqTempMax ?? 6.0);
+  const normalizedTierPricingJson = JSON.stringify(normalizedTiers);
+
+  const payload = {
+    ...lotData,
+    totalWeightKg: lotData.totalQuantity,
+    availableWeightKg: lotData.totalQuantity,
+    basePricePerKg,
+    minTemp,
+    maxTemp,
+    reqTempMin: minTemp,
+    reqTempMax: maxTemp,
+    tierPricingJson: normalizedTierPricingJson,
+    pucCode: lotData.pucCode || 'PUC-LD-001',
+    status: 'PENDING_APPROVAL',
+  };
+
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
-      body: JSON.stringify(lotData),
+      body: JSON.stringify(payload),
     });
     const data: ApiResponse<HarvestLot> = await res.json();
-    if (res.ok && data.code === 200 && data.result) {
-      saveLocalLot(data.result);
-      return data.result;
+    const resultLot = data.result || (data as unknown as { data: HarvestLot }).data;
+    if (res.ok && resultLot) {
+      const finalLot: HarvestLot = {
+        ...resultLot,
+        basePricePerKg: resultLot.basePricePerKg || basePricePerKg,
+        minTemp: resultLot.minTemp ?? resultLot.reqTempMin ?? minTemp,
+        maxTemp: resultLot.maxTemp ?? resultLot.reqTempMax ?? maxTemp,
+        reqTempMin: resultLot.reqTempMin ?? resultLot.minTemp ?? minTemp,
+        reqTempMax: resultLot.reqTempMax ?? resultLot.maxTemp ?? maxTemp,
+        tierPricingJson: resultLot.tierPricingJson || normalizedTierPricingJson,
+        tierPricing: normalizedTiers,
+        status: resultLot.status || 'PENDING_APPROVAL',
+        auditNote: resultLot.auditNote || 'Đang chờ Quản trị viên xét duyệt & bổ sung thông số.',
+      };
+      saveLocalLot(finalLot);
+      // Khi FARMER đăng lô hàng mới: Gửi thông báo cho ADMIN để Admin duyệt & bổ sung field còn thiếu
+      notifySyncEvent('LOT_CREATED', {
+        lot: finalLot,
+        source: 'FARMER',
+        creatorRole: 'FARMER',
+      });
+      return finalLot;
     }
   } catch (err: unknown) {
-    console.warn('Backend API create lot error, generating mock lot:', err);
+    console.warn('Backend API create lot error, saving locally:', err);
   }
 
   const mockLot: HarvestLot = {
     id: Date.now(),
     lotCode: `LOT-2026-DL-${Math.floor(100 + Math.random() * 900)}`,
-    farmerName: 'HTX Nông Nghiệp Đà Lạt GAP',
+    farmerName: lotData.farmerName || 'Hợp Tác Xã Nông Nghiệp Đơn Dương',
     productName: lotData.productName,
-    category: 'RAU_AN_LA',
+    category: lotData.category || 'RAU_AN_LA',
     categorySlug: lotData.categorySlug || 'rau-an-la',
     totalWeightKg: lotData.totalQuantity,
     availableWeightKg: lotData.totalQuantity,
-    basePricePerKg: 15000,
+    basePricePerKg: basePricePerKg,
     imageUrl: lotData.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600',
+    pucCode: lotData.pucCode,
+    harvestDate: lotData.harvestDate,
+    expiryDate: lotData.expiryDate,
+    totalQuantity: lotData.totalQuantity,
+    remainingQuantity: lotData.totalQuantity,
+    unit: lotData.unit || 'kg',
+    minTemp: minTemp,
+    maxTemp: maxTemp,
+    reqTempMin: minTemp,
+    reqTempMax: maxTemp,
+    hubLocation: lotData.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
+    warehouseLocation: lotData.hubLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+    status: 'PENDING_APPROVAL',
+    auditNote: 'Lô nông sản do nông dân đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.',
+    tierPricingJson: normalizedTierPricingJson,
+    tierPricing: normalizedTiers,
+  };
+  saveLocalLot(mockLot);
+  // Khi FARMER đăng lô hàng mới: Gửi thông báo cho ADMIN
+  notifySyncEvent('LOT_CREATED', {
+    lot: mockLot,
+    source: 'FARMER',
+    creatorRole: 'FARMER',
+  });
+  return mockLot;
+};
+
+export const updateHarvestLotApi = async (
+  lotId: number,
+  lotData: {
+    productName: string;
+    categorySlug?: string;
+    imageUrl?: string;
+    pucCode: string;
+    harvestDate: string;
+    expiryDate: string;
+    totalQuantity: number;
+    unit?: string;
+    minTemp?: number;
+    maxTemp?: number;
+    tierPricingJson: string;
+    hubLocation?: string;
+  }
+): Promise<HarvestLot> => {
+  let basePricePerKg = 15000;
+  try {
+    const parsed = JSON.parse(lotData.tierPricingJson || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].pricePerKg || parsed[0].price)) {
+      basePricePerKg = Number(parsed[0].pricePerKg || parsed[0].price);
+    }
+  } catch (_) {}
+
+  const payload = {
+    ...lotData,
+    totalWeightKg: lotData.totalQuantity,
+    availableWeightKg: lotData.totalQuantity,
+    basePricePerKg,
+    pucCode: lotData.pucCode || 'PUC-LD-001',
+  };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/harvest-lots/${lotId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data: ApiResponse<HarvestLot> = await res.json();
+    const resultLot = data.result || (data as unknown as { data: HarvestLot }).data;
+    if (res.ok && resultLot) {
+      saveLocalLot(resultLot);
+      return resultLot;
+    }
+  } catch (err: unknown) {
+    console.warn('Backend API update lot error, saving locally:', err);
+  }
+
+  // Fallback update local storage
+  let localLots: HarvestLot[] = [];
+  if (typeof window !== 'undefined') {
+    try {
+      localLots = JSON.parse(localStorage.getItem('b2b_farmer_lots') || '[]');
+    } catch {}
+  }
+  const current = localLots.find((l) => l.id === lotId) || FALLBACK_HARVEST_LOTS.find((l) => l.id === lotId);
+  const updatedMockLot: HarvestLot = {
+    ...(current || {}),
+    id: lotId,
+    lotCode: current?.lotCode || `LOT-2026-DL-${lotId}`,
+    farmerName: current?.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+    productName: lotData.productName,
+    category: current?.category || 'RAU_AN_LA',
+    categorySlug: lotData.categorySlug || current?.categorySlug || 'rau-an-la',
+    totalWeightKg: lotData.totalQuantity,
+    availableWeightKg: lotData.totalQuantity,
+    basePricePerKg,
+    imageUrl: lotData.imageUrl || current?.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600',
     pucCode: lotData.pucCode,
     harvestDate: lotData.harvestDate,
     expiryDate: lotData.expiryDate,
@@ -541,12 +724,12 @@ export const createHarvestLotApi = async (lotData: {
     minTemp: lotData.minTemp ?? 2.0,
     maxTemp: lotData.maxTemp ?? 6.0,
     hubLocation: lotData.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-    status: 'OPEN',
+    status: current?.status || 'OPEN',
     tierPricingJson: lotData.tierPricingJson,
     tierPricing: JSON.parse(lotData.tierPricingJson || '[]'),
   };
-  saveLocalLot(mockLot);
-  return mockLot;
+  saveLocalLot(updatedMockLot);
+  return updatedMockLot;
 };
 
 // Helper: Đọc các đề xuất đàm phán do người mua gửi từ Trang Chủ hoặc Modal B2B lưu trong localStorage
@@ -606,7 +789,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
           item.deliveryLocation ||
           item.hubLocation ||
           'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-        status: item.status || 'PENDING',
+        status: item.status || 'WAITING_FARMER',
         createdAt: item.createdAt || new Date().toISOString(),
       });
     }
@@ -622,7 +805,7 @@ export const getLocalSubmittedRfqs = (): RfqItem[] => {
 export interface RfqStatusOverride {
   id?: number;
   rfqCode?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   counterPrice?: number;
   counterQuantity?: number;
   rejectReason?: string;
@@ -641,7 +824,7 @@ export const getLocalRfqOverrides = (): Record<string, RfqStatusOverride> => {
 
 export const saveLocalRfqOverride = (
   rfqKey: string | number,
-  override: Partial<RfqStatusOverride> & { status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COUNTER_OFFER' }
+  override: Partial<RfqStatusOverride> & { status: RfqStatusOverride['status'] }
 ) => {
   if (typeof window === 'undefined') return;
   try {
@@ -739,6 +922,7 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
     const res = await fetch(`${API_BASE_URL}/farmer/rfq`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<RfqItem[]> = await res.json();
@@ -791,6 +975,21 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   });
 };
 
+export const getFarmerRfqHistoryApi = async (id: number) => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${id}/history`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    });
+    const data: ApiResponse<Record<string, unknown>[]> = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
+    return data.result || [];
+  } catch {
+    return [];
+  }
+};
+
 export const respondToRfqApi = async (
   rfqId: number,
   actionData: {
@@ -805,7 +1004,7 @@ export const respondToRfqApi = async (
       ? 'ACCEPTED'
       : actionData.action === 'REJECT'
       ? 'REJECTED'
-      : 'PENDING';
+      : 'WAITING_BUYER';
 
   // Lưu trạng thái vào storage
   saveLocalRfqUpdate({
@@ -819,7 +1018,7 @@ export const respondToRfqApi = async (
   try {
     const res = await fetch(`${API_BASE_URL}/farmer/rfq/${rfqId}/respond`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
       body: JSON.stringify(actionData),
     });
@@ -924,6 +1123,7 @@ export const getContractQcApi = async (
     const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/qc`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data: ApiResponse<QcInspection> = await res.json();
@@ -1110,6 +1310,7 @@ export const settleContractApi = async (contractId: number): Promise<Settlement>
     const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/settle`, {
       method: 'POST',
       credentials: 'include',
+      headers: getAuthHeaders(),
     });
     if (res.ok) {
       const data = await res.json();
@@ -1234,6 +1435,36 @@ export const updateDeliveryScheduleApi = async (
 // 11. Helper lấy URL in Hợp Đồng B2B Điện Tử
 export const getContractPrintUrl = (contractId: number): string => {
   return `${API_BASE_URL}/farmer/contracts/${contractId}/print`;
+};
+
+export interface FarmerB2bReview {
+  id: number;
+  contractId: number;
+  reviewerRole: 'BUYER' | 'FARMER';
+  reviewerName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getFarmerReviewsApi = async (contractId: number): Promise<FarmerB2bReview[]> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    cache: 'no-store', credentials: 'include', headers: getAuthHeaders(),
+  });
+  const data: ApiResponse<FarmerB2bReview[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải đánh giá giao dịch');
+  return data.result || [];
+};
+
+export const submitFarmerReviewApi = async (contractId: number, request: { rating: number; comment?: string }): Promise<FarmerB2bReview> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${contractId}/reviews`, {
+    method: 'POST', cache: 'no-store', credentials: 'include',
+    headers: getAuthHeaders(), body: JSON.stringify(request),
+  });
+  const data: ApiResponse<FarmerB2bReview> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể lưu đánh giá giao dịch');
+  return data.result;
 };
 
 

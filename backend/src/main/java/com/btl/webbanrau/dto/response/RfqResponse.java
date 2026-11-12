@@ -28,5 +28,13 @@ public class RfqResponse {
     private LocalDate deliveryDate;
     private String hubLocation;
     private String status;
+    private String statusLabel;
+    private String nextActor;
+    private LocalDateTime expiresAt;
+    private Long contractId;
+    private String contractCode;
+    private String contractStatus;
+    private String depositStatus;
+    private BigDecimal depositAmount;
     private LocalDateTime createdAt;
 }

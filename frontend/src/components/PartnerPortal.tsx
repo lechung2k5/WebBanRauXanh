@@ -7,10 +7,14 @@ import { useApp } from '@/context/AppContext';
 import { api, portalFor } from '@/services/auth';
 import { GoogleButton } from './AuthForm';
 import { DataTable, FormDialog, lotFields, epodFields, type Row, type Field } from './admin/AdminConsole';
+import BuyerManagementConsole from '@/components/buyer/BuyerManagementConsole';
 import type { AuthResponse } from '@/types';
 
 const titles: Record<string, string> = { farmer: 'Portal Nông trại', buyer: 'Portal Thương lái', 'warehouse-qc': 'Portal Trạm QC', driver: 'Portal Tài xế', accountant: 'Portal Kế toán' };
 export default function PartnerPortal({ role }: { role: string }) {
+  if (role === 'buyer') {
+    return <BuyerManagementConsole />;
+  }
   const { currentUser, authLoading, setCurrentUser, logout } = useApp(); const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]); const [contracts, setContracts] = useState<Row[]>([]); const [error, setError] = useState(''); const [dialog, setDialog] = useState<{ title: string; fields: Field[]; submit: (values: Row) => Promise<unknown> } | null>(null);
   const expected = `ROLE_${role.toUpperCase().replaceAll('-', '_')}`; const permitted = currentUser?.roles.includes(expected);

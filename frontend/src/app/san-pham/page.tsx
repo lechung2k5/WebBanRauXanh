@@ -12,6 +12,8 @@ import Pagination from '@/components/Pagination';
 import { Product } from '@/types';
 import { getProducts } from '@/services/api';
 import { trackProductView } from '@/services/recommendationService';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { REAL_FARMS_CATALOG, RealFarm } from '@/utils/realFarmDirectory';
 import {
   Filter,
   SlidersHorizontal,
@@ -23,14 +25,20 @@ import {
   ArrowUpDown,
   Building2,
   Calendar,
+  CheckCircle2,
+  ShieldCheck,
+  MapPin,
+  Phone,
+  Award,
 } from 'lucide-react';
 
 const normalizeCategory = (cat: string | null): string | null => {
   if (!cat) return null;
-  if (cat === '1' || cat === 'rau-sach' || cat === 'rau-an-la') return 'rau-sach';
-  if (cat === '2' || cat === 'cu' || cat === 'cu-qua-tuoi') return 'cu';
-  if (cat === '3' || cat === 'nam-tuoi' || cat === 'nam-tuoi-huu-co') return 'nam-tuoi';
-  if (cat === '4' || cat === 'combo' || cat === 'rau-gia-vi') return 'rau-gia-vi';
+  const c = cat.toLowerCase().replace(/_/g, '-');
+  if (c === '1' || c === 'rau-sach' || c === 'rau-an-la') return 'rau-sach';
+  if (c === '2' || c === 'cu' || c === 'cu-qua-tuoi' || c === 'cu-qua') return 'cu';
+  if (c === '3' || c === 'nam-tuoi' || c === 'nam-tuoi-huu-co' || c === 'nam') return 'nam-tuoi';
+  if (c === '4' || c === 'combo' || c === 'rau-gia-vi' || c === 'rau-gia-vi-thao-moc' || c === 'gia-vi') return 'rau-gia-vi';
   return cat;
 };
 
@@ -50,13 +58,17 @@ function ProductListContent() {
   const [priceRange, setPriceRange] = useState<number>(100000);
   const [selectedCert, setSelectedCert] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
+  const [activeFarmModal, setActiveFarmModal] = useState<RealFarm | null>(null);
   const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc' | 'discount'>('default');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 16;
+  const pageSize = 10;
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [totalProductPages, setTotalProductPages] = useState(1);
 
   useEffect(() => {
     setSelectedCategorySlug(normalizeCategory(searchParams.get('category')));
@@ -65,38 +77,73 @@ function ProductListContent() {
     setSidebarInput(''); // Reset ô nhập ở sidebar về trống
   }, [searchParams]);
 
+  const fetchList = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getProducts({
+        keyword: appliedKeyword || undefined,
+        categorySlug: selectedCategorySlug || undefined,
+        maxPrice: priceRange < 100000 ? priceRange : undefined,
+        isOrganic: selectedCert === 'organic' ? true : undefined,
+        page: currentPage,
+        size: pageSize,
+      });
+      setProducts(res.products);
+      setTotalProducts(res.totalElements);
+      setTotalProductPages(Math.max(1, res.totalPages));
+      setIsSemanticResult(Boolean(res.isSemanticSearch));
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage, pageSize]);
+
   useEffect(() => {
-    const fetchList = async () => {
-      setLoading(true);
-      try {
-        const res = await getProducts({
-          keyword: appliedKeyword || undefined,
-          categorySlug: selectedCategorySlug || undefined,
-          maxPrice: priceRange < 100000 ? priceRange : undefined,
-          isOrganic: selectedCert === 'organic' ? true : undefined,
-        });
-        setProducts(res.products);
-        setIsSemanticResult(Boolean(res.isSemanticSearch));
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      } finally {
-        setLoading(false);
+    void fetchList();
+  }, [fetchList]);
+
+  // Lắng nghe sự kiện duyệt lô từ Admin để cập nhật ngay lập tức lên sàn
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchList();
       }
+    });
+    const handleStorage = () => void fetchList();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
     };
+  }, [fetchList]);
 
-    fetchList();
-  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert]);
+  // Apply sorting and farm filter
+  const filteredProducts = products.filter((p) => {
+    if (!selectedFarm) return true;
+    return (
+      p.farmName?.toLowerCase().includes(selectedFarm.toLowerCase()) ||
+      p.farmOwner?.toLowerCase().includes(selectedFarm.toLowerCase()) ||
+      p.farmLocation?.toLowerCase().includes(selectedFarm.toLowerCase())
+    );
+  });
 
-  // Apply sorting
-  const sortedProducts = [...products].sort((a, b) => {
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
     if (sortBy === 'price-asc') return a.price - b.price;
     if (sortBy === 'price-desc') return b.price - a.price;
     if (sortBy === 'discount') return (b.discountPercent || 0) - (a.discountPercent || 0);
     return 0;
   });
 
-  const totalPages = Math.ceil(sortedProducts.length / pageSize) || 1;
-  const paginatedProducts = sortedProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = totalProductPages;
+  const paginatedProducts = sortedProducts;
 
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -129,6 +176,8 @@ function ProductListContent() {
     setSidebarInput('');
     setPriceRange(100000);
     setSelectedCert(null);
+    setSelectedStage(null);
+    setSelectedFarm(null);
     setSortBy('default');
     setCurrentPage(1);
     router.push('/san-pham');
@@ -258,7 +307,10 @@ function ProductListContent() {
                       type="radio"
                       name="stageFilter"
                       checked={selectedStage === st.val}
-                      onChange={() => setSelectedStage(st.val)}
+                      onChange={() => {
+                        setSelectedStage(st.val);
+                        setCurrentPage(1);
+                      }}
                       className="accent-[#10542C]"
                     />
                     <span className={selectedStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
@@ -320,10 +372,103 @@ function ProductListContent() {
                 ))}
               </div>
             </div>
+
+            {/* Nông Trại & HTX Đã Xác Thực */}
+            <div className="border-t border-[#F0F2ED] pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-[#2C3E2E] flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Nông trại &amp; HTX thật
+                </label>
+                {selectedFarm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFarm(null);
+                      setCurrentPage(1);
+                    }}
+                    className="text-[10px] text-emerald-700 hover:underline font-bold"
+                  >
+                    Tất cả
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                <label className="flex items-center gap-2 text-xs text-[#2C3E2E] cursor-pointer hover:bg-[#F9F9F5] p-1.5 rounded-lg transition-colors">
+                  <input
+                    type="radio"
+                    name="farmFilter"
+                    checked={selectedFarm === null}
+                    onChange={() => {
+                      setSelectedFarm(null);
+                      setCurrentPage(1);
+                    }}
+                    className="accent-[#10542C]"
+                  />
+                  <span className={selectedFarm === null ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
+                    Tất cả nông trại (100% Đã Kiểm Định)
+                  </span>
+                </label>
+                {REAL_FARMS_CATALOG.map((farm) => (
+                  <label
+                    key={farm.id}
+                    className="flex items-start gap-2 text-xs text-[#2C3E2E] cursor-pointer hover:bg-[#F9F9F5] p-1.5 rounded-lg transition-colors"
+                  >
+                    <input
+                      type="radio"
+                      name="farmFilter"
+                      checked={selectedFarm === farm.shortName || selectedFarm === farm.name}
+                      onChange={() => {
+                        setSelectedFarm(farm.shortName);
+                        setCurrentPage(1);
+                      }}
+                      className="accent-[#10542C] mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className={`truncate ${selectedFarm === farm.shortName ? 'font-bold text-[#10542C]' : 'text-[#2C3E2E]'}`}>
+                        {farm.shortName}
+                      </div>
+                      <div className="text-[10px] text-[#8C9587] flex items-center gap-1 mt-0.5">
+                        <MapPin className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                        <span className="truncate">{farm.province}</span>
+                        <span className="text-emerald-700 font-mono text-[9px] font-bold">[{farm.pucCode.slice(-4)}]</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
           </aside>
 
           {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột): 1 hàng 1 card trải rộng chiều ngang */}
           <div className="lg:col-span-3 space-y-6">
+            {/* Trust Banner: Cam kết Nông Trại Thật & Vùng Trồng PUC Quốc Gia */}
+            <div className="bg-gradient-to-r from-[#10542C] via-[#176B38] to-[#0A3D1F] text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-emerald-800">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/20">
+                    <ShieldCheck className="w-6 h-6 text-[#9AE6B4]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-heading font-black text-sm sm:text-base text-white tracking-wide">
+                        100% Nông Sản Xuất Vườn Từ Nông Trại Thật &amp; HTX Đã Xác Thực
+                      </h3>
+                      <span className="inline-flex items-center gap-1 bg-[#E8F5E9] text-[#10542C] text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> PUC Quốc Gia
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-100/90 mt-1 leading-relaxed">
+                      Toàn bộ sản phẩm niêm yết trên sàn đều có mã số vùng trồng thực địa, chủ nông trại đại diện, chứng nhận VietGAP/GlobalGAP và được Kỹ sư trạm KCS kiểm định trước khi thương lái thanh toán.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-stretch md:self-auto justify-end">
+                  <span className="text-[11px] font-bold text-emerald-200 bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
+                    {REAL_FARMS_CATALOG.length} Vùng Trồng Trực Tiếp
+                  </span>
+                </div>
+              </div>
+            </div>
             {(isSemanticResult || appliedKeyword) && !loading && products.length > 0 && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200 flex items-center justify-between shadow-xs">
                 <div className="flex items-center gap-3">
@@ -398,11 +543,12 @@ function ProductListContent() {
             ) : (
               <>
                 {/* Layout 1 hàng 1 lô nông sản - card chiều ngang to ra */}
-                <div id="product-list-container" className="flex flex-col gap-4">
+                <div id="product-list-container" className="grid lg:grid-cols-2 gap-5">
                   {paginatedProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={product}
+                      layout="grid"
                       onViewDetail={(p) => {
                         trackProductView(p);
                         setSelectedProduct(p);
@@ -416,7 +562,7 @@ function ProductListContent() {
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  totalItems={sortedProducts.length}
+                  totalItems={totalProducts}
                   pageSize={pageSize}
                   onPageChange={(page) => setCurrentPage(page)}
                   scrollTargetId="product-list-container"

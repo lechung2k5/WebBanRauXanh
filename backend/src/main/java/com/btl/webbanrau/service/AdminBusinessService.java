@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.btl.webbanrau.model.User;
 import com.btl.webbanrau.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,26 +13,28 @@ import java.time.LocalDate;
 import java.util.*;
 
 /** All financial transitions lock the contract row and create balanced journal lines. */
-@Service @RequiredArgsConstructor
+@Service @RequiredArgsConstructor @Slf4j
 public class AdminBusinessService {
     private final JdbcTemplate db;
     private final UserRepository users;
+    private final MailService mail;
     public List<Map<String,Object>> lots(boolean publicOnly) {
         var rows=db.queryForList("select l.*,u.company_name farmer_name from harvest_lots l join users u on u.id=l.farmer_id "+(publicOnly?"where l.status='OPEN' and l.expiry_date>=CURRENT_DATE ":"")+"order by l.id desc limit 500");
         rows.forEach(row->row.put("tier_pricing_json",Objects.toString(row.get("tier_pricing_json"),"[]")));
         return rows;
     }
-    public List<Map<String,Object>> contracts() { return db.queryForList("select c.*,l.product_name,u.company_name buyer_name from b2b_contracts c join harvest_lots l on l.id=c.lot_id join users u on u.id=c.buyer_id order by c.id desc limit 500"); }
+    public List<Map<String,Object>> contracts() { return db.queryForList("select c.*, l.product_name, l.lot_code, u.company_name buyer_name, case when u.username='buyer_coop' then 'Nguyễn Thị Minh Hạnh' when u.username='buyer_winmart' then 'Phạm Hoàng Nam' when u.username='buyer_lotte' then 'Lê Trọng Đạt' else u.full_name end buyer_contact, f.company_name farmer_name, f.full_name farmer_contact from b2b_contracts c join harvest_lots l on l.id=c.lot_id join users u on u.id=c.buyer_id left join users f on f.id=c.farmer_id order by c.id desc limit 500"); }
     public List<Map<String,Object>> assets() { return db.queryForList("select a.*,coalesce((select sum(i.qualified_weight_kg) from hub_inspections i join b2b_contracts c on c.id=i.contract_id where i.cold_room_id=a.id and c.status='AT_HUB_QC'),0) occupied_kg from cold_assets a order by a.id"); }
     public List<Map<String,Object>> inspections() { return db.queryForList("select i.*,c.status contract_status,l.product_name,l.expiry_date,(l.expiry_date-CURRENT_DATE) fefo_priority_score,c.contract_code from hub_inspections i join b2b_contracts c on c.id=i.contract_id join harvest_lots l on l.id=c.lot_id order by l.expiry_date,i.id"); }
     public List<Map<String,Object>> shipments() { return db.queryForList("select s.*,c.contract_code,c.delivery_address,l.product_name,a.asset_code,a.current_temp,a.current_humidity from shipments s join b2b_contracts c on c.id=s.contract_id join harvest_lots l on l.id=c.lot_id join cold_assets a on a.id=s.truck_id order by s.id desc limit 500"); }
-    public List<Map<String,Object>> claims() { return db.queryForList("select * from spoilage_claims order by id desc limit 500"); }
+    public List<Map<String,Object>> claims() { return db.queryForList("select cl.*, c.contract_code, l.product_name, u.company_name buyer_name, f.company_name farmer_name from spoilage_claims cl left join b2b_contracts c on c.id=cl.contract_id left join harvest_lots l on l.id=c.lot_id left join users u on u.id=c.buyer_id left join users f on f.id=c.farmer_id order by cl.id desc limit 500"); }
     public Map<String,Object> settings() { return db.queryForMap("select * from platform_settings where id=1"); }
     public Map<String,Object> stats() {
         Map<String,Object> result=new LinkedHashMap<>();
         result.put("users",db.queryForObject("select count(*) from users",Long.class));
         result.put("pendingKyc",db.queryForObject("select count(*) from users where kyc_status='PENDING'",Long.class));
         result.put("lots",db.queryForObject("select count(*) from harvest_lots",Long.class));
+        result.put("contracts",db.queryForObject("select count(*) from b2b_contracts",Long.class));
         result.put("activeShipments",db.queryForObject("select count(*) from shipments where status='IN_TRANSIT'",Long.class));
         result.put("gmv",db.queryForObject("select coalesce(sum(total_goods_amount),0) from b2b_contracts where status not in ('RFQ_SENT','CANCELLED')",BigDecimal.class));
         result.put("escrow",db.queryForObject("select coalesce(sum(debit-credit),0) from gl_journal_lines where account='112'",BigDecimal.class));
@@ -108,6 +111,25 @@ public class AdminBusinessService {
             journal(id,"SETTLEMENT",ref,lines);db.update("update b2b_contracts set payout_ref=?,payout_amount=? where id=?",ref,payout,id);
         }
         db.update("update b2b_contracts set status=?,updated_at=CURRENT_TIMESTAMP where id=?",next,id);audit("CONTRACT_"+next,id);
+        notifyContractParties(c, next);
+    }
+
+    private void notifyContractParties(Map<String,Object> contract, String nextStatus) {
+        String contractCode = Objects.toString(contract.get("contract_code"), "");
+        String subject = "Cập nhật trạng thái hợp đồng " + contractCode;
+        String body = "Hợp đồng " + contractCode + " vừa chuyển sang trạng thái: " + nextStatus + ".\n"
+                + "Vui lòng đăng nhập HoNa Fresh để xem chi tiết tiến trình và thao tác tiếp theo.";
+        for (String column : List.of("buyer_id", "farmer_id")) {
+            try {
+                Long partyId = asLong(contract, column);
+                if (partyId == null) continue;
+                String email = db.queryForObject("select email from users where id=?", String.class, partyId);
+                if (email != null && !email.isBlank()) mail.send(email, subject, body);
+            } catch (Exception ex) {
+                // SMTP là kênh thông báo phụ; không rollback giao dịch nếu mail server lỗi/chưa cấu hình.
+                log.warn("Không gửi được email trạng thái hợp đồng {}: {}", contractCode, ex.getMessage());
+            }
+        }
     }
     public BigDecimal deliveredGoods(Map<String,Object> c) { var rows=db.queryForList("select delivered_weight_kg from shipments where contract_id=?",c.get("id"));return rows.isEmpty()||rows.getFirst().get("delivered_weight_kg")==null?decimal(c,"total_goods_amount"):money(decimal(rows.getFirst(),"delivered_weight_kg").multiply(decimal(c,"offered_price_per_kg"))); }
     @Transactional public long createAsset(JsonNode n) {

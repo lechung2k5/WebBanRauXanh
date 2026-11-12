@@ -285,6 +285,8 @@ export interface ColdChainRecommendation {
   minTemp: number;
   maxTemp: number;
   categoryName: string;
+  categorySlug?: string;
+  categoryCode?: string;
   advice: string;
   humidity: string;
   fefoDays: number;
@@ -292,6 +294,54 @@ export interface ColdChainRecommendation {
 
 export function predictColdChainTemp(productName: string): ColdChainRecommendation {
   const norm = (productName || '').toLowerCase().trim();
+
+  // 0. Nhóm rau gia vị & thảo mộc (Tiêu, ớt, hành lá, ngò rí, húng quế, sả, gừng, tỏi, lá lốt, diếp cá, kinh giới)
+  if (
+    norm.includes('tiêu') ||
+    norm.includes('tieu') ||
+    norm.includes('pepper') ||
+    norm.includes('hành') ||
+    norm.includes('hanh') ||
+    norm.includes('ngò') ||
+    norm.includes('ngo') ||
+    norm.includes('húng') ||
+    norm.includes('hung') ||
+    norm.includes('sả') ||
+    norm.includes('sa ') ||
+    norm.includes('lemongrass') ||
+    norm.includes('gừng') ||
+    norm.includes('gung') ||
+    norm.includes('ginger') ||
+    norm.includes('tỏi') ||
+    norm.includes('toi') ||
+    norm.includes('garlic') ||
+    norm.includes('lá lốt') ||
+    norm.includes('la lot') ||
+    norm.includes('kinh giới') ||
+    norm.includes('diếp cá') ||
+    norm.includes('diep ca') ||
+    norm.includes('bạc hà') ||
+    norm.includes('bac ha') ||
+    norm.includes('thì là') ||
+    norm.includes('thi la') ||
+    norm.includes('quế') ||
+    norm.includes('que ') ||
+    norm.includes('ớt hiểm') ||
+    norm.includes('ot hiem') ||
+    norm.includes('ớt cay') ||
+    norm.includes('ot cay')
+  ) {
+    return {
+      minTemp: 2.0,
+      maxTemp: 6.0,
+      categoryName: 'Rau gia vị & Thảo mộc tươi (Fresh Spices & Herbs)',
+      categorySlug: 'rau-gia-vi',
+      categoryCode: 'RAU_GIA_VI',
+      advice: 'Duy trì lạnh 2.0°C - 6.0°C và độ ẩm 90% - 95% để giữ trọn tinh dầu thơm đặc trưng, không bị dập nát.',
+      humidity: '90% - 95%',
+      fefoDays: 10,
+    };
+  }
 
   // 1. Nhóm quả nhạy cảm tổn thương lạnh (Chilling Injury) - Cà chua, dưa leo, ớt chuông, cà tím, bầu, bí, mướp
   if (
@@ -314,6 +364,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 8.0,
       maxTemp: 12.0,
       categoryName: 'Rau ăn quả nhạy cảm lạnh (Chilling Sensitive)',
+      categorySlug: 'cu-qua-tuoi',
+      categoryCode: 'CU_QUA',
       advice: 'Tuyệt đối KHÔNG bảo quản dưới 8.0°C để tránh sốc nhiệt (thâm tâm, rỗ vỏ, sũng nước). Nhiệt độ tối ưu là 8°C - 12°C.',
       humidity: '90% - 95%',
       fefoDays: 14,
@@ -334,6 +386,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 1.0,
       maxTemp: 4.0,
       categoryName: 'Củ rễ chịu lạnh sâu (Root Vegetables)',
+      categorySlug: 'cu-qua-tuoi',
+      categoryCode: 'CU_QUA',
       advice: 'Nhiệt độ 1.0°C - 4.0°C giúp ức chế nảy mầm và giữ độ ngọt tự nhiên, ngăn thoát hơi nước làm teo tóp.',
       humidity: '95% - 98%',
       fefoDays: 28,
@@ -346,6 +400,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 10.0,
       maxTemp: 14.0,
       categoryName: 'Củ chứa tinh bột (Starchy Tubers)',
+      categorySlug: 'cu-qua-tuoi',
+      categoryCode: 'CU_QUA',
       advice: 'Nhiệt độ từ 10°C - 14°C trong bóng tối để tránh tích lũy đường làm đen ruột khi chiên và không bị mọc mầm.',
       humidity: '85% - 90%',
       fefoDays: 45,
@@ -364,6 +420,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 0.5,
       maxTemp: 2.5,
       categoryName: 'Quả mọng tươi nhạy cảm (Berries)',
+      categorySlug: 'cu-qua-tuoi',
+      categoryCode: 'CU_QUA',
       advice: 'Bảo quản sát điểm đóng băng (0.5°C - 2.5°C) ngay sau khi thu hái để chống nấm Botrytis cinereae làm thối hỏng.',
       humidity: '90% - 95%',
       fefoDays: 7,
@@ -376,6 +434,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 1.5,
       maxTemp: 4.5,
       categoryName: 'Nấm ăn tươi cao cấp (Fresh Mushrooms)',
+      categorySlug: 'nam-tuoi-huu-co',
+      categoryCode: 'NAM_TUOI',
       advice: 'Duy trì lạnh 1.5°C - 4.5°C, bao gói thoáng khí vi lỗ để nấm không bị nhầy, mở tán và biến màu.',
       humidity: '90% - 95%',
       fefoDays: 10,
@@ -395,6 +455,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
       minTemp: 12.0,
       maxTemp: 15.0,
       categoryName: 'Trái cây nhiệt đới hô hấp đột biến (Climacteric Fruit)',
+      categorySlug: 'cu-qua-tuoi',
+      categoryCode: 'CU_QUA',
       advice: 'Bảo quản từ 12°C - 15°C để trái chín tự nhiên đồng đều, giữ hương vị đặc trưng, không bị chai sượng vì lạnh.',
       humidity: '85% - 90%',
       fefoDays: 12,
@@ -407,6 +469,8 @@ export function predictColdChainTemp(productName: string): ColdChainRecommendati
     minTemp: 2.0,
     maxTemp: 5.0,
     categoryName: 'Rau ăn lá tươi sạch (Leafy Greens)',
+    categorySlug: 'rau-an-la',
+    categoryCode: 'RAU_AN_LA',
     advice: 'Khuyến nghị Cold-Chain 2.0°C - 5.0°C và độ ẩm 95% để giữ tế bào căng mọng, không bị úa vàng hay mất trọng lượng tươi.',
     humidity: '95%',
     fefoDays: 15,

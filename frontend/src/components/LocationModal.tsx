@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { X, MapPin, Check, Navigation } from 'lucide-react';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
 
 interface LocationModalProps {
   isOpen: boolean;
@@ -30,14 +31,6 @@ export const LocationModal: React.FC<LocationModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleCustomSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (customInput.trim()) {
-      onSelectLocation(customInput.trim());
-      onClose();
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={onClose} />
@@ -56,28 +49,26 @@ export const LocationModal: React.FC<LocationModalProps> = ({
           </div>
           <div>
             <h3 className="font-heading text-lg font-bold text-[#10542C]">Chọn Khu Vực Giao Hàng</h3>
-            <p className="text-xs text-[#758A7A]">Định tuyến kho HoNa Fresh gần nhất để giao siêu tốc 2h</p>
+            <p className="text-xs text-[#758A7A]">Định vị tự động bằng Goong Maps để giao siêu tốc 2h</p>
           </div>
         </div>
 
-        {/* Input search / custom */}
-        <form onSubmit={handleCustomSubmit} className="mb-4">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Nhập phường/xã, quận/huyện..."
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              className="flex-1 px-3.5 py-2.5 bg-[#F9F9F5] border border-[#EAECE8] rounded-xl text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2.5 bg-[#10542C] text-white text-xs font-bold rounded-xl hover:bg-[#0C3E20] transition-colors cursor-pointer"
-            >
-              Chọn
-            </button>
-          </div>
-        </form>
+        {/* Input tìm kiếm địa chỉ thông minh Goong Maps */}
+        <div className="mb-4">
+          <AddressAutocomplete
+            value={customInput}
+            onChange={setCustomInput}
+            onSelectAddress={(data) => {
+              if (data.address) {
+                onSelectLocation(data.address);
+                onClose();
+              }
+            }}
+            placeholder="Tìm theo số nhà, tên đường, phường, quận..."
+            showCurrentLocationBtn={true}
+            autoFocus={true}
+          />
+        </div>
 
         <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
           <span className="text-[11px] font-bold text-[#758A7A] uppercase tracking-wider block mb-1">

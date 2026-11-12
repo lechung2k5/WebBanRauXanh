@@ -169,6 +169,11 @@ export interface Product {
   storageCondition?: string;
   shippingTerms?: string;
   farmContactPhone?: string;
+  farmOwner?: string;
+  farmArea?: string;
+  isVerifiedFarm?: boolean;
+  farmAvatarUrl?: string;
+  farmDescription?: string;
 }
 
 export interface B2BRFQNegotiation {
@@ -186,7 +191,15 @@ export interface B2BRFQNegotiation {
   deliveryDate: string;
   shippingOption: 'farm_pickup' | 'farm_delivery' | 'cold_storage_truck';
   notes?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
+  expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
   createdAt: string;
 }
 
@@ -259,6 +272,9 @@ export interface OrderResponse {
   id: number;
   orderCode: string;
   userId?: number;
+  buyerUsername?: string;
+  buyerName?: string;
+  buyerCompany?: string;
   recipientName: string;
   recipientPhone: string;
   shippingAddress: string;
@@ -342,7 +358,15 @@ export interface RfqItem {
   rejectReason?: string;
   deliveryDate: string;
   hubLocation: string;
-  status: 'PENDING' | 'ACCEPTED' | 'COUNTER_OFFER' | 'REJECTED';
+  status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
+  statusLabel?: string;
+  nextActor?: 'BUYER' | 'FARMER' | 'NONE';
+  expiresAt?: string;
+  contractId?: number;
+  contractCode?: string;
+  contractStatus?: string;
+  depositStatus?: string;
+  depositAmount?: number;
   createdAt: string;
 }
 

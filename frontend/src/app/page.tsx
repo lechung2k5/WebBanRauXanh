@@ -6,8 +6,9 @@ import { portalFor } from '@/services/auth';
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Category, Product, OrderResponse, AuthResponse } from '@/types';
+import { Category, Product, AuthResponse } from '@/types';
 import { getCategories, getProducts, getStoredUser, logoutApi } from '@/services/api';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import { Navbar } from '@/components/Navbar';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import B2BDepositModal from '@/components/B2BDepositModal';
@@ -74,7 +75,9 @@ export default function HomePage() {
 
   // Pagination for Home Catalog
   const [catalogPage, setCatalogPage] = useState(1);
-  const catalogPageSize = 16;
+  const catalogPageSize = 10;
+  const [totalCatalogItems, setTotalCatalogItems] = useState(0);
+  const [serverCatalogPages, setServerCatalogPages] = useState(1);
 
   // Modals
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -84,7 +87,7 @@ export default function HomePage() {
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // User Auth State
-  const { currentUser, setCurrentUser, logout, cartCount, addToCart, setIsCartOpen } = useApp();
+  const { currentUser, setCurrentUser, logout, cartCount } = useApp();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
 
@@ -93,68 +96,67 @@ export default function HomePage() {
     // Authentication is restored by the shared AppProvider.
   }, []);
 
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [catData, prodData] = await Promise.all([
+        getCategories(),
+        getProducts({ categoryId: selectedCategory || undefined, keyword: activeSearchKeyword || undefined, page: catalogPage, size: catalogPageSize }),
+      ]);
+      setCategories(catData);
+      setProducts(prodData.products);
+      setTotalCatalogItems(prodData.totalElements);
+      setServerCatalogPages(Math.max(1, prodData.totalPages));
+    } catch (err) {
+      console.error('Error loading catalog:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCategory, catalogPage, activeSearchKeyword, catalogPageSize]);
+
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [catData, prodData] = await Promise.all([
-          getCategories(),
-          getProducts({ categoryId: selectedCategory || undefined, keyword: searchQuery || undefined }),
-        ]);
-        setCategories(catData);
-        setProducts(prodData.products);
-      } catch (err) {
-        console.error('Error loading catalog:', err);
-      } finally {
-        setLoading(false);
+    void fetchData();
+  }, [fetchData]);
+
+  // Lắng nghe sự kiện duyệt lô từ Admin để cập nhật hàng mới mở bán lên trang chủ
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchData();
       }
+    });
+    const handleStorage = () => void fetchData();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
     };
+  }, [fetchData]);
 
-    fetchData();
-  }, [selectedCategory]);
-
-  const handleSearchSubmit = async (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const term = searchQuery.trim();
     setSearchQuery('');
     if (!term) return;
 
     setActiveSearchKeyword(term);
-    setLoading(true);
-    try {
-      const prodData = await getProducts({
-        categoryId: selectedCategory || undefined,
-        keyword: term,
-      });
-      setProducts(prodData.products);
-      setCatalogPage(1);
-      setTimeout(() => {
-        const el = document.getElementById('catalog-section');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 100);
-    } catch (err) {
-      console.error('Error searching products:', err);
-    } finally {
-      setLoading(false);
-    }
+    setCatalogPage(1);
+    setTimeout(() => {
+      const el = document.getElementById('catalog-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
-  const handleClearActiveSearch = async () => {
+  const handleClearActiveSearch = () => {
     setActiveSearchKeyword('');
-    setLoading(true);
-    try {
-      const prodData = await getProducts({
-        categoryId: selectedCategory || undefined,
-      });
-      setProducts(prodData.products);
-      setCatalogPage(1);
-    } catch (err) {
-      console.error('Error resetting search:', err);
-    } finally {
-      setLoading(false);
-    }
+    setCatalogPage(1);
   };
 
   const handleAddToCart = (product: Product, quantity?: number) => {
@@ -211,11 +213,12 @@ export default function HomePage() {
     setCatalogPage(1);
   }, [selectedCategory, selectedCert, selectedHarvestStage, maxPrice, searchQuery]);
 
-  const totalCatalogPages = Math.ceil(filteredProducts.length / catalogPageSize);
-  const paginatedCatalogProducts = filteredProducts.slice(
-    (catalogPage - 1) * catalogPageSize,
-    catalogPage * catalogPageSize
-  );
+  const hasClientSideFilters = Boolean(selectedCert || selectedHarvestStage || maxPrice < 150000);
+  const totalCatalogPages = hasClientSideFilters
+    ? Math.max(1, Math.ceil(filteredProducts.length / catalogPageSize))
+    : serverCatalogPages;
+  const paginatedCatalogProducts = filteredProducts;
+  const displayedCatalogTotal = hasClientSideFilters ? filteredProducts.length : totalCatalogItems;
 
   return (
     <div className="min-h-screen bg-[#F9F9F5] text-[#2C3E2E] flex flex-col selection:bg-[#4CAF50] selection:text-white pb-20 md:pb-0">
@@ -552,7 +555,7 @@ export default function HomePage() {
             </div>
             <span className="text-xs text-[#6B7280] font-medium">
               {filteredProducts.length > 0
-                ? `Hiển thị ${(catalogPage - 1) * catalogPageSize + 1} - ${Math.min(catalogPage * catalogPageSize, filteredProducts.length)} trong ${filteredProducts.length} lô chào bán`
+                ? `Hiển thị ${(catalogPage - 1) * catalogPageSize + 1} - ${Math.min(catalogPage * catalogPageSize, (catalogPage - 1) * catalogPageSize + filteredProducts.length)} trong ${displayedCatalogTotal} lô chào bán`
                 : '0 lô hàng'}
             </span>
           </div>
@@ -623,7 +626,10 @@ export default function HomePage() {
                       type="radio"
                       name="stageFilterHome"
                       checked={selectedHarvestStage === st.val}
-                      onChange={() => setSelectedHarvestStage(st.val)}
+                      onChange={() => {
+                        setSelectedHarvestStage(st.val);
+                        setCatalogPage(1);
+                      }}
                       className="accent-[#10542C]"
                     />
                     <span className={selectedHarvestStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
@@ -751,11 +757,12 @@ export default function HomePage() {
               ) : (
                 <div className="space-y-6">
                   {/* Layout 1 hàng 1 sản phẩm - card chiều ngang to ra */}
-                  <div className="flex flex-col gap-4">
+                  <div className="grid lg:grid-cols-2 gap-5">
                     {paginatedCatalogProducts.map((product) => (
                       <ProductCard
                         key={product.id}
                         product={product}
+                        layout="grid"
                         onViewDetail={(p) => {
                           trackProductView(p);
                           setSelectedProductForDetail(p);
@@ -769,7 +776,7 @@ export default function HomePage() {
                   <Pagination
                     currentPage={catalogPage}
                     totalPages={totalCatalogPages}
-                    totalItems={filteredProducts.length}
+                    totalItems={displayedCatalogTotal}
                     pageSize={catalogPageSize}
                     onPageChange={(page) => setCatalogPage(page)}
                     scrollTargetId="catalog-section"
@@ -916,26 +923,6 @@ export default function HomePage() {
       <OrderTrackingModal
         isOpen={isTrackingOpen}
         onClose={() => setIsTrackingOpen(false)}
-        onReorder={(items) => {
-          items.forEach((it) => {
-            const prod = products.find((p) => p.id === it.productId) || {
-              id: typeof it.productId === 'number' ? it.productId : 1,
-              name: it.productName,
-              slug: it.productName.toLowerCase().replace(/ /g, '-'),
-              price: it.unitPrice,
-              stockQuantity: 100,
-              unit: it.unit,
-              categoryName: 'Rau Sạch',
-              categorySlug: 'rau-sach',
-              origin: 'Đà Lạt',
-              description: it.productName,
-              imageUrl: it.productImageUrl,
-              isFeatured: true,
-            };
-            addToCart(prod as any, it.quantity);
-          });
-          setIsCartOpen(true);
-        }}
       />
 
       <AuthModal
