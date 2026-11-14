@@ -156,6 +156,10 @@ export interface Product {
   moq?: number; // Minimum Order Quantity in kg
   totalLotVolume?: number; // Total lot volume in kg
   availableVolume?: number; // Remaining volume in kg
+  farmerId?: number;
+  farmerName?: string;
+  lotCode?: string;
+  harvestLotId?: number;
   farmName?: string;
   farmLocation?: string;
   region?: string;
@@ -181,6 +185,9 @@ export interface B2BRFQNegotiation {
   productId: string | number;
   productName: string;
   productImageUrl?: string;
+  farmerId?: number;
+  farmerName?: string;
+  lotCode?: string;
   farmName: string;
   traderName: string;
   traderPhone: string;

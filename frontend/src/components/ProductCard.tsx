@@ -104,10 +104,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#6B7280] mb-2">
             <span
               className="inline-flex items-center gap-1.5 font-bold text-[#10542C] bg-[#10542C]/8 px-2.5 py-1 rounded-lg border border-[#10542C]/15 shadow-2xs"
-              title={`Nông trại: ${product.farmName || 'HTX Nông Nghiệp Đơn Dương'}`}
+              title={`Nông trại: ${product.farmName || product.farmerName || 'Nông trại HoNa Fresh'}`}
             >
               <Building2 className="w-3.5 h-3.5 text-[#4CAF50] shrink-0" />
-              <span className="truncate max-w-[200px]">{product.farmName || 'HTX Nông Nghiệp Đơn Dương'}</span>
+              <span className="truncate max-w-[200px]">{product.farmName || product.farmerName || 'Nông trại HoNa Fresh'}</span>
             </span>
 
             {/* Huy hiệu Nông Trại Thật Xác Thực */}

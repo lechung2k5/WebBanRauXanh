@@ -49,6 +49,112 @@ public class DataInitializer implements CommandLineRunner {
         // 1. Tạo Roles
         try {
             jdbcTemplate.execute("ALTER TABLE harvest_lots ALTER COLUMN tier_pricing_json TYPE jsonb USING tier_pricing_json::jsonb");
+            jdbcTemplate.execute("""
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS offered_weight_kg NUMERIC(12,2);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS offered_price_per_kg NUMERIC(15,2);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS total_goods_amount NUMERIC(18,2);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS deposit_30_amount NUMERIC(18,2);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS platform_fee_rate NUMERIC(5,2) DEFAULT 3.0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS platform_fee_amount NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS logistics_fee_amount NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS service_vat_rate NUMERIC(5,2) DEFAULT 10;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS deposit_received NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS balance_received NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS payout_amount NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(18,2) DEFAULT 0;
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS deposit_ref VARCHAR(100);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS balance_ref VARCHAR(100);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS payout_ref VARCHAR(100);
+                ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS lot_id BIGINT;
+                ALTER TABLE b2b_contracts ALTER COLUMN buyer_name DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN quantity DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN unit_price DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN total_amount DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN deposit_amount DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN harvest_lot_id DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN rfq_id DROP NOT NULL;
+                ALTER TABLE b2b_contracts ALTER COLUMN created_at SET DEFAULT NOW();
+                ALTER TABLE b2b_contracts ALTER COLUMN updated_at SET DEFAULT NOW();
+            """);
+
+            // Chuẩn hóa dứt điểm lỗi font chữ tiếng Việt (Mojibake UTF-8) cho các nhà vườn và tài khoản nông dân
+            jdbcTemplate.execute("""
+                UPDATE farmer_profiles SET 
+                    farm_name = 'HTX Nông Nghiệp Đà Lạt GAP',
+                    location = 'Tiểu khu 158, Phường 8, TP. Đà Lạt, Tỉnh Lâm Đồng',
+                    bank_account_name = 'HTX NONG NGHIEP DA LAT GAP'
+                WHERE user_id = (SELECT id FROM users WHERE username = 'farmer_dalat');
+
+                UPDATE farmer_profiles SET 
+                    farm_name = 'HTX Nông Nghiệp Rau Sạch Đơn Dương',
+                    location = 'Xã Tu Tra, Huyện Đơn Dương, Tỉnh Lâm Đồng',
+                    bank_account_name = 'HTX NONG NGHIEP DON DUONG'
+                WHERE user_id = (SELECT id FROM users WHERE username = 'farmer_donduong');
+
+                UPDATE farmer_profiles SET 
+                    farm_name = 'Hợp Tác Xã Rau Củ Quả Buôn Hồ',
+                    location = 'Phường An Lạc, Thị xã Buôn Hồ, Đắk Lắk',
+                    bank_account_name = 'HTX RAU CU QUA BUON HO'
+                WHERE user_id = (SELECT id FROM users WHERE username = 'farmer_buonho');
+
+                UPDATE farmer_profiles SET 
+                    farm_name = 'HTX Nông Nghiệp Công Nghệ Cao Củ Chi',
+                    location = 'Xã Nhuận Đức, Huyện Củ Chi, TP.HCM',
+                    bank_account_name = 'HTX NN CONG NGHE CAO CU CHI'
+                WHERE user_id = (SELECT id FROM users WHERE username = 'farmer_saigon');
+
+                UPDATE farmer_profiles SET 
+                    farm_name = 'Hợp Tác Xã Nông Nghiệp Xanh Mộc Châu',
+                    location = 'Thị trấn Nông Trường Mộc Châu, Sơn La',
+                    bank_account_name = 'HTX NONG NGHIEP XANH MOC CHAU'
+                WHERE user_id = (SELECT id FROM users WHERE username = 'farmer_mocchau');
+
+                UPDATE users SET 
+                    full_name = 'Nguyễn Văn Nông',
+                    company_name = 'HTX Nông Nghiệp Đà Lạt GAP',
+                    address = 'Tiểu khu 158, Phường 8, TP. Đà Lạt, Tỉnh Lâm Đồng'
+                WHERE username = 'farmer_dalat';
+
+                UPDATE users SET 
+                    full_name = 'Ông Nguyễn Văn Thành',
+                    company_name = 'HTX Nông Nghiệp Rau Sạch Đơn Dương',
+                    address = 'Xã Tu Tra, Huyện Đơn Dương, Tỉnh Lâm Đồng'
+                WHERE username = 'farmer_donduong';
+
+                UPDATE users SET 
+                    full_name = 'Bà Hoàng Thị Mai',
+                    company_name = 'Hợp Tác Xã Rau Củ Quả Buôn Hồ',
+                    address = 'Phường An Lạc, Thị xã Buôn Hồ, Đắk Lắk'
+                WHERE username = 'farmer_buonho';
+
+                UPDATE users SET 
+                    full_name = 'Ông Phan Văn Giàu',
+                    company_name = 'HTX Nông Nghiệp Công Nghệ Cao Củ Chi',
+                    address = 'Xã Nhuận Đức, Huyện Củ Chi, TP.HCM'
+                WHERE username = 'farmer_saigon';
+
+                UPDATE users SET 
+                    full_name = 'Kỹ sư Vũ Đình Trọng',
+                    company_name = 'Hợp Tác Xã Nông Nghiệp Xanh Mộc Châu',
+                    address = 'Thị trấn Nông Trường Mộc Châu, Sơn La'
+                WHERE username = 'farmer_mocchau';
+
+                UPDATE harvest_lots SET farmer_name = 'HTX Nông Nghiệp Đà Lạt GAP' 
+                WHERE farmer_id = (SELECT id FROM users WHERE username = 'farmer_dalat');
+
+                UPDATE harvest_lots SET farmer_name = 'HTX Nông Nghiệp Rau Sạch Đơn Dương' 
+                WHERE farmer_id = (SELECT id FROM users WHERE username = 'farmer_donduong');
+
+                UPDATE harvest_lots SET farmer_name = 'Hợp Tác Xã Rau Củ Quả Buôn Hồ' 
+                WHERE farmer_id = (SELECT id FROM users WHERE username = 'farmer_buonho');
+
+                UPDATE harvest_lots SET farmer_name = 'HTX Nông Nghiệp Công Nghệ Cao Củ Chi' 
+                WHERE farmer_id = (SELECT id FROM users WHERE username = 'farmer_saigon');
+
+                UPDATE harvest_lots SET farmer_name = 'Hợp Tác Xã Nông Nghiệp Xanh Mộc Châu' 
+                WHERE farmer_id = (SELECT id FROM users WHERE username = 'farmer_mocchau');
+            """);
+            log.info("Normalized farmer Vietnamese font encoding in DataInitializer");
         } catch (Exception ignored) {}
         for (String name : List.of("ADMIN","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER","USER")) {
             roleRepository.findByName("ROLE_"+name).orElseGet(()->roleRepository.save(new Role("ROLE_"+name,name)));
@@ -541,20 +647,12 @@ public class DataInitializer implements CommandLineRunner {
             log.warn("Lưu ý đồng bộ V5__seed_50_harvest_lots.sql: {}", ex.getMessage());
         }
 
-        // 5. Tự động kiểm tra và import hợp đồng mẫu B2B & ký quỹ escrow thành công (nếu b2b_contracts đang trống)
+        // 5. Đồng bộ cấu trúc hợp đồng B2B & đảm bảo cột lot_id tồn tại
         try {
-            Long contractCount = jdbcTemplate.queryForObject("SELECT count(*) FROM b2b_contracts", Long.class);
-            if (contractCount == null || contractCount == 0) {
-                log.info("Khởi tạo tự động: Chưa có hợp đồng B2B trong hệ thống. Đang tự động import mẫu hợp đồng giao dịch thành công...");
-                org.springframework.core.io.ClassPathResource resource = new org.springframework.core.io.ClassPathResource("db/migration/V6__seed_sample_b2b_contracts.sql");
-                if (resource.exists()) {
-                    String sql = new String(resource.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                    jdbcTemplate.execute(sql);
-                    log.info("Đã tự động nạp thành công các mẫu hợp đồng B2B & bút toán ký quỹ escrow!");
-                }
-            }
+            jdbcTemplate.execute("ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS lot_id BIGINT REFERENCES harvest_lots(id)");
+            jdbcTemplate.execute("UPDATE b2b_contracts SET lot_id = harvest_lot_id WHERE lot_id IS NULL AND harvest_lot_id IS NOT NULL");
         } catch (Exception ex) {
-            log.warn("Lưu ý đồng bộ hợp đồng mẫu B2B: {}", ex.getMessage());
+            log.warn("Lưu ý đồng bộ cột lot_id trên b2b_contracts: {}", ex.getMessage());
         }
 
         // 6. Sửa lỗi font chữ tiếng Việt có dấu cho các tài khoản người dùng B2B

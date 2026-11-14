@@ -146,10 +146,13 @@ export default function B2BNegotiationModal({
       return;
     }
 
+    const lotCode = product.lotCode || (product as any).batchCode || `LOT-2026-DL-00${product.id || 1}`;
+    const resolvedLotId = Number(product.harvestLotId || product.id) || 1;
     let code = `RFQ-${Math.floor(100000 + Math.random() * 900000)}`;
     try {
       const saved = (await createBuyerRfqApi({
-        harvestLotId: Number(product.id),
+        harvestLotId: resolvedLotId,
+        lotCode,
         quantityKg: quantity,
         proposedPricePerKg: targetPrice,
         desiredDeliveryDate: deliveryDate,
@@ -162,14 +165,17 @@ export default function B2BNegotiationModal({
       console.warn('Backend API RFQ create notice (fallback to sync service):', error);
     }
 
-    const lotCode = (product as any).batchCode || `LOT-2026-DL-00${product.id || 1}`;
+    const targetFarmerId = product.farmerId;
+    const targetFarmerName = product.farmerName || product.farmName || 'Nông trại HoNa Fresh';
     const buyerCompany = traderCompany || 'Công Ty Thu Mua Nông Sản Sài Gòn';
 
     try {
       saveSyncRfq({
         rfqCode: code,
-        harvestLotId: Number(product.id) || 1,
+        harvestLotId: Number(product.harvestLotId || product.id) || 1,
         lotCode,
+        farmerId: targetFarmerId,
+        farmerName: targetFarmerName,
         productName: product.name,
         buyerName: traderName,
         buyerPhone: traderPhone,
@@ -190,8 +196,10 @@ export default function B2BNegotiationModal({
       const historyItem = {
         id: code,
         rfqCode: code,
-        harvestLotId: Number(product.id) || 1,
+        harvestLotId: Number(product.harvestLotId || product.id) || 1,
         harvestLotCode: lotCode,
+        farmerId: targetFarmerId,
+        farmerName: targetFarmerName,
         productName: product.name,
         buyerName: traderName,
         buyerPhone: traderPhone,
@@ -214,6 +222,13 @@ export default function B2BNegotiationModal({
         'b2b_submitted_rfqs',
         JSON.stringify([historyItem, ...existingSubmitted])
       );
+
+      // ĐỒNG BỘ XUYÊN TRÌNH DUYỆT (Cross-Browser Shared Sync)
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'REGISTER_RFQ', rfq: historyItem }),
+      }).catch(() => {});
 
       window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: historyItem }));
     } catch (storageErr) {

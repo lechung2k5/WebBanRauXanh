@@ -9,6 +9,8 @@ export interface B2bSyncRfq {
   rfqCode: string;
   harvestLotId: number;
   lotCode: string;
+  farmerId?: number;
+  farmerName?: string;
   productName: string;
   buyerName: string;
   buyerPhone: string;
@@ -89,153 +91,10 @@ const STORAGE_KEY_CONTRACTS = 'hona_b2b_sync_contracts_v2';
 const STORAGE_KEY_NOTIFICATIONS = 'hona_b2b_notifications_v1';
 const CHANNEL_NAME = 'hona_b2b_sync_channel';
 
-// Dữ liệu mẫu khởi tạo đồng bộ ban đầu
-const INITIAL_RFQS: B2bSyncRfq[] = [
-  {
-    id: 1,
-    rfqCode: 'RFQ-2026-0042',
-    harvestLotId: 1,
-    lotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Trần Thị Thương',
-    buyerPhone: '0987654321',
-    buyerCompany: 'Bách Hóa XANH Logistics',
-    requestedQuantityKg: 3000,
-    targetPricePerKg: 13500,
-    counterPricePerKg: 14000,
-    desiredDeliveryDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
-    deliveryLocation: 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
-    shippingOption: 'cold_storage_truck',
-    notes: 'Yêu cầu kiểm định độ tươi brix >= 5.0, xe lạnh duy trì 2-5°C.',
-    status: 'WAITING_BUYER',
-    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-  },
-  {
-    id: 2,
-    rfqCode: 'RFQ-2026-0058',
-    harvestLotId: 2,
-    lotCode: 'LOT-2026-DL-002',
-    productName: 'Cà Chua Beef Xuất Khẩu Chuẩn GlobalGAP',
-    buyerName: 'Nguyễn Hải Âu',
-    buyerPhone: '0903111222',
-    buyerCompany: 'Hải Âu Catering Sài Gòn',
-    requestedQuantityKg: 2500,
-    targetPricePerKg: 17500,
-    counterPricePerKg: undefined,
-    desiredDeliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
-    deliveryLocation: 'Bếp Ăn Công Nghiệp KCN Tân Bình, TP.HCM',
-    shippingOption: 'cold_storage_truck',
-    notes: 'Cần phân loại độ chín đồng đều 85-90%.',
-    status: 'WAITING_FARMER',
-    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-  },
-];
+// Dữ liệu mẫu khởi tạo đồng bộ ban đầu: Để trống để người dùng thực hiện giao dịch mới từ đầu
+const INITIAL_RFQS: B2bSyncRfq[] = [];
 
-const INITIAL_CONTRACTS: B2bSyncContract[] = [
-  {
-    id: 3,
-    contractCode: 'HD-2026-B2B-0089',
-    rfqCode: 'RFQ-2026-0015',
-    lotId: 1,
-    lotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Công Ty CP Nông Sản Xanh Hà Nội',
-    buyerPhone: '0977889900',
-    buyerCompany: 'Hà Nội Green Farm Hub',
-    farmerName: 'Nguyễn Văn Nông',
-    farmerPhone: '0912345678',
-    farmerCompany: 'Nông Trại Hữu Cơ Đà Lạt Fresh',
-    quantityKg: 2000,
-    agreedPricePerKg: 13500,
-    totalAmount: 27000000,
-    depositAmount: 8100000,
-    remainingAmount: 18900000,
-    depositStatus: 'DEPOSIT_PAID',
-    depositPaidAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    fulfillmentStep: 4,
-    fulfillmentStatusName: 'Đã Giao Đến Điểm Nhận & Chờ Ký ePOD',
-    truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
-    truckDriverName: 'Tài xế Nguyễn Văn Tài',
-    truckDriverPhone: '0944556677',
-    truckTempCurrent: 3.9,
-    deliveryAddress: 'Kho Trung Chuyển Gia Lâm, Hà Nội',
-    deliveryTimeSlot: '07:00 - 10:00',
-    finalPaidStatus: 'UNPAID',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-  {
-    id: 1,
-    contractCode: 'HD-2026-B2B-954',
-    rfqCode: 'RFQ-2026-0038',
-    lotId: 2,
-    lotCode: 'LOT-2026-DL-002',
-    productName: 'Cà Chua Beef Xuất Khẩu Chuẩn GlobalGAP',
-    buyerName: 'Trần Thị Thương',
-    buyerPhone: '0987654321',
-    buyerCompany: 'Bách Hóa XANH Logistics',
-    farmerName: 'Nguyễn Văn Nông',
-    farmerPhone: '0912345678',
-    farmerCompany: 'Nông Trại Hữu Cơ Đà Lạt Fresh',
-    quantityKg: 2500,
-    agreedPricePerKg: 18000,
-    totalAmount: 45000000,
-    depositAmount: 13500000, // 30%
-    remainingAmount: 31500000, // 70%
-    depositStatus: 'DEPOSIT_PAID',
-    depositPaidAt: new Date(Date.now() - 86400000).toISOString(),
-    fulfillmentStep: 3, // Đang vận chuyển
-    fulfillmentStatusName: 'Đang Vận Chuyển Xe Lạnh Đến Kho',
-    truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh 5 Tấn)',
-    truckDriverName: 'Tài xế Nguyễn Văn Tài',
-    truckDriverPhone: '0944556677',
-    truckTempCurrent: 3.8,
-    deliveryAddress: 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
-    deliveryTimeSlot: '05:30 - 08:30 Sáng',
-    finalPaidStatus: 'UNPAID',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 2,
-    contractCode: 'HD-2026-B2B-912',
-    rfqCode: 'RFQ-2026-0021',
-    lotId: 1,
-    lotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Đại diện Buyer Demo',
-    buyerPhone: '0909123456',
-    buyerCompany: 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
-    farmerName: 'Nguyễn Văn Nông',
-    farmerPhone: '0912345678',
-    farmerCompany: 'Nông Trại Hữu Cơ Đà Lạt Fresh',
-    quantityKg: 3000,
-    agreedPricePerKg: 13500,
-    totalAmount: 40500000,
-    depositAmount: 12150000,
-    remainingAmount: 28350000,
-    depositStatus: 'DEPOSIT_PAID',
-    depositPaidAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    fulfillmentStep: 6, // Hoàn tất
-    fulfillmentStatusName: 'Hoàn Tất Đơn & Đã Giải Ngân Escrow',
-    truckLicensePlate: '51D-246.88 (Xe Lạnh Chuyên Dụng)',
-    truckDriverName: 'Tài xế Lê Minh Tuấn',
-    truckDriverPhone: '0933557799',
-    truckTempCurrent: 4.2,
-    deliveryAddress: 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
-    deliveryTimeSlot: '06:00 - 09:00',
-    epodDeliveredWeightKg: 2980,
-    epodDamagedWeightKg: 20,
-    epodSignatureName: 'Trần Thị Thương',
-    epodSignatureData: 'SIGNED_VERIFIED_DIGITAL',
-    epodSignedAt: new Date(Date.now() - 86400000).toISOString(),
-    finalPaidStatus: 'PAID',
-    finalPaidAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    settledAmount: 40230000,
-    settledToFarmerAt: new Date(Date.now() - 3600000 * 10).toISOString(),
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  },
-];
+const INITIAL_CONTRACTS: B2bSyncContract[] = [];
 
 // Quản lý Broadcast Channel an toàn
 let broadcastChannel: BroadcastChannel | null = null;
@@ -516,25 +375,85 @@ export function syncLotStatusToFarmerStorage(
   lotId?: number | string
 ) {
   if (typeof window === 'undefined' || !newStatus) return;
+  const normalizedCode = lotCode ? lotCode.trim().toUpperCase() : '';
+  const normalizedId = lotId ? String(lotId).trim() : '';
+
+  const updateLotItem = (l: any) => {
+    const lCode = (l.lotCode || '').trim().toUpperCase();
+    const lId = String(l.id || '').trim();
+    const matchCode = normalizedCode && (lCode === normalizedCode || lId === normalizedCode);
+    const matchId = normalizedId && (lId === normalizedId || lCode === normalizedId);
+    if (matchCode || matchId) {
+      return {
+        ...l,
+        status: newStatus,
+        rejectionReason: rejectionReason !== undefined ? rejectionReason : l.rejectionReason,
+        auditNote: auditNote !== undefined ? auditNote : l.auditNote,
+      };
+    }
+    return l;
+  };
+
+  // 1. Cập nhật b2b_farmer_lots (Portal Nông Dân)
   try {
     const raw = localStorage.getItem('b2b_farmer_lots');
-    if (!raw) return;
-    const lots = JSON.parse(raw);
-    if (!Array.isArray(lots)) return;
+    const lots: any[] = raw ? JSON.parse(raw) : [];
+    let matched = false;
     const updated = lots.map((l: any) => {
-      const matchCode = lotCode && (l.lotCode === lotCode || String(l.id) === String(lotCode));
-      const matchId = lotId && (l.id === lotId || String(l.id) === String(lotId));
-      if (matchCode || matchId) {
-        return {
-          ...l,
-          status: newStatus,
-          rejectionReason: rejectionReason !== undefined ? rejectionReason : l.rejectionReason,
-          auditNote: auditNote !== undefined ? auditNote : l.auditNote,
-        };
+      const lCode = (l.lotCode || '').trim().toUpperCase();
+      const lId = String(l.id || '').trim();
+      if ((normalizedCode && (lCode === normalizedCode || lId === normalizedCode)) ||
+          (normalizedId && (lId === normalizedId || lCode === normalizedId))) {
+        matched = true;
       }
-      return l;
+      return updateLotItem(l);
     });
+
+    // Nếu trong b2b_farmer_lots chưa có bản ghi này (ví dụ tạo từ mock ban đầu), lấy từ custom lots sang
+    if (!matched) {
+      const customRaw = localStorage.getItem('xanhfarm_custom_harvest_lots');
+      if (customRaw) {
+        const customLots: any[] = JSON.parse(customRaw);
+        const found = customLots.find((c: any) => {
+          const cCode = (c.lotCode || '').trim().toUpperCase();
+          const cId = String(c.id || '').trim();
+          return (normalizedCode && (cCode === normalizedCode || cId === normalizedCode)) ||
+                 (normalizedId && (cId === normalizedId || cCode === normalizedId));
+        });
+        if (found) {
+          updated.unshift(updateLotItem(found));
+        }
+      }
+    }
     localStorage.setItem('b2b_farmer_lots', JSON.stringify(updated));
+  } catch {}
+
+  // 2. Cập nhật xanhfarm_custom_harvest_lots (Admin Console & Sàn B2B)
+  try {
+    const raw = localStorage.getItem('xanhfarm_custom_harvest_lots');
+    if (raw) {
+      const lots: any[] = JSON.parse(raw);
+      const updated = lots.map(updateLotItem);
+      localStorage.setItem('xanhfarm_custom_harvest_lots', JSON.stringify(updated));
+    }
+  } catch {}
+
+  // 3. ĐỒNG BỘ XUYÊN TRÌNH DUYỆT (Cross-Browser Server Shared Sync)
+  // Gửi trực tiếp lên Server Endpoint để mọi trình duyệt khác (Chrome, Edge, Firefox, Incognito)
+  // nhận được trạng thái mới nhất ngay lập tức khi polling
+  try {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_STATUS',
+        lotCode: normalizedCode,
+        id: normalizedId,
+        status: newStatus,
+        auditNote,
+        rejectionReason,
+      }),
+    }).catch(() => {});
   } catch {}
 }
 
@@ -739,37 +658,92 @@ export function farmerRespondRfq(
   rejectReason?: string
 ): { rfq: B2bSyncRfq; newContract?: B2bSyncContract } {
   const current = getSyncRfqs();
-  const idx = current.findIndex(
-    (r) => r.id === Number(rfqIdOrCode) || r.rfqCode === String(rfqIdOrCode)
+  const rawKey = String(rfqIdOrCode || '').trim().toUpperCase();
+  const numKey = Number(rfqIdOrCode);
+
+  let idx = current.findIndex(
+    (r) =>
+      (!isNaN(numKey) && numKey > 0 && r.id === numKey) ||
+      (r.rfqCode && r.rfqCode.trim().toUpperCase() === rawKey) ||
+      (rawKey && r.rfqCode && rawKey.includes(r.rfqCode.trim().toUpperCase()))
   );
+
+  // Fallback nếu không tìm thấy trong getSyncRfqs: quét thêm b2b_farmer_rfqs
+  if (idx === -1 && typeof window !== 'undefined') {
+    try {
+      const fRfqs: any[] = JSON.parse(localStorage.getItem('b2b_farmer_rfqs') || '[]');
+      const foundF = fRfqs.find(
+        (fr) =>
+          (!isNaN(numKey) && numKey > 0 && Number(fr.id) === numKey) ||
+          String(fr.id) === rawKey ||
+          String(fr.rfqCode).trim().toUpperCase() === rawKey
+      );
+      if (foundF) {
+        const converted: B2bSyncRfq = {
+          id: typeof foundF.id === 'number' ? foundF.id : Date.now(),
+          rfqCode: foundF.rfqCode || `RFQ-${Date.now()}`,
+          harvestLotId: foundF.harvestLotId || 1,
+          lotCode: foundF.harvestLotCode || foundF.lotCode || 'LOT-2026-DL-001',
+          farmerName: foundF.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+          productName: foundF.productName || 'Nông sản VietGAP',
+          buyerName: foundF.buyerName || 'Đại diện Buyer',
+          buyerPhone: foundF.buyerPhone || '0901234567',
+          buyerCompany: foundF.buyerCompany || 'Công ty Thu Mua B2B',
+          requestedQuantityKg: Number(foundF.requestedQuantity || foundF.requestedQuantityKg || 1000),
+          targetPricePerKg: Number(foundF.targetPrice || foundF.targetPricePerKg || 15000),
+          desiredDeliveryDate: foundF.deliveryDate || new Date().toISOString().slice(0, 10),
+          deliveryLocation: foundF.hubLocation || foundF.deliveryLocation || 'Trạm Trung Chuyển Đức Trọng',
+          shippingOption: foundF.shippingOption || 'cold_storage_truck',
+          status: 'WAITING_FARMER',
+          createdAt: foundF.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        current.unshift(converted);
+        idx = 0;
+      }
+    } catch {}
+  }
+
   if (idx === -1) {
     console.warn('farmerRespondRfq: RFQ không tìm thấy trong b2bSyncService:', rfqIdOrCode);
-    return { rfq: current[0] };
+    if (current.length > 0) {
+      idx = 0;
+    } else {
+      return { rfq: {} as any };
+    }
   }
 
   const rfq = { ...current[idx] };
   let newContract: B2bSyncContract | undefined;
 
   if (action === 'ACCEPT') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
-    }
     rfq.status = 'ACCEPTED';
     rfq.updatedAt = new Date().toISOString();
     // Tự động sinh hợp đồng B2B
     newContract = createContractFromRfq(rfq, rfq.targetPricePerKg);
-  } else if (action === 'COUNTER') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
+    rfq.contractId = newContract.id;
+    rfq.contractCode = newContract.contractCode;
+    rfq.depositStatus = newContract.depositStatus;
+    rfq.depositAmount = newContract.depositAmount;
+
+    // Đồng bộ trạng thái lên shared API
+    if (typeof window !== 'undefined') {
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_RFQ_STATUS',
+          rfqCode: rfq.rfqCode,
+          status: 'ACCEPTED',
+        }),
+      }).catch(() => {});
     }
+  } else if (action === 'COUNTER') {
     if (!counterPrice || counterPrice <= 0) throw new Error('Giá phản hồi không hợp lệ');
     rfq.status = 'WAITING_BUYER';
     rfq.counterPricePerKg = counterPrice;
     rfq.updatedAt = new Date().toISOString();
   } else if (action === 'REJECT') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
-    }
     rfq.status = 'REJECTED';
     rfq.notes = (rfq.notes ? rfq.notes + ' | ' : '') + (rejectReason || 'Nông dân từ chối');
     rfq.updatedAt = new Date().toISOString();
@@ -880,6 +854,7 @@ function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncCont
   const total = rfq.requestedQuantityKg * pricePerKg;
   const deposit = Math.round(total * 0.3);
   const remaining = total - deposit;
+  const targetFarmName = rfq.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP';
   const newContract: B2bSyncContract = {
     id: Date.now(),
     contractCode: `HD-2026-B2B-${Math.floor(100 + Math.random() * 900)}`,
@@ -890,9 +865,9 @@ function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncCont
     buyerName: rfq.buyerName,
     buyerPhone: rfq.buyerPhone,
     buyerCompany: rfq.buyerCompany,
-    farmerName: 'Nguyễn Văn Nông',
+    farmerName: targetFarmName,
     farmerPhone: '0912345678',
-    farmerCompany: 'Nông Trại Hữu Cơ Đà Lạt Fresh',
+    farmerCompany: targetFarmName,
     quantityKg: rfq.requestedQuantityKg,
     agreedPricePerKg: pricePerKg,
     totalAmount: total,
@@ -911,8 +886,28 @@ function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncCont
     createdAt: new Date().toISOString(),
   };
 
-  const updated = [newContract, ...contracts];
-  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(updated));
+  const updated = [newContract, ...contracts.filter((c) => c.id !== newContract.id && c.contractCode !== newContract.contractCode)];
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(updated));
+      // Lưu vào b2b_farmer_contracts để tương thích tuyệt đối cả hai phân hệ
+      const existingFarmer: any[] = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
+      const filteredFarmer = existingFarmer.filter((c) => c.id !== newContract.id && c.contractCode !== newContract.contractCode);
+      filteredFarmer.unshift(newContract);
+      localStorage.setItem('b2b_farmer_contracts', JSON.stringify(filteredFarmer));
+
+      // Đẩy lên Server Shared Sync API
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'REGISTER_CONTRACT', contract: newContract }),
+      }).catch(() => {});
+
+      window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'CONTRACT_CREATED', contract: newContract } }));
+      window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: newContract }));
+    } catch {}
+  }
+
   notifySyncEvent('CONTRACT_CREATED', newContract);
   return newContract;
 }

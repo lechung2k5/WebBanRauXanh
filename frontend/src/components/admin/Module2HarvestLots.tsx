@@ -130,9 +130,12 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   // Tìm kiếm tức thì đồng thời khi người dùng gõ
   const PAGE_SIZE = 15;
   const filteredLots = useMemo(() => {
-    return allLots.filter((lot) => {
+    const list = allLots.filter((lot) => {
       // 1. Lọc theo trạng thái
-      if (filterStatus !== 'ALL' && lot.status !== filterStatus) return false;
+      if (filterStatus !== 'ALL') {
+        const currentStatus = String(lot.status || '').trim().toUpperCase();
+        if (currentStatus !== filterStatus) return false;
+      }
 
       // 2. Lọc theo ngành hàng (So khớp thông minh đa chiều: ID, Slug, Mã chuẩn, Tên tiếng Việt)
       if (filterCategory !== 'ALL' && !isLotMatchingCategory(lot, filterCategory, categories)) {
@@ -159,7 +162,18 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
       return targets.some((t) => t.includes(kw) || removeVietnameseTones(t).includes(kwNoTone));
     });
-  }, [allLots, filterStatus, filterCategory, categories, searchKw]);
+
+    // Sắp xếp ưu tiên:
+    // 1. Đưa các lô PENDING_APPROVAL (Chờ duyệt) lên HÀNG ĐẦU TIÊN
+    // 2. Tiếp theo là các lô mới tạo nhất (ID lớn nhất)
+    return [...list].sort((a, b) => {
+      if (a.status === 'PENDING_APPROVAL' && b.status !== 'PENDING_APPROVAL') return -1;
+      if (a.status !== 'PENDING_APPROVAL' && b.status === 'PENDING_APPROVAL') return 1;
+      const idA = typeof a.id === 'number' ? a.id : Number(String(a.id).replace(/\D/g, '')) || 0;
+      const idB = typeof b.id === 'number' ? b.id : Number(String(b.id).replace(/\D/g, '')) || 0;
+      return idB - idA;
+    });
+  }, [allLots, filterStatus, filterCategory, categories, searchKw, getCategoryName]);
 
   const totalPages = Math.ceil(filteredLots.length / PAGE_SIZE) || 1;
   const totalElements = filteredLots.length;
@@ -341,11 +355,55 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         page: 0,
         size: 200,
       });
-      const lots = res.data || [];
+      let lots = res.data || [];
+
+      // Luôn gộp trực tiếp từ Server Shared Cache & localStorage (b2b_farmer_lots và xanhfarm_custom_harvest_lots)
+      // Đảm bảo tuyệt đối 100% mọi lô do Farmer vừa đăng (PENDING_APPROVAL) ở bất kỳ trình duyệt nào đều có mặt ngay trong Admin Console
+      if (typeof window !== 'undefined') {
+        const map = new Map<string, HarvestLot>();
+
+        // 1. Thêm lô từ Server Shared Cache (Cross-Browser)
+        try {
+          const sharedRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
+          if (sharedRes.ok) {
+            const sharedJson = await sharedRes.json();
+            const sharedItems: HarvestLot[] = sharedJson.result || [];
+            for (const s of sharedItems) {
+              if (s && (s.lotCode || s.id)) {
+                const key = (s.lotCode || String(s.id)).trim().toUpperCase();
+                map.set(key, s);
+              }
+            }
+          }
+        } catch {}
+
+        // 2. Thêm các lô từ local storage
+        const localCustom = getStoredCustomLots();
+        for (const lot of localCustom) {
+          if (lot && (lot.lotCode || lot.id)) {
+            const key = (lot.lotCode || String(lot.id)).trim().toUpperCase();
+            if (!map.has(key)) {
+              map.set(key, lot);
+            }
+          }
+        }
+
+        // 3. Thêm các lô từ server backend nếu chưa có trong map
+        for (const lot of lots) {
+          if (lot && (lot.lotCode || lot.id)) {
+            const key = (lot.lotCode || String(lot.id)).trim().toUpperCase();
+            if (!map.has(key)) {
+              map.set(key, lot);
+            }
+          }
+        }
+        lots = Array.from(map.values());
+      }
+
       setAllLots(lots);
       if (lots.length > 0) {
         setLotStats({
-          totalLots: res.totalElements || lots.length,
+          totalLots: lots.length,
           openLots: lots.filter((l) => l.status === 'OPEN').length,
           pendingLots: lots.filter((l) => l.status === 'PENDING_APPROVAL').length,
           suspendedLots: lots.filter((l) => l.status === 'SUSPENDED').length,
@@ -363,7 +421,13 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   const fetchStats = async () => {
     try {
       const s = await getAdminLotStatsApi();
-      setLotStats(s);
+      const customLots = getStoredCustomLots();
+      const customPending = customLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+      setLotStats((prev) => ({
+        ...prev,
+        ...s,
+        pendingLots: Math.max(s.pendingLots || 0, customPending),
+      }));
     } catch (err) {
       console.warn('Error fetching stats:', err);
     }
@@ -440,7 +504,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         lot.id,
         'OPEN',
         undefined,
-        'Đã thẩm định và phê duyệt mở bán sỉ'
+        'Đã thẩm định và phê duyệt mở bán sỉ',
+        lot.lotCode
       );
 
       // 3. Bắn event đồng bộ realtime sang Portal Nông dân
@@ -493,7 +558,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         statusModalLot.id,
         newStatusValue,
         statusReason.trim() || undefined,
-        statusAuditNote.trim() || undefined
+        statusAuditNote.trim() || undefined,
+        statusModalLot.lotCode
       );
       setStatusModalLot(null);
 
@@ -540,7 +606,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         lot.id,
         'OPEN',
         undefined,
-        auditNote
+        auditNote,
+        lot.lotCode
       );
 
       // Phát sự kiện đồng bộ realtime để trang /san-pham và Buyer Portal cập nhật ngay
@@ -605,7 +672,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     setEditingLot(lot);
     const parsedTiers = parseTierPricing(lot.tierPricingJson || (lot as any).tierPricing);
     const code = getLotCategoryCode(lot, categories);
-    let matchedCat = categories.find((c) => c.id === lot.categoryId || getCategoryCode(c) === code);
+    const matchedCat = categories.find((c) => c.id === lot.categoryId || getCategoryCode(c) === code);
     const catCode = code || (matchedCat ? getCategoryCode(matchedCat) : (lot.category || 'RAU_AN_LA'));
     const catId = matchedCat ? matchedCat.id : (catCode === 'RAU_GIA_VI' ? 4 : catCode === 'CU_QUA' ? 2 : catCode === 'NAM_TUOI' ? 3 : 1);
 
@@ -1024,10 +1091,10 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           </div>
           {/* 4 Thẻ KPI Tóm Tắt */}
           {(() => {
-            const openLotsCount = allLots.filter((l) => l.status === 'OPEN').length;
-            const pendingLotsCount = allLots.filter((l) => l.status === 'PENDING_APPROVAL').length;
-            const suspendedLotsCount = allLots.filter((l) => l.status === 'SUSPENDED').length;
-            const soldOutLotsCount = allLots.filter((l) => l.status === 'SOLD_OUT').length;
+            const openLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'OPEN').length;
+            const pendingLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+            const suspendedLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'SUSPENDED').length;
+            const soldOutLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'SOLD_OUT').length;
 
             return (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1037,21 +1104,34 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                   </div>
                   <p className="font-heading font-black text-2xl text-[#10542C]">
-                    {allLots.length > 0 ? openLotsCount : (lotStats.openLots ?? 0)}
+                    {openLotsCount > 0 ? openLotsCount : (lotStats.openLots ?? 0)}
                   </p>
                   <span className="text-[11px] text-emerald-600 font-medium">Sẵn sàng xuất khẩu / giao sỉ</span>
                 </div>
 
-                <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus(filterStatus === 'PENDING_APPROVAL' ? 'ALL' : 'PENDING_APPROVAL');
+                    setCurrentPage(0);
+                  }}
+                  className={`text-left rounded-2xl p-4 border transition-all cursor-pointer shadow-xs ${
+                    filterStatus === 'PENDING_APPROVAL'
+                      ? 'bg-amber-50/90 border-amber-500 ring-2 ring-amber-300'
+                      : 'bg-white border-[#EAECE8] hover:border-amber-400 hover:shadow-sm'
+                  }`}
+                >
                   <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
-                    <span className="text-xs font-bold">Chờ Kiểm Định (QC)</span>
+                    <span className="text-xs font-bold text-amber-900">Chờ Kiểm Định &amp; Duyệt</span>
                     <Clock className="w-4 h-4 text-amber-500" />
                   </div>
                   <p className="font-heading font-black text-2xl text-amber-600">
-                    {allLots.length > 0 ? pendingLotsCount : (lotStats.pendingLots ?? 0)}
+                    {pendingLotsCount > 0 ? pendingLotsCount : (lotStats.pendingLots ?? 0)}
                   </p>
-                  <span className="text-[11px] text-amber-600 font-medium">Đang chờ lấy mẫu kiểm nghiệm</span>
-                </div>
+                  <span className="text-[11px] text-amber-700 font-semibold flex items-center gap-1 mt-0.5">
+                    {filterStatus === 'PENDING_APPROVAL' ? '✓ Đang lọc xem lô này' : '👉 Bấm để xem lô chờ duyệt'}
+                  </span>
+                </button>
 
                 <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
                   <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
@@ -1164,6 +1244,56 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
               </button>
             </div>
           </div>
+
+          {/* Banner Thông Báo Lô Đang Chờ Duyệt Từ Nông Dân */}
+          {(() => {
+            const pendingCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+            if (pendingCount === 0) return null;
+            return (
+              <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-400 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs animate-pulse">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-amber-950 flex items-center gap-2">
+                      <span>Phát hiện {pendingCount} lô nông sản từ Nông Dân đang CHỜ XÉT DUYỆT!</span>
+                      <span className="text-[10px] font-bold text-amber-900 bg-amber-200/90 px-2 py-0.5 rounded-full">
+                        Ưu tiên hàng đầu
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Các lô này đã được hệ thống <strong>tự động đưa lên đầu bảng</strong> bên dưới. Bấm nút <strong>&quot;Duyệt &amp; Lên Sàn&quot;</strong> để mở bán công khai cho thương lái.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterStatus('PENDING_APPROVAL');
+                      setCurrentPage(0);
+                    }}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                  >
+                    <span>Lọc xem riêng ({pendingCount})</span>
+                  </button>
+                  {filterStatus === 'PENDING_APPROVAL' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterStatus('ALL');
+                        setCurrentPage(0);
+                      }}
+                      className="px-2.5 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Xem tất cả
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Bảng Dữ Liệu Harvest Lots */}
           <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">

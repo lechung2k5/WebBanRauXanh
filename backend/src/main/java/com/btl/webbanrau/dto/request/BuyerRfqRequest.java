@@ -10,6 +10,7 @@ import java.time.LocalDate;
 @Getter @Setter
 public class BuyerRfqRequest {
     @NotNull private Long harvestLotId;
+    private String lotCode;
     @NotNull @DecimalMin("1.0") private BigDecimal quantityKg;
     @NotNull @DecimalMin("0.0") private BigDecimal proposedPricePerKg;
     @NotNull private LocalDate desiredDeliveryDate;

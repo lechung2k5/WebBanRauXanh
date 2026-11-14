@@ -117,11 +117,21 @@ function ProductListContent() {
     const handleStorage = () => void fetchList();
     window.addEventListener('storage', handleStorage);
     window.addEventListener('b2b_sync_event', handleStorage);
+    window.addEventListener('b2b_lot_updated', handleStorage);
+    window.addEventListener('focus', handleStorage);
+
+    // Tự động kiểm tra làm mới danh mục nếu có cập nhật từ Nông dân / Admin
+    const pollInterval = setInterval(() => {
+      void fetchList();
+    }, 4000);
 
     return () => {
       unsubscribe();
+      clearInterval(pollInterval);
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('b2b_sync_event', handleStorage);
+      window.removeEventListener('b2b_lot_updated', handleStorage);
+      window.removeEventListener('focus', handleStorage);
     };
   }, [fetchList]);
 

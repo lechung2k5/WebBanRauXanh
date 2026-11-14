@@ -7,6 +7,8 @@ import { useApp } from '@/context/AppContext';
 import { api } from '@/services/auth';
 import {
   getBuyerB2bContractsApi,
+  getBuyerRfqsApi,
+  respondBuyerRfqApi,
   getStoredUser,
   getProducts,
 } from '@/services/api';
@@ -120,7 +122,7 @@ export default function BuyerManagementConsole() {
         page: catalogPage,
         size: catalogSize,
       });
-      let list = [...(res.products || [])];
+      const list = [...(res.products || [])];
       if (catalogSort === 'price_asc') {
         list.sort((a, b) => a.price - b.price);
       } else if (catalogSort === 'price_desc') {
@@ -171,16 +173,214 @@ export default function BuyerManagementConsole() {
   const loadAllData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [backendContracts] = await Promise.all([
+      const [backendContracts, backendRfqs] = await Promise.all([
         getBuyerB2bContractsApi().catch(() => []),
+        getBuyerRfqsApi().catch(() => []),
       ]);
 
       const localContracts = getSyncContracts();
       const localRfqs = getSyncRfqs();
 
-      setContracts(backendContracts);
-      setSyncContracts(localContracts);
-      setRfqs(localRfqs);
+      // Đồng bộ từ Server Shared Sync (Cross-Browser)
+      let sharedRfqs: any[] = [];
+      let sharedContracts: any[] = [];
+      try {
+        const sharedRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
+        if (sharedRes.ok) {
+          const sj = await sharedRes.json();
+          sharedRfqs = sj.rfqs || [];
+          sharedContracts = sj.contracts || [];
+        }
+      } catch {}
+
+      const mappedBackendRfqs: B2bSyncRfq[] = (backendRfqs || []).map((br) => ({
+        id: br.id,
+        rfqCode: br.rfqCode,
+        harvestLotId: br.harvestLotId || 1,
+        lotCode: br.lotCode || `LOT-2026-DL-${br.harvestLotId}`,
+        farmerId: br.farmerId,
+        farmerName: br.farmerName || 'Hợp Tác Xã Nông Nghiệp',
+        productName: br.productName || 'Lô nông sản',
+        buyerName: br.buyerName || '',
+        buyerPhone: br.buyerPhone || '',
+        buyerCompany: br.buyerCompany || '',
+        requestedQuantityKg: br.quantityKg || br.requestedQuantityKg || 1000,
+        targetPricePerKg: br.proposedPricePerKg || 15000,
+        counterPricePerKg: br.counterPricePerKg ?? undefined,
+        desiredDeliveryDate: br.deliveryDate || '',
+        deliveryLocation: br.deliveryLocation || '',
+        shippingOption: br.shippingOption || 'cold_storage_truck',
+        notes: br.notes,
+        status: br.status as any,
+        createdAt: br.createdAt || new Date().toISOString(),
+        updatedAt: br.updatedAt || new Date().toISOString(),
+        expiresAt: br.expiresAt,
+        contractId: br.contractId,
+        contractCode: br.contractCode,
+        depositStatus: br.depositStatus,
+        depositAmount: br.depositAmount,
+      }));
+
+      const seenIds = new Set<number>();
+      const rfqMap = new Map<string, B2bSyncRfq>();
+      let fallbackId = Date.now();
+
+      for (const b of mappedBackendRfqs) {
+        if (b.rfqCode) {
+          const key = b.rfqCode.trim().toUpperCase();
+          seenIds.add(b.id);
+          rfqMap.set(key, b);
+        }
+      }
+      for (const sr of sharedRfqs) {
+        const code = (sr.rfqCode || `RFQ-${sr.id || fallbackId}`).trim().toUpperCase();
+        if (!rfqMap.has(code)) {
+          let numId = typeof sr.id === 'number' ? sr.id : Number(sr.id);
+          if (!numId || isNaN(numId) || seenIds.has(numId)) {
+            numId = fallbackId++;
+          }
+          seenIds.add(numId);
+          rfqMap.set(code, {
+            id: numId,
+            rfqCode: code,
+            harvestLotId: sr.harvestLotId || 1,
+            lotCode: sr.harvestLotCode || sr.lotCode || 'LOT-2026-DL-001',
+            farmerId: sr.farmerId,
+            farmerName: sr.farmerName || 'HTX Nông Nghiệp',
+            productName: sr.productName || 'Lô nông sản',
+            buyerName: sr.buyerName || '',
+            buyerPhone: sr.buyerPhone || '',
+            buyerCompany: sr.buyerCompany || '',
+            requestedQuantityKg: Number(sr.requestedQuantity || sr.requestedQuantityKg || 1000),
+            targetPricePerKg: Number(sr.targetPrice || sr.targetPricePerKg || 15000),
+            counterPricePerKg: sr.counterPrice ?? undefined,
+            desiredDeliveryDate: sr.deliveryDate || '',
+            deliveryLocation: sr.deliveryLocation || '',
+            shippingOption: sr.shippingOption || 'cold_storage_truck',
+            notes: sr.notes,
+            status: sr.status || 'WAITING_FARMER',
+            createdAt: sr.createdAt || new Date().toISOString(),
+            updatedAt: sr.updatedAt || new Date().toISOString(),
+          });
+        }
+      }
+      for (const l of localRfqs) {
+        const code = (l.rfqCode || `RFQ-${l.id || fallbackId}`).trim().toUpperCase();
+        if (!rfqMap.has(code)) {
+          let numId = typeof l.id === 'number' ? l.id : Number(l.id);
+          if (!numId || isNaN(numId) || seenIds.has(numId)) {
+            numId = fallbackId++;
+          }
+          seenIds.add(numId);
+          rfqMap.set(code, {
+            ...l,
+            id: numId,
+            rfqCode: code,
+          });
+        }
+      }
+
+      const contractMap = new Map<string, B2BContract>();
+      for (const bc of backendContracts) {
+        if (bc.contractCode) contractMap.set(bc.contractCode.trim().toUpperCase(), bc);
+      }
+      for (const sc of sharedContracts) {
+        const code = (sc.contractCode || `HD-${sc.id}`).trim().toUpperCase();
+        if (!contractMap.has(code)) {
+          contractMap.set(code, {
+            id: Number(sc.id) || Date.now(),
+            contractCode: sc.contractCode,
+            rfqId: Number(sc.rfqId || sc.id),
+            rfqCode: sc.rfqCode || `RFQ-${sc.id}`,
+            harvestLotId: Number(sc.lotId || 1),
+            lotCode: sc.lotCode || 'LOT-2026-DL-001',
+            productName: sc.productName || 'Nông sản VietGAP',
+            buyerName: sc.buyerName || '',
+            buyerPhone: sc.buyerPhone || '',
+            quantity: Number(sc.quantityKg || 1000),
+            unitPrice: Number(sc.agreedPricePerKg || 15000),
+            totalAmount: Number(sc.totalAmount || 0),
+            depositAmount: Number(sc.depositAmount || 0),
+            remainingAmount: Number(sc.remainingAmount || 0),
+            depositStatus: sc.depositStatus || 'PENDING_DEPOSIT',
+            fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : sc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
+            hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+            hubName: sc.deliveryAddress || 'Trạm Trung Chuyển Đức Trọng',
+            createdAt: sc.createdAt || new Date().toISOString(),
+            hasQc: true,
+            farmName: sc.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            farmerPhone: sc.farmerPhone || '0912345678',
+            farmerAddress: '',
+          });
+        }
+      }
+      for (const lc of localContracts) {
+        const code = (lc.contractCode || `HD-${lc.id}`).trim().toUpperCase();
+        if (!contractMap.has(code)) {
+          contractMap.set(code, {
+            id: Number(lc.id),
+            contractCode: lc.contractCode,
+            rfqId: Number(lc.id),
+            rfqCode: lc.rfqCode || `RFQ-${lc.id}`,
+            harvestLotId: Number(lc.lotId || 1),
+            lotCode: lc.lotCode,
+            productName: lc.productName,
+            buyerName: lc.buyerName,
+            buyerPhone: lc.buyerPhone,
+            quantity: lc.quantityKg,
+            unitPrice: lc.agreedPricePerKg,
+            totalAmount: lc.totalAmount,
+            depositAmount: lc.depositAmount,
+            remainingAmount: lc.remainingAmount,
+            depositStatus: lc.depositStatus as any,
+            fulfillmentStatus: lc.fulfillmentStep === 6 ? 'COMPLETED' : lc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
+            hubDeliveryDate: lc.deliveryTimeSlot || (lc.createdAt ? lc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+            hubName: lc.deliveryAddress,
+            createdAt: lc.createdAt,
+            hasQc: true,
+            farmName: lc.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            farmerPhone: lc.farmerPhone || '0912345678',
+            farmerAddress: '',
+          });
+        }
+      }
+
+      const allCombinedContracts = Array.from(contractMap.values());
+      setContracts(allCombinedContracts);
+
+      // Chuyển đổi toàn bộ danh sách hợp đồng sang B2bSyncContract để tab Vận chuyển (Shipments) hiển thị đầy đủ
+      const fullSyncList: B2bSyncContract[] = allCombinedContracts.map((ac) => ({
+        id: ac.id,
+        contractCode: ac.contractCode,
+        rfqCode: ac.rfqCode || `RFQ-${ac.id}`,
+        lotId: ac.harvestLotId || 1,
+        lotCode: ac.lotCode || 'LOT-2026-DL-001',
+        productName: ac.productName,
+        buyerName: ac.buyerName,
+        buyerPhone: ac.buyerPhone || '0901234567',
+        buyerCompany: ac.buyerName,
+        farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+        farmerPhone: ac.farmerPhone || '0912345678',
+        farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+        quantityKg: ac.quantity,
+        agreedPricePerKg: ac.unitPrice,
+        totalAmount: ac.totalAmount,
+        depositAmount: ac.depositAmount,
+        remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
+        depositStatus: ac.depositStatus || 'WAITING_DEPOSIT',
+        fulfillmentStep: ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1,
+        fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
+        truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
+        truckDriverName: 'Tài xế Nguyễn Văn Tài',
+        truckDriverPhone: '0944556677',
+        truckTempCurrent: 4.0,
+        deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
+        deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
+        finalPaidStatus: 'UNPAID',
+        createdAt: ac.createdAt,
+      }));
+      setSyncContracts(fullSyncList);
+      setRfqs(Array.from(rfqMap.values()));
       void loadCatalogData();
     } catch (err) {
       console.warn('Lỗi tải dữ liệu phân hệ thương lái:', err);
@@ -196,8 +396,17 @@ export default function BuyerManagementConsole() {
 
   // 3. Kết nối Socket / Kênh đồng bộ thời gian thực (Real-time Sync) với Nông dân & Quản trị viên
   useEffect(() => {
+    const handleSync = () => {
+      void loadAllData();
+    };
+    window.addEventListener('b2b_sync_event', handleSync);
+    window.addEventListener('b2b_contract_updated', handleSync);
+    window.addEventListener('b2b_rfq_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       // Nhận sự kiện thời gian thực từ kênh đồng bộ
+      void loadAllData();
       if (
         event.type === 'LOT_STATUS_UPDATED' ||
         event.type === 'LOT_CREATED' ||
@@ -225,11 +434,23 @@ export default function BuyerManagementConsole() {
     };
     window.addEventListener('storage', handleStorage);
     window.addEventListener('b2b_sync_event', handleStorage);
+    window.addEventListener('b2b_lot_updated', handleStorage);
+    window.addEventListener('focus', handleStorage);
+
+    // POLLING TỰ ĐỘNG ĐA TRÌNH DUYỆT (Cross-Browser Buyer Sync)
+    // Cứ mỗi 3 giây kiểm tra cập nhật các lô nông sản và hợp đồng mới để Buyer thấy tức thì
+    const catalogInterval = setInterval(() => {
+      void loadCatalogData();
+      void loadAllData();
+    }, 3000);
 
     return () => {
       unsubscribe();
+      clearInterval(catalogInterval);
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('b2b_sync_event', handleStorage);
+      window.removeEventListener('b2b_lot_updated', handleStorage);
+      window.removeEventListener('focus', handleStorage);
     };
   }, [loadAllData, loadCatalogData]);
 
@@ -246,9 +467,19 @@ export default function BuyerManagementConsole() {
   const inTransitContracts = contracts.filter((c) => c.fulfillmentStatus === 'IN_TRANSIT');
 
   // Xử lý chấp nhận giá đàm phán
-  const handleAcceptRfq = (rfqId: number) => {
+  const handleAcceptRfq = async (rfqId: number) => {
     try {
+      try {
+        await respondBuyerRfqApi(rfqId, { action: 'ACCEPT' });
+      } catch (e) {
+        console.warn('Backend API accept notice:', e);
+      }
       buyerAcceptCounterRfq(rfqId);
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_RFQ_STATUS', id: rfqId, status: 'ACCEPTED' }),
+      }).catch(() => {});
       void loadAllData();
       setNotification('Bạn đã chấp nhận giá và tạo hợp đồng thành công!');
       setTimeout(() => setNotification(null), 3000);
@@ -258,10 +489,28 @@ export default function BuyerManagementConsole() {
   };
 
   // Xử lý gửi lại mức giá mới
-  const handleSendCounter = (rfqId: number) => {
+  const handleSendCounter = async (rfqId: number) => {
     if (!counterPriceInput || counterPriceInput.price <= 0) return;
     try {
+      try {
+        await respondBuyerRfqApi(rfqId, {
+          action: 'COUNTER',
+          counterPrice: counterPriceInput.price,
+        });
+      } catch (e) {
+        console.warn('Backend API counter notice:', e);
+      }
       buyerCounterRfq(rfqId, counterPriceInput.price);
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_RFQ_STATUS',
+          id: rfqId,
+          status: 'WAITING_FARMER',
+          counterPrice: counterPriceInput.price,
+        }),
+      }).catch(() => {});
       setCounterPriceInput(null);
       void loadAllData();
       setNotification('Đã gửi đề xuất giá mới tới nhà vườn!');
@@ -524,8 +773,8 @@ export default function BuyerManagementConsole() {
                   <div className="divide-y divide-[#F0F2ED]">
                     {rfqs
                       .filter((r) => r.status === 'WAITING_BUYER')
-                      .map((rfq) => (
-                        <div key={rfq.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      .map((rfq, idx) => (
+                        <div key={`overview-${rfq.rfqCode || rfq.id}-${idx}`} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                           <div>
                             <span className="font-mono font-bold text-[#10542C]">{rfq.rfqCode}</span> ·{' '}
                             <strong className="text-[#2C3E2E]">{rfq.productName}</strong>
@@ -690,9 +939,9 @@ export default function BuyerManagementConsole() {
               ) : (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="buyer-catalog-grid">
-                    {availableProducts.map((p) => (
+                    {availableProducts.map((p, idx) => (
                       <div
-                        key={p.id}
+                        key={`catalog-${p.id || p.lotCode || idx}`}
                         className="bg-white rounded-3xl p-5 border border-[#EAECE8] shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between space-y-4 group"
                       >
                         <div className="space-y-3">
@@ -787,11 +1036,11 @@ export default function BuyerManagementConsole() {
               ) : (
                 <div className="bg-white rounded-3xl border border-[#EAECE8] overflow-hidden shadow-xs">
                   <div className="divide-y divide-[#F0F2ED]">
-                    {rfqs.map((rfq) => {
+                    {rfqs.map((rfq, idx) => {
                       const isWaitingBuyer = rfq.status === 'WAITING_BUYER';
                       const isAccepted = rfq.status === 'ACCEPTED';
                       return (
-                        <div key={rfq.id} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs">
+                        <div key={`rfq-row-${rfq.rfqCode || rfq.id}-${idx}`} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs">
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-mono font-bold text-sm text-[#10542C]">{rfq.rfqCode}</span>
@@ -812,6 +1061,10 @@ export default function BuyerManagementConsole() {
                               </span>
                             </div>
                             <h4 className="font-bold text-sm text-[#2C3E2E]">{rfq.productName}</h4>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#6B7280]">
+                              <span>Nhà vườn đối tác: <strong className="text-emerald-900 font-bold">{rfq.farmerName || 'HTX Nông Nghiệp'}</strong></span>
+                              <span>Mã lô: <strong className="font-mono text-slate-800">{rfq.lotCode}</strong></span>
+                            </div>
                             <p className="text-[#6B7280]">
                               Khối lượng: <strong>{rfq.requestedQuantityKg.toLocaleString()} kg</strong> · Giá bạn đề xuất:{' '}
                               <strong>{formatVND(rfq.targetPricePerKg)}/kg</strong>
@@ -919,11 +1172,11 @@ export default function BuyerManagementConsole() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
-                  {contracts.map((c) => {
+                  {contracts.map((c, idx) => {
                     const isPaid = c.depositStatus === 'DEPOSIT_PAID';
                     return (
                       <div
-                        key={c.id}
+                        key={`contract-${c.contractCode || c.id}-${idx}`}
                         className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs"
                       >
                         <div className="space-y-2">
@@ -1030,9 +1283,9 @@ export default function BuyerManagementConsole() {
                 </h4>
 
                 <div className="space-y-3">
-                  {syncContracts.map((c) => (
+                  {syncContracts.map((c, idx) => (
                     <div
-                      key={c.id}
+                      key={`sync-contract-${c.contractCode || c.id}-${idx}`}
                       className="p-4 rounded-2xl bg-[#F9FAF8] border border-[#EAECE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                     >
                       <div className="space-y-1">
