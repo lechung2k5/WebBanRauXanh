@@ -686,7 +686,6 @@ function FarmerPortalContent() {
         if (legacyRfqs && legacyRfqs.includes('RFQ-2026-0042')) {
           localStorage.removeItem('hona_b2b_sync_rfqs_v2');
         }
-        localStorage.removeItem('b2b_farmer_rfqs');
       } catch {}
     }
 
@@ -1123,25 +1122,47 @@ function FarmerPortalContent() {
       const targetRfq = rfqs.find((r) => r.id === rfqId || (r.rfqCode && String(r.id) === String(rfqId)));
       const rfqIdentifier = targetRfq?.rfqCode || rfqId;
 
-      await respondToRfqApi(rfqId, { action: 'ACCEPT' }).catch(() => {});
+      const serverRfq = await respondToRfqApi(rfqId, { action: 'ACCEPT' });
       let syncResultContract: any = null;
-      try {
-        const syncRes = farmerRespondRfq(rfqIdentifier, 'ACCEPT');
-        syncResultContract = syncRes?.newContract;
-      } catch (_) {}
+      let canonicalContract: B2BContract | null = null;
+
+      if (serverRfq?.syncSource === 'BACKEND' && serverRfq.contractId) {
+        // Backend đã tạo hợp đồng thật. Không tạo thêm hợp đồng local giả;
+        // lấy đúng bản ghi server để Buyer/Farmer dùng cùng ID và mã hợp đồng.
+        const serverContracts = await getFarmerContractsApi().catch(() => []);
+        canonicalContract = serverContracts.find((contract) =>
+          contract.id === serverRfq.contractId ||
+          (serverRfq.contractCode && contract.contractCode === serverRfq.contractCode) ||
+          contract.rfqId === rfqId
+        ) || null;
+        if (canonicalContract) saveLocalContract(canonicalContract);
+      }
+
+      if (!canonicalContract) throw new Error('Chưa tải được hợp đồng từ máy chủ. Hãy làm mới danh sách trước khi đặt cọc.');
 
       setRfqs((prev) =>
         prev.map((r) => (r.id === rfqId || (r.rfqCode && r.rfqCode === rfqIdentifier) ? { ...r, status: 'ACCEPTED' } : r))
       );
 
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_RFQ_STATUS',
+          rfqCode: targetRfq?.rfqCode,
+          id: rfqId,
+          status: 'ACCEPTED',
+        }),
+      }).catch(() => {});
+
       if (targetRfq) {
-        const contractCode = syncResultContract?.contractCode || `HD-2026-B2B-${Math.floor(100 + Math.random() * 900)}`;
+        const contractCode = canonicalContract?.contractCode || syncResultContract?.contractCode || `HD-2026-B2B-${Math.floor(100 + Math.random() * 900)}`;
         const resolvedUnitPrice = targetRfq.targetPrice || 15000;
         const resolvedQuantity = targetRfq.requestedQuantity || 1000;
         const total = resolvedQuantity * resolvedUnitPrice;
         const deposit = Math.round(total * 0.3);
 
-        const newContract: B2BContract = {
+        const newContract: B2BContract = canonicalContract || {
           id: syncResultContract?.id || Date.now(),
           contractCode,
           rfqId: targetRfq.id,
@@ -1155,7 +1176,7 @@ function FarmerPortalContent() {
           unitPrice: resolvedUnitPrice,
           totalAmount: total,
           depositAmount: deposit,
-          depositStatus: 'WAITING_DEPOSIT',
+          depositStatus: syncResultContract?.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
           fulfillmentStatus: 'WAITING_HARVEST',
           hubName: targetRfq.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
           hubDeliveryDate: targetRfq.deliveryDate || new Date().toISOString().slice(0, 10),

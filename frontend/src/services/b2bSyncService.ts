@@ -920,11 +920,7 @@ export function farmerRespondRfq(
 
   if (idx === -1) {
     console.warn('farmerRespondRfq: RFQ không tìm thấy trong b2bSyncService:', rfqIdOrCode);
-    if (current.length > 0) {
-      idx = 0;
-    } else {
-      return { rfq: {} as any };
-    }
+    return { rfq: {} as any };
   }
 
   const rfq = { ...current[idx] };
@@ -943,18 +939,6 @@ export function farmerRespondRfq(
     rfq.depositStatus = newContract.depositStatus;
     rfq.depositAmount = newContract.depositAmount;
 
-    // Đồng bộ trạng thái lên shared API
-    if (typeof window !== 'undefined') {
-      fetch('/api/b2b-shared-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'UPDATE_RFQ_STATUS',
-          rfqCode: rfq.rfqCode,
-          status: 'ACCEPTED',
-        }),
-      }).catch(() => {});
-    }
   } else if (action === 'COUNTER') {
     if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
       throw new Error('RFQ chưa đến lượt người bán phản hồi');
@@ -974,11 +958,33 @@ export function farmerRespondRfq(
 
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  if (typeof window !== 'undefined') {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_RFQ_STATUS',
+        rfqCode: rfq.rfqCode,
+        status: rfq.status,
+        counterPrice: rfq.counterPricePerKg,
+        counterQuantity: rfq.requestedQuantityKg,
+      }),
+    }).catch(() => {});
+  }
   notifySyncEvent('RFQ_UPDATED', { rfq, newContract });
   return { rfq, newContract };
 }
 
-export function buyerAcceptCounterRfq(rfqIdOrCode: number | string): { rfq: B2bSyncRfq; newContract: B2bSyncContract } {
+export function buyerAcceptCounterRfq(
+  rfqIdOrCode: number | string,
+  backendContract?: {
+    id?: number;
+    contractId?: number;
+    contractCode?: string;
+    depositAmount?: number;
+    depositStatus?: string;
+  },
+): { rfq: B2bSyncRfq; newContract: B2bSyncContract } {
   const current = getSyncRfqs();
   const idx = current.findIndex(
     (r) => r.id === Number(rfqIdOrCode) || r.rfqCode === String(rfqIdOrCode)
@@ -994,13 +1000,23 @@ export function buyerAcceptCounterRfq(rfqIdOrCode: number | string): { rfq: B2bS
   rfq.targetPricePerKg = finalPrice;
   rfq.updatedAt = new Date().toISOString();
 
-  const newContract = createContractFromRfq(rfq, finalPrice);
+  // Khi backend đã tạo hợp đồng, dùng đúng ID/mã hợp đồng server trả về
+  // trước khi ghi localStorage/shared sync. Nếu không, kho local sẽ giữ một
+  // ID Date.now() không tồn tại trong bảng b2b_contracts.
+  const newContract = createContractFromRfq(rfq, finalPrice, backendContract);
   rfq.contractId = newContract.id;
   rfq.contractCode = newContract.contractCode;
   rfq.depositStatus = newContract.depositStatus;
   rfq.depositAmount = newContract.depositAmount;
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  if (typeof window !== 'undefined') {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'UPDATE_RFQ_STATUS', rfqCode: rfq.rfqCode, status: 'ACCEPTED' }),
+    }).catch(() => {});
+  }
   notifySyncEvent('RFQ_ACCEPTED_BY_BUYER', { rfq, newContract });
   return { rfq, newContract };
 }
@@ -1024,6 +1040,19 @@ export function buyerCounterRfq(
   rfq.updatedAt = new Date().toISOString();
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  if (typeof window !== 'undefined') {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_RFQ_STATUS',
+        rfqCode: rfq.rfqCode,
+        status: 'WAITING_FARMER',
+        counterPrice: rfq.counterPricePerKg,
+        counterQuantity: rfq.requestedQuantityKg,
+      }),
+    }).catch(() => {});
+  }
   notifySyncEvent('RFQ_COUNTERED_BY_BUYER', rfq);
   return rfq;
 }
@@ -1033,7 +1062,7 @@ export function buyerCounterRfq(
 // Helper tìm vị trí hợp đồng an toàn, không bao giờ để -1 làm sập app
 function findSafeContractIndex(contracts: B2bSyncContract[], idOrCode: number | string | undefined | null): number {
   if (!contracts || contracts.length === 0) return -1;
-  if (!idOrCode) return 0;
+  if (!idOrCode) return -1;
 
   const targetStr = String(idOrCode).trim();
   const targetNum = Number(idOrCode);
@@ -1046,22 +1075,59 @@ function findSafeContractIndex(contracts: B2bSyncContract[], idOrCode: number | 
       c.contractCode.toLowerCase() === targetStr.toLowerCase()
   );
 
-  return idx !== -1 ? idx : 0; // Luôn fallback về contract đầu tiên nếu không khớp chính xác
+  // Không được tự động rơi vào hợp đồng đầu tiên: thao tác thanh toán nhầm
+  // hợp đồng là lỗi nghiệp vụ nghiêm trọng hơn việc báo không tìm thấy mã.
+  return idx;
 }
 
 
 export function getSyncContracts(): B2bSyncContract[] {
   if (typeof window === 'undefined') return INITIAL_CONTRACTS;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_CONTRACTS);
+    const legacyKey = 'b2b_sync_contracts';
+    const raw = localStorage.getItem(STORAGE_KEY_CONTRACTS) || localStorage.getItem(legacyKey);
     if (!raw) {
       localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(INITIAL_CONTRACTS));
       return INITIAL_CONTRACTS;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!localStorage.getItem(STORAGE_KEY_CONTRACTS) && Array.isArray(parsed)) {
+      localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(parsed));
+      localStorage.removeItem(legacyKey);
+    }
+    return Array.isArray(parsed) ? parsed : INITIAL_CONTRACTS;
   } catch {
     return INITIAL_CONTRACTS;
   }
+}
+
+/** Xóa một hợp đồng local bị lỗi khỏi cả hai kho đồng bộ Buyer/Farmer. */
+export function removeLocalContractByCode(contractCode: string): number {
+  if (typeof window === 'undefined' || !contractCode?.trim()) return 0;
+  const target = contractCode.trim().toUpperCase();
+  let removed = 0;
+
+  for (const key of [STORAGE_KEY_CONTRACTS, 'b2b_farmer_contracts']) {
+    try {
+      const current: Array<{ contractCode?: string }> = JSON.parse(localStorage.getItem(key) || '[]');
+      const next = current.filter((contract) => {
+        const matches = String(contract?.contractCode || '').trim().toUpperCase() === target;
+        if (matches) removed += 1;
+        return !matches;
+      });
+      if (next.length !== current.length) {
+        localStorage.setItem(key, JSON.stringify(next));
+      }
+    } catch {
+      // Bỏ qua kho local hỏng định dạng, không làm gián đoạn portal.
+    }
+  }
+
+  if (removed > 0) {
+    window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'CONTRACT_REMOVED', contractCode: target } }));
+    window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: { type: 'CONTRACT_REMOVED', contractCode: target } }));
+  }
+  return removed;
 }
 
 /** Đồng bộ danh sách hợp đồng Buyer từ backend, loại bỏ dữ liệu mẫu cũ trong localStorage. */
@@ -1072,7 +1138,17 @@ export function replaceSyncContracts(contracts: B2bSyncContract[]): B2bSyncContr
   return contracts;
 }
 
-function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncContract {
+function createContractFromRfq(
+  rfq: B2bSyncRfq,
+  pricePerKg: number,
+  backendContract?: {
+    id?: number;
+    contractId?: number;
+    contractCode?: string;
+    depositAmount?: number;
+    depositStatus?: string;
+  },
+): B2bSyncContract {
   const contracts = getSyncContracts();
   const total = rfq.requestedQuantityKg * pricePerKg;
   const deposit = Math.round(total * 0.3);
@@ -1109,6 +1185,21 @@ function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncCont
     createdAt: new Date().toISOString(),
   };
 
+  const persistedContractId = Number(backendContract?.contractId ?? backendContract?.id);
+  if (Number.isFinite(persistedContractId) && persistedContractId > 0) {
+    newContract.id = persistedContractId;
+  }
+  if (backendContract?.contractCode?.trim()) {
+    newContract.contractCode = backendContract.contractCode.trim();
+  }
+  if (typeof backendContract?.depositAmount === 'number' && backendContract.depositAmount >= 0) {
+    newContract.depositAmount = backendContract.depositAmount;
+    newContract.remainingAmount = Math.max(0, newContract.totalAmount - backendContract.depositAmount);
+  }
+  if (backendContract?.depositStatus === 'DEPOSIT_PAID') {
+    newContract.depositStatus = 'DEPOSIT_PAID';
+  }
+
   const updated = [newContract, ...contracts.filter((c) => c.id !== newContract.id && c.contractCode !== newContract.contractCode)];
   if (typeof window !== 'undefined') {
     try {
@@ -1135,12 +1226,12 @@ function createContractFromRfq(rfq: B2bSyncRfq, pricePerKg: number): B2bSyncCont
   return newContract;
 }
 
-export function buyerPayDeposit(contractId: number | string): B2bSyncContract {
+export function buyerPayDeposit(contractId: number | string): B2bSyncContract | undefined {
   const contracts = getSyncContracts();
   const idx = findSafeContractIndex(contracts, contractId);
   if (idx === -1) {
     console.warn('buyerPayDeposit: Danh sách hợp đồng rỗng');
-    return INITIAL_CONTRACTS[0];
+    return undefined;
   }
 
   const c = { ...contracts[idx] };
@@ -1151,6 +1242,7 @@ export function buyerPayDeposit(contractId: number | string): B2bSyncContract {
 
   contracts[idx] = c;
   localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
   notifySyncEvent('DEPOSIT_PAID', c);
   return c;
 }
@@ -1229,12 +1321,12 @@ export function buyerSignEpod(
   return c;
 }
 
-export function buyerPayFinalSettlement(contractId: number | string): B2bSyncContract {
+export function buyerPayFinalSettlement(contractId: number | string): B2bSyncContract | undefined {
   const contracts = getSyncContracts();
   const idx = findSafeContractIndex(contracts, contractId);
   if (idx === -1) {
     console.warn('buyerPayFinalSettlement: Danh sách hợp đồng rỗng');
-    return INITIAL_CONTRACTS[0];
+    return undefined;
   }
 
   const c = { ...contracts[idx] };
@@ -1246,8 +1338,40 @@ export function buyerPayFinalSettlement(contractId: number | string): B2bSyncCon
 
   contracts[idx] = c;
   localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
   notifySyncEvent('FINAL_PAID', c);
   return c;
+}
+
+function mirrorContractStatus(contract: B2bSyncContract) {
+  if (typeof window === 'undefined') return;
+
+  // Giữ dữ liệu farmer/admin trong cùng trình duyệt nhất quán với Buyer.
+  try {
+    const farmerContracts: B2bSyncContract[] = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
+    const mirrorIndex = farmerContracts.findIndex((item) =>
+      item.contractCode?.trim().toUpperCase() === contract.contractCode.trim().toUpperCase()
+    );
+    if (mirrorIndex >= 0) {
+      farmerContracts[mirrorIndex] = { ...farmerContracts[mirrorIndex], ...contract };
+      localStorage.setItem('b2b_farmer_contracts', JSON.stringify(farmerContracts));
+    }
+  } catch {
+    // Không để lỗi kho local làm hỏng xác nhận thanh toán.
+  }
+
+  fetch('/api/b2b-shared-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'UPDATE_CONTRACT_STATUS',
+      contractCode: contract.contractCode,
+      depositStatus: contract.depositStatus,
+      fulfillmentStep: contract.fulfillmentStep,
+      fulfillmentStatusName: contract.fulfillmentStatusName,
+      finalPaidStatus: contract.finalPaidStatus,
+    }),
+  }).catch(() => {});
 }
 
 /**

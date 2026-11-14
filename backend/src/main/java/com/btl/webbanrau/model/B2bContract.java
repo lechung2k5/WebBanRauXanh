@@ -94,4 +94,29 @@ public class B2bContract extends BaseEntity {
 
     @Column(length = 255)
     private String deliveryAddress;
+
+    @Column(name = "lot_id")
+    private Long accountingLotId;
+
+    @Column(name = "offered_weight_kg")
+    private BigDecimal offeredWeightKg;
+
+    @Column(name = "offered_price_per_kg")
+    private BigDecimal offeredPricePerKg;
+
+    @Column(name = "total_goods_amount")
+    private BigDecimal totalGoodsAmount;
+
+    @Column(name = "deposit_30_amount")
+    private BigDecimal deposit30Amount;
+
+    @PrePersist
+    @PreUpdate
+    private void synchronizeAccountingFields() {
+        if (harvestLot != null) accountingLotId = harvestLot.getId();
+        if (quantity != null) offeredWeightKg = BigDecimal.valueOf(quantity);
+        if (unitPrice != null) offeredPricePerKg = unitPrice;
+        if (totalAmount != null) totalGoodsAmount = totalAmount;
+        if (depositAmount != null) deposit30Amount = depositAmount;
+    }
 }
