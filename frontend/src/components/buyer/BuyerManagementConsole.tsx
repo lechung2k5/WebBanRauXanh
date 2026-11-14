@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { api } from '@/services/auth';
@@ -11,6 +10,7 @@ import {
   respondBuyerRfqApi,
   getStoredUser,
   getProducts,
+  confirmBuyerDepositApi,
 } from '@/services/api';
 import {
   B2bSyncContract,
@@ -20,11 +20,14 @@ import {
   subscribeB2bSyncEvents,
   buyerAcceptCounterRfq,
   buyerCounterRfq,
+  buyerPayDeposit,
+  removeLocalContractByCode,
 } from '@/services/b2bSyncService';
 import { B2BContract, Product } from '@/types';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import { GoongMapViewer } from '@/components/common/GoongMapViewer';
+import OrderTrackingModal from '@/components/OrderTrackingModal';
 import Pagination from '@/components/Pagination';
 import {
   LayoutDashboard,
@@ -73,18 +76,23 @@ export default function BuyerManagementConsole() {
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
 
   // Bộ lọc & Tìm kiếm & Phân trang nguồn nông sản sỉ
+  const [catalogKeywordInput, setCatalogKeywordInput] = useState('');
   const [catalogKeyword, setCatalogKeyword] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('ALL');
   const [catalogSort, setCatalogSort] = useState<'default' | 'price_asc' | 'price_desc' | 'moq_asc'>('default');
   const [catalogPage, setCatalogPage] = useState(1);
-  const [catalogSize] = useState(6);
+  // Mỗi trang hiển thị tối đa 10 lô; UI dùng page bắt đầu từ 1.
+  const [catalogSize] = useState(10);
   const [catalogTotal, setCatalogTotal] = useState(0);
   const [catalogTotalPages, setCatalogTotalPages] = useState(1);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const catalogRequestId = useRef(0);
 
   // Modals
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
   const [selectedContractForPayment, setSelectedContractForPayment] = useState<B2BContract | B2bSyncContract | null>(null);
+  const [trackingContractCode, setTrackingContractCode] = useState('');
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
   const [counterPriceInput, setCounterPriceInput] = useState<{ id: number; price: number } | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
 
@@ -93,6 +101,11 @@ export default function BuyerManagementConsole() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
   const [profileWarehouse, setProfileWarehouse] = useState('');
+
+  // Dọn một hợp đồng local bị lỗi số tiền 0đ đã được xác định trước đó.
+  useEffect(() => {
+    removeLocalContractByCode('HD-2026-B2B-E233');
+  }, []);
 
   // 1. Kiểm tra quyền truy cập (Role BUYER)
   useEffect(() => {
@@ -114,32 +127,52 @@ export default function BuyerManagementConsole() {
 
   // 2. Tải nguồn nông sản sỉ (Tìm kiếm, Lọc danh mục & Phân trang)
   const loadCatalogData = useCallback(async () => {
+    const requestId = ++catalogRequestId.current;
     setCatalogLoading(true);
     try {
+      const needsClientPagination = catalogSort === 'moq_asc';
+      const requestPage = needsClientPagination ? 1 : catalogPage;
+      // MOQ được tính từ tierPricingJson ở frontend nên phải sắp xếp toàn bộ
+      // danh sách trước, sau đó mới cắt thành trang 10 lô.
+      const requestSize = needsClientPagination ? 1000 : catalogSize;
+      const sortParams =
+        catalogSort === 'price_asc'
+          ? { sortBy: 'basePricePerKg' as const, sortDir: 'ASC' as const }
+          : catalogSort === 'price_desc'
+            ? { sortBy: 'basePricePerKg' as const, sortDir: 'DESC' as const }
+            : {};
       const res = await getProducts({
         keyword: catalogKeyword.trim() || undefined,
         categorySlug: catalogCategory === 'ALL' ? undefined : catalogCategory,
-        page: catalogPage,
-        size: catalogSize,
+        page: requestPage,
+        size: requestSize,
+        ...sortParams,
       });
       const list = [...(res.products || [])];
-      if (catalogSort === 'price_asc') {
-        list.sort((a, b) => a.price - b.price);
-      } else if (catalogSort === 'price_desc') {
-        list.sort((a, b) => b.price - a.price);
-      } else if (catalogSort === 'moq_asc') {
+      if (catalogSort === 'moq_asc') {
         list.sort((a, b) => (a.moq || 500) - (b.moq || 500));
       }
-      setAvailableProducts(list);
-      setCatalogTotal(res.totalElements || list.length);
-      setCatalogTotalPages(Math.max(1, res.totalPages || Math.ceil((res.totalElements || list.length) / catalogSize)));
+      const totalElements = res.totalElements || list.length;
+      const nextTotalPages = Math.max(1, Math.ceil(totalElements / catalogSize));
+      const visibleProducts = needsClientPagination
+        ? list.slice((catalogPage - 1) * catalogSize, catalogPage * catalogSize)
+        : list;
+      if (requestId !== catalogRequestId.current) return;
+      if (catalogPage > nextTotalPages) {
+        setCatalogPage(nextTotalPages);
+        return;
+      }
+      setAvailableProducts(visibleProducts);
+      setCatalogTotal(totalElements);
+      setCatalogTotalPages(nextTotalPages);
     } catch (err) {
       console.warn('Lỗi tải danh mục nông sản:', err);
+      if (requestId !== catalogRequestId.current) return;
       setAvailableProducts([]);
       setCatalogTotal(0);
       setCatalogTotalPages(1);
     } finally {
-      setCatalogLoading(false);
+      if (requestId === catalogRequestId.current) setCatalogLoading(false);
     }
   }, [catalogKeyword, catalogCategory, catalogSort, catalogPage, catalogSize]);
 
@@ -147,8 +180,14 @@ export default function BuyerManagementConsole() {
     void loadCatalogData();
   }, [loadCatalogData]);
 
+  // Debounce ô tìm kiếm để không gọi API/re-render theo từng phím gõ.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setCatalogKeyword(catalogKeywordInput), 300);
+    return () => window.clearTimeout(timer);
+  }, [catalogKeywordInput]);
+
   const handleKeywordChange = (val: string) => {
-    setCatalogKeyword(val);
+    setCatalogKeywordInput(val);
     setCatalogPage(1);
   };
 
@@ -163,6 +202,7 @@ export default function BuyerManagementConsole() {
   };
 
   const handleResetCatalogFilters = () => {
+    setCatalogKeywordInput('');
     setCatalogKeyword('');
     setCatalogCategory('ALL');
     setCatalogSort('default');
@@ -367,7 +407,7 @@ export default function BuyerManagementConsole() {
         totalAmount: ac.totalAmount,
         depositAmount: ac.depositAmount,
         remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
-        depositStatus: ac.depositStatus || 'WAITING_DEPOSIT',
+        depositStatus: ac.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
         fulfillmentStep: ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1,
         fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
         truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
@@ -381,28 +421,32 @@ export default function BuyerManagementConsole() {
       }));
       setSyncContracts(fullSyncList);
       setRfqs(Array.from(rfqMap.values()));
-      void loadCatalogData();
     } catch (err) {
       console.warn('Lỗi tải dữ liệu phân hệ thương lái:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [loadCatalogData]);
+  }, []);
 
   useEffect(() => {
     void loadAllData();
   }, [loadAllData]);
 
-  // 3. Kết nối Socket / Kênh đồng bộ thời gian thực (Real-time Sync) với Nông dân & Quản trị viên
+  // 3. Kết nối kênh đồng bộ với Nông dân & Quản trị viên.
+  // Catalog chỉ tải khi đổi bộ lọc/trang hoặc khi có sự kiện lô hàng;
+  // không polling mỗi vài giây làm màn hình bị nhấp nháy và gọi API lặp.
   useEffect(() => {
-    const handleSync = () => {
+    const handleDataSync = () => void loadAllData();
+    const handleCatalogSync = () => {
+      void loadCatalogData();
       void loadAllData();
     };
-    window.addEventListener('b2b_sync_event', handleSync);
-    window.addEventListener('b2b_contract_updated', handleSync);
-    window.addEventListener('b2b_rfq_updated', handleSync);
-    window.addEventListener('storage', handleSync);
+    window.addEventListener('b2b_sync_event', handleDataSync);
+    window.addEventListener('b2b_contract_updated', handleDataSync);
+    window.addEventListener('b2b_rfq_updated', handleDataSync);
+    window.addEventListener('storage', handleDataSync);
+    window.addEventListener('b2b_lot_updated', handleCatalogSync);
 
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       // Nhận sự kiện thời gian thực từ kênh đồng bộ
@@ -428,29 +472,13 @@ export default function BuyerManagementConsole() {
       }
     });
 
-    const handleStorage = () => {
-      void loadCatalogData();
-      void loadAllData();
-    };
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener('b2b_sync_event', handleStorage);
-    window.addEventListener('b2b_lot_updated', handleStorage);
-    window.addEventListener('focus', handleStorage);
-
-    // POLLING TỰ ĐỘNG ĐA TRÌNH DUYỆT (Cross-Browser Buyer Sync)
-    // Cứ mỗi 3 giây kiểm tra cập nhật các lô nông sản và hợp đồng mới để Buyer thấy tức thì
-    const catalogInterval = setInterval(() => {
-      void loadCatalogData();
-      void loadAllData();
-    }, 3000);
-
     return () => {
       unsubscribe();
-      clearInterval(catalogInterval);
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('b2b_sync_event', handleStorage);
-      window.removeEventListener('b2b_lot_updated', handleStorage);
-      window.removeEventListener('focus', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleDataSync);
+      window.removeEventListener('b2b_contract_updated', handleDataSync);
+      window.removeEventListener('b2b_rfq_updated', handleDataSync);
+      window.removeEventListener('storage', handleDataSync);
+      window.removeEventListener('b2b_lot_updated', handleCatalogSync);
     };
   }, [loadAllData, loadCatalogData]);
 
@@ -469,16 +497,26 @@ export default function BuyerManagementConsole() {
   // Xử lý chấp nhận giá đàm phán
   const handleAcceptRfq = async (rfqId: number) => {
     try {
+      const selectedRfq = rfqs.find((item) => item.id === rfqId);
+      // RFQ tạo từ giao diện có thể có ID local khác ID backend, nhưng mã RFQ
+      // là khóa dùng chung giữa hai kho dữ liệu.
+      const localRfqKey = selectedRfq?.rfqCode || rfqId;
+      let backendRfq: Awaited<ReturnType<typeof respondBuyerRfqApi>> | null = null;
       try {
-        await respondBuyerRfqApi(rfqId, { action: 'ACCEPT' });
+        backendRfq = await respondBuyerRfqApi(rfqId, { action: 'ACCEPT' });
       } catch (e) {
         console.warn('Backend API accept notice:', e);
       }
-      buyerAcceptCounterRfq(rfqId);
+      buyerAcceptCounterRfq(localRfqKey, backendRfq ? {
+        contractId: backendRfq.contractId,
+        contractCode: backendRfq.contractCode,
+        depositAmount: backendRfq.depositAmount,
+        depositStatus: backendRfq.depositStatus,
+      } : undefined);
       fetch('/api/b2b-shared-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'UPDATE_RFQ_STATUS', id: rfqId, status: 'ACCEPTED' }),
+        body: JSON.stringify({ action: 'UPDATE_RFQ_STATUS', rfqCode: selectedRfq?.rfqCode, id: rfqId, status: 'ACCEPTED' }),
       }).catch(() => {});
       void loadAllData();
       setNotification('Bạn đã chấp nhận giá và tạo hợp đồng thành công!');
@@ -488,10 +526,25 @@ export default function BuyerManagementConsole() {
     }
   };
 
+  const confirmDeposit = async (contract: B2BContract | B2bSyncContract) => {
+    const localFallbackApplied = false;
+    await confirmBuyerDepositApi(Number(contract.id), contract.contractCode);
+    // Cập nhật kênh đồng bộ ngay cả khi backend xác nhận thành công để
+    // farmer/admin ở tab hoặc trình duyệt khác nhìn thấy trạng thái mới.
+    if (!localFallbackApplied) {
+      const localContract = getSyncContracts().find(
+        (item) => item.contractCode.trim().toUpperCase() === String(contract.contractCode || '').trim().toUpperCase(),
+      );
+      if (localContract) buyerPayDeposit(localContract.contractCode);
+    }
+  };
+
   // Xử lý gửi lại mức giá mới
   const handleSendCounter = async (rfqId: number) => {
     if (!counterPriceInput || counterPriceInput.price <= 0) return;
     try {
+      const selectedRfq = rfqs.find((item) => item.id === rfqId);
+      const localRfqKey = selectedRfq?.rfqCode || rfqId;
       try {
         await respondBuyerRfqApi(rfqId, {
           action: 'COUNTER',
@@ -500,13 +553,14 @@ export default function BuyerManagementConsole() {
       } catch (e) {
         console.warn('Backend API counter notice:', e);
       }
-      buyerCounterRfq(rfqId, counterPriceInput.price);
+      buyerCounterRfq(localRfqKey, counterPriceInput.price);
       fetch('/api/b2b-shared-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'UPDATE_RFQ_STATUS',
           id: rfqId,
+          rfqCode: selectedRfq?.rfqCode,
           status: 'WAITING_FARMER',
           counterPrice: counterPriceInput.price,
         }),
@@ -680,7 +734,10 @@ export default function BuyerManagementConsole() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => void loadAllData()}
+              onClick={() => {
+                void loadAllData();
+                if (activeTab === 'catalog') void loadCatalogData();
+              }}
               disabled={refreshing}
               className="px-3.5 py-1.5 rounded-xl bg-[#F4F6F2] hover:bg-[#EAECE8] text-[#10542C] text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
             >
@@ -823,12 +880,12 @@ export default function BuyerManagementConsole() {
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
-                      value={catalogKeyword}
+                      value={catalogKeywordInput}
                       onChange={(e) => handleKeywordChange(e.target.value)}
                       placeholder="Tìm theo tên nông sản, nhà vườn, hợp tác xã..."
                       className="w-full pl-10 pr-9 py-2.5 bg-[#F9FAF8] border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#10542C] focus:bg-white transition-all"
                     />
-                    {Boolean(catalogKeyword) && (
+                    {Boolean(catalogKeywordInput) && (
                       <button
                         type="button"
                         onClick={() => handleKeywordChange('')}
@@ -899,7 +956,7 @@ export default function BuyerManagementConsole() {
                     })}
                   </div>
 
-                  {(Boolean(catalogKeyword) || catalogCategory !== 'ALL' || catalogSort !== 'default') && (
+                  {(Boolean(catalogKeywordInput) || catalogCategory !== 'ALL' || catalogSort !== 'default') && (
                     <button
                       type="button"
                       onClick={handleResetCatalogFilters}
@@ -1228,15 +1285,17 @@ export default function BuyerManagementConsole() {
                             </div>
                           )}
 
-                          <a
-                            href={`/don-hang?code=${c.contractCode}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTrackingContractCode(c.contractCode);
+                              setIsTrackingModalOpen(true);
+                            }}
                             className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold transition-colors flex items-center gap-1"
                           >
                             <span>Xem chi tiết</span>
                             <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                          </a>
+                          </button>
                         </div>
                       </div>
                     );
@@ -1425,6 +1484,7 @@ export default function BuyerManagementConsole() {
           amount={Number(selectedContractForPayment.depositAmount || 0)}
           title="Quét Mã VietQR Nộp Cọc 30% Hợp Đồng"
           recipientName={currentUser?.fullName || 'Thương Lái'}
+          onManualConfirm={() => confirmDeposit(selectedContractForPayment)}
           onSuccess={() => {
             setSelectedContractForPayment(null);
             void loadAllData();
@@ -1432,6 +1492,14 @@ export default function BuyerManagementConsole() {
           }}
         />
       )}
+
+      {/* Chi tiết hợp đồng dùng chung trung tâm tracking hiện tại, không chuyển sang giao diện cũ */}
+      <OrderTrackingModal
+        isOpen={isTrackingModalOpen}
+        onClose={() => setIsTrackingModalOpen(false)}
+        defaultQuery={trackingContractCode}
+        initialContracts={contracts}
+      />
     </div>
   );
 }

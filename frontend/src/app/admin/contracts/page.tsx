@@ -62,7 +62,7 @@ const nextStateLabel: Record<string, string> = {
   DELIVERED: 'Quyết toán & Giải ngân',
 };
 
-export const CLAIM_LIABLE_CONFIG: Record<
+const CLAIM_LIABLE_CONFIG: Record<
   string,
   { label: string; shortLabel: string; bg: string; text: string; border: string; icon: string }
 > = {
@@ -92,7 +92,7 @@ export const CLAIM_LIABLE_CONFIG: Record<
   },
 };
 
-export const CLAIM_STATUS_CONFIG: Record<
+const CLAIM_STATUS_CONFIG: Record<
   string,
   { label: string; desc: string; bg: string; text: string; border: string; dot: string; actionLabel: string }
 > = {
@@ -134,7 +134,7 @@ export const CLAIM_STATUS_CONFIG: Record<
   },
 };
 
-export const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: string; text: string; border: string; dot: string }> = {
+const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: string; text: string; border: string; dot: string }> = {
   SETTLED: {
     label: 'Đã hoàn tất & Giải ngân',
     desc: 'Hàng đã giao đạt chuẩn, tiền đã giải ngân về tài khoản nông dân.',
