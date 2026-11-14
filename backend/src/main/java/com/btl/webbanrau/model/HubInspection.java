@@ -18,6 +18,6 @@ public class HubInspection extends BaseEntity {
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal qualifiedWeightKg;
     @Builder.Default @Column(nullable = false, precision = 12, scale = 2) private BigDecimal rejectedWeightKg = BigDecimal.ZERO;
     @Column(precision = 4, scale = 1) private BigDecimal brixDegree;
-    @Column(precision = 4, scale = 1) private BigDecimal moisturePercent;
+    @Column(name = "moisture_pct", precision = 4, scale = 1) private BigDecimal moisturePercent;
     @Column(length = 500) private String qcNote;
 }

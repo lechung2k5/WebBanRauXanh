@@ -73,8 +73,23 @@ public class AdminBusinessService {
         if(asLong(lot,"farmer_id").equals(buyerId)) bad("Không tự giao dịch với chính mình");
         BigDecimal weight=number(n,"weightKg",new BigDecimal("100"),decimal(lot,"available_weight_kg")), price=number(n,"pricePerKg",BigDecimal.ONE,new BigDecimal("1000000000"));
         var cfg=settings();BigDecimal total=money(weight.multiply(price)), deposit=money(total.multiply(decimal(cfg,"deposit_rate")).divide(new BigDecimal("100"))), fee=money(total.multiply(decimal(cfg,"platform_fee_rate")).divide(new BigDecimal("100")));
-        long id=db.queryForObject("insert into b2b_contracts(contract_code,lot_id,farmer_id,buyer_id,offered_weight_kg,offered_price_per_kg,total_goods_amount,deposit_30_amount,platform_fee_rate,platform_fee_amount,logistics_fee_amount,service_vat_rate,delivery_address) values (?,?,?,?,?,?,?,?,?,?,?,?,?) returning id",Long.class,
-            code("HD"),lot.get("id"),lot.get("farmer_id"),buyerId,weight,price,total,deposit,cfg.get("platform_fee_rate"),fee,number(n,"logisticsFee",BigDecimal.ZERO,total),cfg.get("service_vat_rate"),text(n,"deliveryAddress"));
+        long id=db.queryForObject("""
+            insert into b2b_contracts(
+                contract_code, lot_id, harvest_lot_id, farmer_id, buyer_id, buyer_name, buyer_phone,
+                quantity, quantity_kg, offered_weight_kg,
+                unit_price, agreed_price_per_kg, offered_price_per_kg,
+                total_amount, total_goods_amount, deposit_amount, deposit_30_amount,
+                platform_fee_rate, platform_fee_amount, logistics_fee_amount, service_vat_rate,
+                delivery_address, status, deposit_status, fulfillment_status,
+                created_at, updated_at
+            ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RFQ_SENT','PENDING_DEPOSIT','WAITING_HARVEST',NOW(),NOW()) returning id
+            """, Long.class,
+            code("HD"), lot.get("id"), lot.get("id"), lot.get("farmer_id"), buyerId, buyer.getFullName(), buyer.getPhone(),
+            weight.doubleValue(), weight, weight,
+            price, price, price,
+            total, total, deposit, deposit,
+            cfg.get("platform_fee_rate"), fee, number(n,"logisticsFee",BigDecimal.ZERO,total), cfg.get("service_vat_rate"),
+            text(n,"deliveryAddress"));
         audit("CREATE_RFQ",id);return id;
     }
     @Transactional public void transition(long id,JsonNode n) {

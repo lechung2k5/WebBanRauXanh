@@ -10,7 +10,9 @@ backend/target/
 # Frontend build & dependencies
 frontend/.next/
 frontend/node_modules/
+node_modules/
 frontend/out/
+*.tsbuildinfo
 
 # IDE & Editor
 .idea/

@@ -72,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       activeUser.roles?.some((r) =>
         ['ROLE_FARMER', 'FARMER', 'ROLE_COOPERATIVE', 'COOPERATIVE'].includes(r)
       ) ||
-      activeUser.username === 'farmer_dalat'
+      false
     )
   );
   const [isScrolled, setIsScrolled] = useState(false);

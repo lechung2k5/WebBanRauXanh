@@ -2,7 +2,7 @@
 
 import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, autoCompleteContractAfterTimeout, B2bSyncContract } from '@/services/b2bSyncService';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Truck,
   Thermometer,
@@ -147,6 +147,12 @@ export default function FarmerPostSaleView({
       setSelectedContractId(initialContractId);
       setEpodContractId(initialContractId);
       setSubTab('coldchain');
+      setTimeout(() => {
+        const el = document.getElementById('b2b-fulfillment-timeline');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
     }
   }, [initialContractId]);
 
@@ -178,8 +184,40 @@ export default function FarmerPostSaleView({
   const [copiedTraceUrl, setCopiedTraceUrl] = useState(false);
   const [labelSize, setLabelSize] = useState<'DECAL_100X75' | 'A4_SHEET'>('DECAL_100X75');
 
-  const currentSelectedContract = contracts.find((c) => c.id === selectedContractId) || contracts[0];
-  const currentEpodContract = contracts.find((c) => c.id === epodContractId) || contracts[0];
+  // Hợp nhất danh sách Hợp đồng từ props và đồng bộ B2B Realtime
+  const effectiveContracts: B2BContract[] = useMemo<B2BContract[]>(() => {
+    const syncList = getSyncContracts();
+    const map = new Map<number, B2BContract>();
+    contracts.forEach((c) => map.set(c.id, c));
+    syncList.forEach((sc) => {
+      const existing = map.get(sc.id);
+      map.set(sc.id, {
+        ...(existing || {}),
+        id: sc.id,
+        contractCode: sc.contractCode,
+        rfqCode: sc.rfqCode,
+        buyerName: sc.buyerName,
+        buyerPhone: sc.buyerPhone,
+        buyerCompany: sc.buyerCompany,
+        farmerName: sc.farmerName,
+        farmerPhone: sc.farmerPhone,
+        farmerCompany: sc.farmerCompany,
+        quantity: sc.quantityKg,
+        unitPrice: sc.agreedPricePerKg,
+        totalAmount: sc.totalAmount,
+        depositAmount: sc.depositAmount,
+        depositStatus: sc.depositStatus,
+        fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : 'IN_TRANSIT',
+        hubDeliveryDate: sc.deliveryTimeSlot || '29/10/2026',
+        hubName: sc.deliveryAddress,
+      } as B2BContract);
+    });
+    const result = Array.from(map.values());
+    return result.length > 0 ? result : contracts;
+  }, [contracts]);
+
+  const currentSelectedContract = effectiveContracts.find((c: B2BContract) => c.id === selectedContractId) || effectiveContracts[0];
+  const currentEpodContract = effectiveContracts.find((c: B2BContract) => c.id === epodContractId) || effectiveContracts[0];
   const currentTraceLot = lots.find((l) => l.lotCode === traceLotCode) || lots[0];
 
   // Fetch Allocation when selectedLotId changes
@@ -252,7 +290,7 @@ export default function FarmerPostSaleView({
             setTelemetry(data);
           } else {
             // Fallback mock
-            const c = contracts.find((x) => x.id === selectedContractId) || contracts[0];
+            const c = effectiveContracts.find((x: B2BContract) => x.id === selectedContractId) || effectiveContracts[0];
             setTelemetry({
               contractId: selectedContractId,
               contractCode: c?.contractCode || 'HD-2026-DL-001',
@@ -322,7 +360,7 @@ export default function FarmerPostSaleView({
           if (data) {
             setDeliveryProof(data);
           } else {
-            const c = contracts.find((x) => x.id === epodContractId) || contracts[0];
+            const c = effectiveContracts.find((x: B2BContract) => x.id === epodContractId) || effectiveContracts[0];
             const loaded = c?.quantity || 5000;
             const shrinkage = Math.round(loaded * 0.012); // 1.2%
             const delivered = loaded - shrinkage;
@@ -511,7 +549,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <Truck className="w-4 h-4" aria-hidden="true" />
-            <span>2. Tiến Trình Giao Nhận & Chuỗi Lạnh</span>
+            <span>2. Tiến Trình Giao Nhận & Quyết Toán B2B</span>
           </button>
 
           <button
@@ -953,12 +991,12 @@ export default function FarmerPostSaleView({
                         Danh Sách Hợp Đồng & Chuyến Xe Giao Vận
                       </span>
                       <span className="text-[10.5px] font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                        {contracts.length} Chuyến Xe
+                        {effectiveContracts.length} Chuyến Xe
                       </span>
                     </div>
 
                     <div className="space-y-1 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
-                      {contracts.map((c) => {
+                      {effectiveContracts.map((c: B2BContract) => {
                         const isSelected = c.id === selectedContractId;
 
                         return (
@@ -1245,7 +1283,7 @@ export default function FarmerPostSaleView({
           </div>
 
           {/* TIẾN TRÌNH GIAO NHẬN & QUYẾT TOÁN ĐƠN HÀNG (ORDER FULFILLMENT & AUTO-SETTLEMENT TIMELINE) */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-2xs space-y-5">
+          <div id="b2b-fulfillment-timeline" className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-2xs space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-black text-gray-900 font-heading flex items-center gap-2">
@@ -1810,12 +1848,12 @@ export default function FarmerPostSaleView({
                         Danh Sách Hợp Đồng Có Biên Bản Giao Nhận
                       </span>
                       <span className="text-[10.5px] font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                        {contracts.length} Hồ Sơ
+                        {effectiveContracts.length} Hồ Sơ
                       </span>
                     </div>
 
                     <div className="space-y-1 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
-                      {contracts.map((c) => {
+                      {effectiveContracts.map((c: B2BContract) => {
                         const isSelected = c.id === epodContractId;
 
                         return (

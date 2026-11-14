@@ -151,9 +151,32 @@ public class FarmerService {
         BigDecimal availableWeight = request.getAvailableWeightKg() != null
                 ? request.getAvailableWeightKg()
                 : totalWeight;
+<<<<<<< HEAD
         BigDecimal basePrice = request.getBasePricePerKg() != null
                 ? request.getBasePricePerKg()
                 : new BigDecimal("15000.00");
+=======
+        BigDecimal basePrice = request.getBasePricePerKg();
+        if (basePrice == null && request.getTierPricingJson() != null && !request.getTierPricingJson().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(request.getTierPricingJson());
+                if (root.isArray() && root.size() > 0) {
+                    com.fasterxml.jackson.databind.JsonNode first = root.get(0);
+                    if (first.has("price")) {
+                        basePrice = new BigDecimal(first.get("price").asText());
+                    } else if (first.has("pricePerKg")) {
+                        basePrice = new BigDecimal(first.get("pricePerKg").asText());
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (basePrice == null) {
+            basePrice = BigDecimal.ZERO;
+        }
+
+        Double minTemp = request.getMinTemp() != null ? request.getMinTemp() : (request.getReqTempMin() != null ? request.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = request.getMaxTemp() != null ? request.getMaxTemp() : (request.getReqTempMax() != null ? request.getReqTempMax().doubleValue() : 6.0);
+>>>>>>> origin/nhut-tan
         String category = request.getCategory() != null && !request.getCategory().isBlank()
                 ? request.getCategory().toUpperCase()
                 : (request.getCategorySlug() != null ? request.getCategorySlug().replace("-", "_").toUpperCase() : "RAU_AN_LA");
@@ -179,6 +202,7 @@ public class FarmerService {
                 .remainingQuantity(availableWeight.doubleValue())
                 .basePricePerKg(basePrice)
                 .unit(request.getUnit() != null ? request.getUnit() : "kg")
+<<<<<<< HEAD
                 .minTemp(request.getMinTemp() != null ? request.getMinTemp() : 2.0)
                 .maxTemp(request.getMaxTemp() != null ? request.getMaxTemp() : 6.0)
                 .reqTempMin(BigDecimal.valueOf(request.getMinTemp() != null ? request.getMinTemp() : 2.0))
@@ -189,9 +213,22 @@ public class FarmerService {
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
                 .region("Tây Nguyên & Lâm Đồng")
                 .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + farmer.getFullName() + " đăng bán trực tiếp trên sàn.")
+=======
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(BigDecimal.valueOf(minTemp))
+                .reqTempMax(BigDecimal.valueOf(maxTemp))
+                .tierPricingJson(request.getTierPricingJson() != null ? request.getTierPricingJson() : "[]")
+                .status("PENDING_APPROVAL")
+                .warehouseLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                .region("Tây Nguyên & Lâm Đồng")
+                .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + (farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName()) + " đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.")
+>>>>>>> origin/nhut-tan
                 .build();
 
         HarvestLot saved = harvestLotRepository.save(lot);
+        log.info("Lô thu hoạch mới {} đã được nông dân {} đăng ký ở trạng thái PENDING_APPROVAL", saved.getLotCode(), farmer.getUsername());
         return mapToLotResponse(saved);
     }
 
@@ -1134,25 +1171,44 @@ public class FarmerService {
     }
 
     private HarvestLotResponse mapToLotResponse(HarvestLot lot) {
+        Double minTemp = lot.getMinTemp() != null ? lot.getMinTemp() : (lot.getReqTempMin() != null ? lot.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = lot.getMaxTemp() != null ? lot.getMaxTemp() : (lot.getReqTempMax() != null ? lot.getReqTempMax().doubleValue() : 6.0);
+        BigDecimal reqMin = lot.getReqTempMin() != null ? lot.getReqTempMin() : BigDecimal.valueOf(minTemp);
+        BigDecimal reqMax = lot.getReqTempMax() != null ? lot.getReqTempMax() : BigDecimal.valueOf(maxTemp);
+
         return HarvestLotResponse.builder()
                 .id(lot.getId())
                 .lotCode(lot.getLotCode())
+                .farmerId(lot.getFarmerId() != null ? lot.getFarmerId() : (lot.getFarmer() != null ? lot.getFarmer().getId() : null))
+                .farmerName(lot.getFarmer() != null ? (lot.getFarmer().getCompanyName() != null && !lot.getFarmer().getCompanyName().isBlank() ? lot.getFarmer().getCompanyName() : lot.getFarmer().getFullName()) : lot.getFarmerName())
                 .productName(lot.getProductName())
+                .category(lot.getCategory())
                 .categorySlug(lot.getCategorySlug())
+                .categoryId(lot.getCategoryId())
                 .imageUrl(lot.getImageUrl())
                 .pucCode(lot.getPucCode())
+                .certification(lot.getCertification())
                 .harvestDate(lot.getHarvestDate())
                 .expiryDate(lot.getExpiryDate())
+                .totalWeightKg(lot.getTotalWeightKg())
+                .availableWeightKg(lot.getAvailableWeightKg())
                 .totalQuantity(lot.getTotalQuantity())
                 .remainingQuantity(lot.getRemainingQuantity())
                 .unit(lot.getUnit())
-                .minTemp(lot.getMinTemp())
-                .maxTemp(lot.getMaxTemp())
+                .basePricePerKg(lot.getBasePricePerKg())
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(reqMin)
+                .reqTempMax(reqMax)
                 .tierPricingJson(lot.getTierPricingJson())
                 .status(lot.getStatus())
+                .warehouseLocation(lot.getWarehouseLocation())
                 .hubLocation(lot.getHubLocation())
-                .farmerName(lot.getFarmer() != null ? lot.getFarmer().getFullName() : "")
+                .region(lot.getRegion())
+                .auditNote(lot.getAuditNote())
+                .rejectionReason(lot.getRejectionReason())
                 .createdAt(lot.getCreatedAt())
+                .updatedAt(lot.getUpdatedAt())
                 .build();
     }
 
@@ -1162,6 +1218,9 @@ public class FarmerService {
                 .rfqCode(rfq.getRfqCode())
                 .harvestLotId(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getId() : null)
                 .harvestLotCode(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getLotCode() : null)
+                .farmerId(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? rfq.getHarvestLot().getFarmer().getId() : null)
+                .farmerName(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? (rfq.getHarvestLot().getFarmer().getCompanyName() != null ? rfq.getHarvestLot().getFarmer().getCompanyName() : rfq.getHarvestLot().getFarmer().getFullName()) : "")
+                .farmerPhone(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? rfq.getHarvestLot().getFarmer().getPhone() : "")
                 .productName(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getProductName() : "")
                 .buyerName(rfq.getBuyerName())
                 .buyerPhone(rfq.getBuyerPhone())

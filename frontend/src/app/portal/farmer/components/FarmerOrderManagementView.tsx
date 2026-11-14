@@ -9,10 +9,8 @@ import {
   Clock,
   Truck,
   ShieldCheck,
-  CreditCard,
   FileText,
   ChevronRight,
-  Play,
   RotateCw,
   Eye,
   AlertTriangle,
@@ -21,15 +19,14 @@ import {
   MapPin,
   Calendar,
   Sparkles,
-  ArrowRight,
   TrendingUp,
 } from 'lucide-react';
 import {
   B2bSyncContract,
   getSyncContracts,
-  updateContractFulfillmentStep,
   subscribeB2bSyncEvents,
 } from '@/services/b2bSyncService';
+import { getFarmerContractsApi } from '@/services/farmerApi';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -43,40 +40,102 @@ export default function FarmerOrderManagementView({
   const [contracts, setContracts] = useState<B2bSyncContract[]>([]);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'WAITING_DEPOSIT' | 'STEP_2' | 'STEP_3' | 'STEP_4' | 'STEP_6'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [autoSimulatingId, setAutoSimulatingId] = useState<number | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
-  // Load contracts from sync service
-  const reloadContracts = () => {
-    setContracts(getSyncContracts());
+  // Load contracts from sync service and backend API
+  const reloadContracts = async () => {
+    try {
+      const [apiContracts, localSync] = await Promise.all([
+        getFarmerContractsApi().catch(() => []),
+        Promise.resolve(getSyncContracts()),
+      ]);
+      const map = new Map<string, B2bSyncContract>();
+      for (const lc of localSync) {
+        if (lc && lc.contractCode) map.set(lc.contractCode.trim().toUpperCase(), lc);
+      }
+      for (const ac of apiContracts) {
+        if (ac && ac.contractCode) {
+          const key = ac.contractCode.trim().toUpperCase();
+          if (!map.has(key)) {
+            map.set(key, {
+              id: ac.id,
+              contractCode: ac.contractCode,
+              rfqCode: ac.rfqCode || `RFQ-${ac.id}`,
+              lotId: ac.harvestLotId,
+              lotCode: ac.lotCode || 'LOT-2026-DL-001',
+              productName: ac.productName,
+              buyerName: ac.buyerName,
+              buyerPhone: ac.buyerPhone || '0901234567',
+              buyerCompany: ac.buyerName,
+              farmerName: ac.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+              farmerPhone: '0912345678',
+              farmerCompany: ac.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+              quantityKg: ac.quantity,
+              agreedPricePerKg: ac.unitPrice,
+              totalAmount: ac.totalAmount,
+              depositAmount: ac.depositAmount,
+              remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
+              depositStatus: ac.depositStatus || 'WAITING_DEPOSIT',
+              fulfillmentStep: ac.fulfillmentStep || (ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1),
+              fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
+              truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
+              truckDriverName: 'Tài xế Nguyễn Văn Tài',
+              truckDriverPhone: '0944556677',
+              truckTempCurrent: 4.0,
+              deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
+              deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
+              finalPaidStatus: ac.finalPaidStatus || 'UNPAID',
+              createdAt: ac.createdAt || new Date().toISOString(),
+            });
+          }
+        }
+      }
+      setContracts(Array.from(map.values()));
+    } catch {
+      setContracts(getSyncContracts());
+    }
   };
 
   useEffect(() => {
-    reloadContracts();
+    void reloadContracts();
     // Lắng nghe sự kiện đồng bộ từ tab Buyer hoặc các tab khác
     const unsubscribe = subscribeB2bSyncEvents(() => {
-      reloadContracts();
+      void reloadContracts();
     });
-    return () => unsubscribe();
+    const handleCustomSync = () => {
+      void reloadContracts();
+    };
+    window.addEventListener('b2b_sync_event', handleCustomSync);
+    window.addEventListener('b2b_contract_updated', handleCustomSync);
+    window.addEventListener('storage', handleCustomSync);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('b2b_sync_event', handleCustomSync);
+      window.removeEventListener('b2b_contract_updated', handleCustomSync);
+      window.removeEventListener('storage', handleCustomSync);
+    };
   }, []);
 
   // Filter & Search
   const filteredContracts = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase();
     return contracts.filter((c) => {
+      if (!c) return false;
       const matchSearch =
-        c.contractCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.buyerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.lotCode.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        (c.contractCode || '').toLowerCase().includes(q) ||
+        (c.buyerName || '').toLowerCase().includes(q) ||
+        (c.productName || '').toLowerCase().includes(q) ||
+        (c.lotCode || '').toLowerCase().includes(q);
 
       if (!matchSearch) return false;
 
       if (filterStatus === 'ALL') return true;
-      if (filterStatus === 'WAITING_DEPOSIT') return c.depositStatus === 'WAITING_DEPOSIT';
+      if (filterStatus === 'WAITING_DEPOSIT') return c.depositStatus !== 'DEPOSIT_PAID' && (c.fulfillmentStep === 1 || !c.fulfillmentStep);
       if (filterStatus === 'STEP_2') return c.fulfillmentStep === 2;
       if (filterStatus === 'STEP_3') return c.fulfillmentStep === 3;
       if (filterStatus === 'STEP_4') return c.fulfillmentStep === 4 || c.fulfillmentStep === 5;
-      if (filterStatus === 'STEP_6') return c.fulfillmentStep === 6;
+      if (filterStatus === 'STEP_6') return c.fulfillmentStep === 6 || c.fulfillmentStatusName === 'COMPLETED';
       return true;
     });
   }, [contracts, filterStatus, searchQuery]);
@@ -98,32 +157,6 @@ export default function FarmerOrderManagementView({
   const showSuccessNotice = (msg: string) => {
     setActionSuccessMsg(msg);
     setTimeout(() => setActionSuccessMsg(null), 4000);
-  };
-
-  // Cập nhật từng bước
-  const handleAdvanceStep = (contract: B2bSyncContract, targetStep: 1 | 2 | 3 | 4 | 5 | 6, note?: string) => {
-    const updated = updateContractFulfillmentStep(contract.id, targetStep);
-    reloadContracts();
-    showSuccessNotice(note || `Đã chuyển đơn hàng ${contract.contractCode} sang mốc: ${updated.fulfillmentStatusName}`);
-  };
-
-  // Mô phỏng tự động toàn bộ tiến trình (Auto Advance Simulation)
-  const handleAutoRunSimulation = (contract: B2bSyncContract) => {
-    if (autoSimulatingId) return;
-    setAutoSimulatingId(contract.id);
-
-    let currentStep = contract.fulfillmentStep;
-    const interval = setInterval(() => {
-      if (currentStep < 6) {
-        currentStep = (currentStep + 1) as 1 | 2 | 3 | 4 | 5 | 6;
-        updateContractFulfillmentStep(contract.id, currentStep);
-        reloadContracts();
-      } else {
-        clearInterval(interval);
-        setAutoSimulatingId(null);
-        showSuccessNotice(`Quy trình giao nhận & quyết toán đơn ${contract.contractCode} đã hoàn tất và giải ngân về ví!`);
-      }
-    }, 2500);
   };
 
   return (
@@ -283,7 +316,6 @@ export default function FarmerOrderManagementView({
       ) : (
         <div className="space-y-4">
           {filteredContracts.map((contract) => {
-            const isAutoRunning = autoSimulatingId === contract.id;
             const isDepositPaid = contract.depositStatus === 'DEPOSIT_PAID';
 
             return (
@@ -469,8 +501,9 @@ export default function FarmerOrderManagementView({
                   </div>
                 </div>
 
-                {/* Footer Hành Động: Cập nhật trạng thái nghiệp vụ */}
+                {/* Footer: Chỉ xem và điều hướng sang trang Hành trình xe lạnh để xem & quản lý tiến trình */}
                 <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+<<<<<<< HEAD
                   {/* Nút hành động tương ứng theo mốc */}
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Bước 1 -> Bước 2 */}
@@ -562,10 +595,21 @@ export default function FarmerOrderManagementView({
                   </div>
 
                   {/* Nút Xem chi tiết Vận chuyển & Biên bản */}
+=======
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-500 font-medium">Trạng thái vận hành:</span>
+                    <span className="font-bold text-[#10542C] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-[#10542C]" />
+                      <span>Mốc {contract.fulfillmentStep}/6: {contract.fulfillmentStatusName}</span>
+                    </span>
+                  </div>
+
+                  {/* Nút Xem chi tiết Vận chuyển & Biên bản -> Chuyển sang tab Hành Trình Xe Lạnh */}
+>>>>>>> origin/nhut-tan
                   <button
                     type="button"
                     onClick={() => onNavigateToPostSale(contract.id)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-[#10542C] hover:text-emerald-700 hover:underline px-2 py-1.5 transition"
+                    className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
                   >
                     <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
                     <ChevronRight className="w-4 h-4" />

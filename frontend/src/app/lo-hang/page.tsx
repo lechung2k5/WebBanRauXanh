@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/services/auth';
+import { getPublicHarvestLotsApi } from '@/services/api';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { HarvestLot } from '@/types';
 import { useApp } from '@/context/AppContext';
 import { FormDialog, type Row, type Field } from '@/components/admin/AdminConsole';
 import Pagination from '@/components/Pagination';
@@ -33,6 +36,7 @@ export default function LotsPage() {
   const { currentUser } = useApp();
   const router = useRouter();
 
+<<<<<<< HEAD
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -62,6 +66,66 @@ export default function LotsPage() {
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [page]);
+=======
+  const fetchLots = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getPublicHarvestLotsApi({ page: page - 1, size: PAGE_SIZE, status: 'OPEN' });
+      const list: HarvestLot[] = res?.data || [];
+      setLots(
+        list.map((lot) => ({
+          ...lot,
+          id: lot.id,
+          lot_code: lot.lotCode,
+          product_name: lot.productName,
+          farmer_name: lot.farmerName,
+          puc_code: lot.pucCode,
+          base_price_per_kg: lot.basePricePerKg,
+          available_weight_kg: lot.availableWeightKg,
+          expiry_date: lot.expiryDate,
+          req_temp_min: lot.reqTempMin,
+          req_temp_max: lot.reqTempMax,
+          tier_pricing_json: lot.tierPricingJson,
+          image_url: lot.imageUrl,
+          status: lot.status,
+        }))
+      );
+      const count = Number(res?.totalElements ?? list.length);
+      setTotalElements(count);
+      setTotalPages(Math.max(1, Number(res?.totalPages ?? Math.ceil(count / PAGE_SIZE))));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    void fetchLots();
+  }, [fetchLots]);
+
+  // Lắng nghe sự kiện đồng bộ thời gian thực từ Admin (Duyệt lô mới, cập nhật trạng thái)
+  useEffect(() => {
+    const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED'
+      ) {
+        void fetchLots();
+      }
+    });
+    const handleStorage = () => void fetchLots();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+    };
+  }, [fetchLots]);
+>>>>>>> origin/nhut-tan
 
   const rfq = (lot: Row) => {
     if (!currentUser) { router.push('/dang-nhap?redirect=/lo-hang'); return; }

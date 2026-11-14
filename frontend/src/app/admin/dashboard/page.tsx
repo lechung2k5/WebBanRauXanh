@@ -39,10 +39,31 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchDashboardStats();
+<<<<<<< HEAD
     const unsubscribe = subscribeB2bSyncEvents(() => {
       fetchDashboardStats();
     });
     return () => unsubscribe();
+=======
+
+    const handleSync = () => {
+      fetchDashboardStats();
+    };
+    window.addEventListener('b2b_sync_event', handleSync);
+    window.addEventListener('b2b_lot_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+
+    const unsubscribe = subscribeB2bSyncEvents(() => {
+      fetchDashboardStats();
+    });
+
+    return () => {
+      window.removeEventListener('b2b_sync_event', handleSync);
+      window.removeEventListener('b2b_lot_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+      unsubscribe();
+    };
+>>>>>>> origin/nhut-tan
   }, []);
 
   const fetchDashboardStats = async () => {

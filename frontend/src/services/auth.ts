@@ -10,7 +10,11 @@ export function getAccessToken(): string | null {
 }
 export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = getAccessToken();
-  return { ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  return {
+    'X-HoNa-Request': '1',
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
 }
 export function isChallenge(value: AuthResult): value is OtpChallenge { return 'requireOtp' in value && value.requireOtp; }
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {

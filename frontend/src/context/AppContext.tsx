@@ -156,7 +156,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (typeof window !== 'undefined') {
-      if (isAdmin || window.location.pathname.startsWith('/admin')) {
+      if (!window.location.pathname.startsWith('/portal/farmer')) {
         window.location.href = '/dang-nhap';
       }
     }

@@ -158,7 +158,9 @@ public class HarvestLotService {
             lot.setFarmerName(request.getFarmerName().trim());
         }
         lot.setProductName(request.getProductName().trim());
-        lot.setCategory(request.getCategory().trim().toUpperCase());
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            lot.setCategory(request.getCategory().trim().toUpperCase());
+        }
         if (request.getCategoryId() != null) lot.setCategoryId(request.getCategoryId());
         if (request.getPucCode() != null && !request.getPucCode().isBlank()) lot.setPucCode(request.getPucCode().trim().toUpperCase());
         if (request.getCertification() != null) lot.setCertification(request.getCertification().trim());
