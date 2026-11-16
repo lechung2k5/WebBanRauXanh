@@ -174,60 +174,7 @@ export const FALLBACK_HARVEST_LOTS: HarvestLot[] = [
   },
 ];
 
-<<<<<<< HEAD
-export const FALLBACK_RFQS: RfqItem[] = [
-  {
-    id: 1,
-    rfqCode: 'RFQ-2026-0891',
-    harvestLotId: 1,
-    harvestLotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Anh Trần Quốc Bảo (Chợ Đầu Mối Thủ Đức)',
-    buyerPhone: '0908.776.889',
-    buyerCompany: 'Vựa Rau Củ Bảo Phát - Ô B12 Chợ Đầu Mối Thủ Đức',
-    requestedQuantity: 4000,
-    targetPrice: 11500,
-    deliveryDate: '2026-10-28',
-    hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'WAITING_FARMER',
-    createdAt: '2026-10-26T07:15:00',
-  },
-  {
-    id: 2,
-    rfqCode: 'RFQ-2026-0892',
-    harvestLotId: 2,
-    harvestLotCode: 'LOT-2026-DL-002',
-    productName: 'Cà Chua Beef Xuất Khẩu Chuẩn GlobalGAP',
-    buyerName: 'Chị Mai Lan (Thu Mua Hệ Thống)',
-    buyerPhone: '0918.234.567',
-    buyerCompany: 'Chuỗi Cung Ứng Nông Sản Sạch Miền Nam',
-    requestedQuantity: 2500,
-    targetPrice: 18500,
-    deliveryDate: '2026-10-29',
-    hubLocation: 'Trạm Lạnh Đơn Dương',
-    status: 'WAITING_FARMER',
-    createdAt: '2026-10-26T08:00:00',
-  },
-  {
-    id: 3,
-    rfqCode: 'RFQ-2026-0888',
-    harvestLotId: 1,
-    harvestLotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Nguyễn Văn Nam (Trưởng bộ phận Thu mua B2B)',
-    buyerPhone: '0933.112.233',
-    buyerCompany: 'Hệ Thống Siêu Thị Nông Sản B2B Việt Nam',
-    requestedQuantity: 5000,
-    targetPrice: 11000,
-    deliveryDate: '2026-10-28',
-    hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: 'ACCEPTED',
-    createdAt: '2026-10-25T14:20:00',
-  },
-];
-=======
 export const FALLBACK_RFQS: RfqItem[] = [];
->>>>>>> origin/nhut-tan
 
 export const FALLBACK_CONTRACTS: B2BContract[] = [];
 
@@ -400,26 +347,6 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
     // fallback
   }
 
-<<<<<<< HEAD
-  // Nếu API kết nối thành công, chỉ lấy các lô do farmer đó đăng từ máy chủ
-  const baseLots = isApiSuccess ? serverLots : [...localLots];
-
-  // Kết hợp Lô người dùng vừa tạo với Lô thực tế từ Database (Lô vừa tạo lên đầu)
-  const seenCodes = new Set<string>();
-  const merged: HarvestLot[] = [];
-
-  for (const lot of [...localLots, ...baseLots]) {
-    const key = lot.lotCode || String(lot.id);
-    if (!seenCodes.has(key)) {
-      seenCodes.add(key);
-      let parsedTier = lot.tierPricing;
-      if (!parsedTier && lot.tierPricingJson) {
-        try {
-          parsedTier = JSON.parse(lot.tierPricingJson);
-        } catch {}
-      }
-      merged.push({ ...lot, tierPricing: parsedTier });
-=======
   // Helper giải quyết ưu tiên trạng thái đã được Admin phê duyệt (OPEN, REJECTED, SUSPENDED)
   const resolveDecidedStatus = (statusA?: string, statusB?: string): string => {
     const normA = (statusA || '').trim().toUpperCase();
@@ -441,7 +368,6 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
     if (currentFarmerCompany && lot.farmerName) {
       const fn = lot.farmerName.toLowerCase();
       if (fn.includes(currentFarmerCompany) || currentFarmerCompany.includes(fn)) return true;
->>>>>>> origin/nhut-tan
     }
     return false;
   };
@@ -593,16 +519,6 @@ export const createHarvestLotApi = async (lotData: {
   tierPricingJson: string;
   hubLocation?: string;
 }): Promise<HarvestLot> => {
-<<<<<<< HEAD
-  let basePricePerKg = 15000;
-  try {
-    const parsed = JSON.parse(lotData.tierPricingJson || '[]');
-    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].pricePerKg || parsed[0].price)) {
-      basePricePerKg = Number(parsed[0].pricePerKg || parsed[0].price);
-    }
-  } catch (_) {}
-
-=======
   let normalizedTiers: any[] = [];
   try {
     const parsed = JSON.parse(lotData.tierPricingJson || '[]');
@@ -627,15 +543,11 @@ export const createHarvestLotApi = async (lotData: {
   const maxTemp = Number(lotData.maxTemp ?? lotData.reqTempMax ?? 6.0);
   const normalizedTierPricingJson = JSON.stringify(normalizedTiers);
 
->>>>>>> origin/nhut-tan
   const payload = {
     ...lotData,
     totalWeightKg: lotData.totalQuantity,
     availableWeightKg: lotData.totalQuantity,
     basePricePerKg,
-<<<<<<< HEAD
-    pucCode: lotData.pucCode || 'PUC-LD-001',
-=======
     minTemp,
     maxTemp,
     reqTempMin: minTemp,
@@ -643,7 +555,6 @@ export const createHarvestLotApi = async (lotData: {
     tierPricingJson: normalizedTierPricingJson,
     pucCode: lotData.pucCode || 'PUC-LD-001',
     status: 'PENDING_APPROVAL',
->>>>>>> origin/nhut-tan
   };
 
   try {
@@ -656,10 +567,6 @@ export const createHarvestLotApi = async (lotData: {
     const data: ApiResponse<HarvestLot> = await res.json();
     const resultLot = data.result || (data as unknown as { data: HarvestLot }).data;
     if (res.ok && resultLot) {
-<<<<<<< HEAD
-      saveLocalLot(resultLot);
-      return resultLot;
-=======
       const finalLot: HarvestLot = {
         ...resultLot,
         basePricePerKg: resultLot.basePricePerKg || basePricePerKg,
@@ -680,7 +587,6 @@ export const createHarvestLotApi = async (lotData: {
         creatorRole: 'FARMER',
       });
       return finalLot;
->>>>>>> origin/nhut-tan
     }
   } catch (err: unknown) {
     console.warn('Backend API create lot error, saving locally:', err);
@@ -1161,21 +1067,6 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   });
 
   return list;
-};
-
-export const getFarmerRfqHistoryApi = async (id: number) => {
-  try {
-    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${id}/history`, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: getAuthHeaders(),
-    });
-    const data: ApiResponse<Record<string, unknown>[]> = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử đàm phán');
-    return data.result || [];
-  } catch {
-    return [];
-  }
 };
 
 export const getFarmerRfqHistoryApi = async (id: number) => {

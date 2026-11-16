@@ -25,14 +25,11 @@ import { Product } from '@/types';
 import { createBuyerRfqApi, getStoredUser } from '@/services/api';
 import { saveSyncRfq } from '@/services/b2bSyncService';
 import { useApp } from '@/context/AppContext';
-<<<<<<< HEAD
-=======
 import {
   detectAgriCategory,
   calculate3TierPricing,
   analyzeBuyerPurchaseStrategy,
 } from '@/utils/agriPricingHelper';
->>>>>>> origin/nhut-tan
 
 interface B2BNegotiationModalProps {
   product: Product | null;
@@ -50,10 +47,6 @@ export default function B2BNegotiationModal({
   if (!isOpen || !product) return null;
 
   const { currentUser } = useApp();
-<<<<<<< HEAD
-  const moq = product.moq || 500;
-  const basePrice = product.price || 10000;
-=======
 
   // 1. Phân loại nhóm nông sản và cấu hình giá cơ sở
   const categoryConfig = detectAgriCategory(
@@ -65,7 +58,6 @@ export default function B2BNegotiationModal({
   const basePrice = product.price || 15000;
   const tiers = calculate3TierPricing(basePrice, categoryConfig, totalLotVolume);
   const moq = tiers[0].minKg;
->>>>>>> origin/nhut-tan
 
   const [quantity, setQuantity] = useState<number>(moq);
   const [targetPrice, setTargetPrice] = useState<number>(tiers[0].pricePerKg);
@@ -85,9 +77,6 @@ export default function B2BNegotiationModal({
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [rfqCode, setRfqCode] = useState('');
 
-<<<<<<< HEAD
-  // Tự động điền thông tin tài khoản thương lái đang đăng nhập
-=======
   // Tự động khởi tạo giá trị ban đầu và điền thông tin tài khoản thương lái đang đăng nhập
   useEffect(() => {
     if (product) {
@@ -104,7 +93,6 @@ export default function B2BNegotiationModal({
     }
   }, [product, isOpen]);
 
->>>>>>> origin/nhut-tan
   useEffect(() => {
     const user = currentUser || getStoredUser();
     if (user) {
@@ -112,19 +100,13 @@ export default function B2BNegotiationModal({
       if (user.phone) setTraderPhone(user.phone);
       if (user.companyName) setTraderCompany(user.companyName);
       if (user.warehouseAddress || user.address) {
-<<<<<<< HEAD
-        setDeliveryLocation(user.warehouseAddress || user.address || 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM');
-=======
         setDeliveryLocation(
           user.warehouseAddress || user.address || 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM'
         );
->>>>>>> origin/nhut-tan
       }
     }
   }, [currentUser, isOpen]);
 
-<<<<<<< HEAD
-=======
   // Phân tích chiến lược mua hàng & cố vấn giá sỉ hời nhất
   const advisory = analyzeBuyerPurchaseStrategy(
     quantity,
@@ -133,7 +115,6 @@ export default function B2BNegotiationModal({
     totalLotVolume
   );
 
->>>>>>> origin/nhut-tan
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
   };
@@ -148,17 +129,12 @@ export default function B2BNegotiationModal({
       alert('Vui lòng nhập tên người đại diện và số điện thoại liên hệ!');
       return;
     }
-<<<<<<< HEAD
-    if (quantity < moq) {
-      alert(`Số lượng đặt tối thiểu cho lô nông sản này là ${moq} kg!`);
-=======
 
     if (!advisory.isValidMinimum) {
       alert(
         advisory.validationError ||
           `Số lượng đặt mua tối thiểu cho ${categoryConfig.label} là ${moq.toLocaleString()} kg!`
       );
->>>>>>> origin/nhut-tan
       return;
     }
 
@@ -393,11 +369,6 @@ export default function B2BNegotiationModal({
                     ℹ️ {categoryConfig.description}
                   </p>
                 </div>
-<<<<<<< HEAD
-                <div className="flex items-center gap-3 text-xs">
-                  <span>Giá chào xuất vườn: <strong className="text-[#10542C] font-black">{formatVND(basePrice)}/kg</strong></span>
-                  <span>Khối lượng tối thiểu: <strong className="text-[#E53935] font-black">{moq >= 1000 ? `${moq / 1000} Tấn` : `${moq} kg`}</strong></span>
-=======
               </div>
 
               {/* Hàng thể hiện Giá Cơ Sở và Sản Lượng Khả Dụng */}
@@ -415,7 +386,6 @@ export default function B2BNegotiationModal({
                       ? `${(totalLotVolume / 1000).toFixed(1)} Tấn (${totalLotVolume.toLocaleString()} kg)`
                       : `${totalLotVolume.toLocaleString()} kg`}
                   </strong>
->>>>>>> origin/nhut-tan
                 </div>
               </div>
             </div>
@@ -767,24 +737,6 @@ export default function B2BNegotiationModal({
                   onChange={(e) => setDeliveryLocation(e.target.value)}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                 >
-<<<<<<< HEAD
-                  {deliveryLocation && ![
-                    'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
-                    'Chợ Đầu Mối Hóc Môn, TP.HCM',
-                    'Chợ Đầu Mối Bình Điền, TP.HCM',
-                    'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
-                    'Kho lạnh riêng của thương lái',
-                    'Nhận hàng tại cổng nông trại (FOB xuất vườn)',
-                  ].includes(deliveryLocation) && (
-                    <option value={deliveryLocation}>{deliveryLocation} (Kho theo tài khoản)</option>
-                  )}
-                  <option value="Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM">Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Hóc Môn, TP.HCM">Chợ Đầu Mối Hóc Môn, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Bình Điền, TP.HCM">Chợ Đầu Mối Bình Điền, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)">Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)</option>
-                  <option value="Kho lạnh riêng của thương lái">Kho lạnh riêng của thương lái</option>
-                  <option value="Nhận hàng tại cổng nông trại (FOB xuất vườn)">Nhận hàng tại cổng nông trại (FOB xuất vườn)</option>
-=======
                   {deliveryLocation &&
                     ![
                       'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
@@ -816,7 +768,6 @@ export default function B2BNegotiationModal({
                   <option value="Nhận hàng tại cổng nông trại (FOB xuất vườn)">
                     Nhận hàng tại cổng nông trại (FOB xuất vườn)
                   </option>
->>>>>>> origin/nhut-tan
                 </select>
               </div>
 

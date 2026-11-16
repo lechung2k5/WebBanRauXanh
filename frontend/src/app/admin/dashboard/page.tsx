@@ -39,12 +39,6 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchDashboardStats();
-<<<<<<< HEAD
-    const unsubscribe = subscribeB2bSyncEvents(() => {
-      fetchDashboardStats();
-    });
-    return () => unsubscribe();
-=======
 
     const handleSync = () => {
       fetchDashboardStats();
@@ -63,7 +57,6 @@ export default function AdminDashboardPage() {
       window.removeEventListener('storage', handleSync);
       unsubscribe();
     };
->>>>>>> origin/nhut-tan
   }, []);
 
   const fetchDashboardStats = async () => {

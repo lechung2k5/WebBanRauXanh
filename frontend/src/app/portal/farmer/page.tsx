@@ -52,10 +52,7 @@ import {
   CreditCard,
   Landmark,
   Star,
-<<<<<<< HEAD
-=======
   Users,
->>>>>>> origin/nhut-tan
 } from 'lucide-react';
 
 import {
@@ -143,10 +140,7 @@ function FarmerPortalContent() {
   const [selectedContractQc, setSelectedContractQc] = useState<QcInspection | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [isQcDropdownOpen, setIsQcDropdownOpen] = useState(false);
-<<<<<<< HEAD
-=======
   const [isFarmerSwitcherOpen, setIsFarmerSwitcherOpen] = useState(false);
->>>>>>> origin/nhut-tan
   const [farmerLotsPage, setFarmerLotsPage] = useState(1);
 
   const farmerLotsTotalPages = Math.max(1, Math.ceil(lots.length / FARMER_LOTS_PAGE_SIZE));
@@ -710,8 +704,6 @@ function FarmerPortalContent() {
       }
     });
 
-<<<<<<< HEAD
-=======
     // POLLING HEARTBEAT ĐA TRÌNH DUYỆT (Cross-Browser Realtime Sync: Chrome <-> Edge / Incognito)
     // Tự động kiểm tra thay đổi từ Backend mỗi 2.5 giây để đảm bảo 2 trình duyệt độc lập cập nhật tức thì
     const syncInterval = setInterval(async () => {
@@ -804,7 +796,6 @@ function FarmerPortalContent() {
       }
     }, 2500);
 
->>>>>>> origin/nhut-tan
     // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal & Quản Trị Viên)
     const unsubscribeSync = subscribeB2bSyncEvents((event) => {
       console.log('Farmer Portal received BroadcastChannel event:', event);
@@ -820,8 +811,6 @@ function FarmerPortalContent() {
       } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER') {
         setRealtimeNotification('Thương lái đã đồng ý mức giá đàm phán và tạo hợp đồng!');
         setTimeout(() => setRealtimeNotification(null), 5000);
-<<<<<<< HEAD
-=======
       } else if (event.type === 'LOT_STATUS_UPDATED') {
         const payload: any = event.payload;
         const status = payload?.status || payload?.lot?.status;
@@ -872,7 +861,6 @@ function FarmerPortalContent() {
           setRealtimeNotification(`Ban quản trị vừa đăng lô "${productName}" (${lotCode}) với đầy đủ thông số và mở bán sỉ trên sàn B2B!`);
           setTimeout(() => setRealtimeNotification(null), 6000);
         }
->>>>>>> origin/nhut-tan
       }
       loadPortalData();
     });
@@ -1561,11 +1549,7 @@ function FarmerPortalContent() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold text-white truncate">
-<<<<<<< HEAD
-              {profile?.farmName || currentUser?.companyName || 'HTX Nông Nghiệp Đà Lạt'}
-=======
               {sanitizeVietnamese(profile?.farmName || currentUser?.companyName || 'HTX Nông Nghiệp Đà Lạt GAP')}
->>>>>>> origin/nhut-tan
             </p>
             <p className="text-[11px] text-[#8BC34A] truncate font-medium">
               Mã PUC: {profile?.pucCode || 'VN-LDO-PUC-0849'}
@@ -1664,8 +1648,6 @@ function FarmerPortalContent() {
           </div>
 
           <div className="flex items-center gap-3">
-<<<<<<< HEAD
-=======
             {/* Quick Switch Nông Dân */}
             <div className="relative">
 
@@ -1708,7 +1690,6 @@ function FarmerPortalContent() {
               )}
             </div>
 
->>>>>>> origin/nhut-tan
             <B2BNotificationBell audience="FARMER" tone="light" />
             <button
               type="button"
@@ -1717,8 +1698,6 @@ function FarmerPortalContent() {
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Làm mới</span>
-<<<<<<< HEAD
-=======
             </button>
             <button
               type="button"
@@ -1728,7 +1707,6 @@ function FarmerPortalContent() {
             >
               <LogOut className="w-3.5 h-3.5 text-rose-600" />
               <span>Đăng xuất</span>
->>>>>>> origin/nhut-tan
             </button>
           </div>
         </header>
@@ -1778,13 +1756,9 @@ function FarmerPortalContent() {
 
               {/* LOTS GRID */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" id="farmer-lots-grid">
-<<<<<<< HEAD
-                {visibleFarmerLots.map((lot) => (
-=======
                 {visibleFarmerLots.map((lot) => {
                   const lotStatus = String(lot.status || '').trim().toUpperCase();
                   return (
->>>>>>> origin/nhut-tan
                   <div
                     key={lot.id}
                     className="bg-white rounded-3xl border border-[#EAECE8] shadow-2xs overflow-hidden flex flex-col justify-between hover:shadow-md transition"
@@ -2080,30 +2054,6 @@ function FarmerPortalContent() {
                   return true;
                 });
 
-<<<<<<< HEAD
-                  <div className="grid grid-cols-1 gap-4">
-                    {rfqs.map((rfq) => (
-                      <div
-                        key={`${rfq.rfqCode || "rfq"}-${rfq.id}`}
-                        className="bg-white p-5 rounded-3xl border border-[#EAECE8] shadow-2xs hover:border-emerald-200 transition space-y-4"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                          <div className="flex items-center gap-2.5">
-                            <span className="font-mono text-xs font-bold bg-[#10542C] text-white px-2.5 py-1 rounded-lg">
-                              {rfq.rfqCode}
-                            </span>
-                            <div>
-                              <h4 className="font-heading font-bold text-sm text-gray-900">
-                                {rfq.buyerCompany || rfq.buyerName}
-                              </h4>
-                              <p className="text-[11px] text-gray-600">
-                                Người liên hệ: {rfq.buyerName} • SĐT: {rfq.buyerPhone}
-                              </p>
-                            </div>
-                          </div>
-                          <span className={`text-xs font-bold px-3 py-1 rounded-xl self-start sm:self-auto ${getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').className}`}>
-                            {getRfqStatusMeta(isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) ? 'EXPIRED' : rfq.status, 'FARMER').label}
-=======
                 return (
                   <div className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-emerald-100 shadow-2xs">
@@ -2113,7 +2063,6 @@ function FarmerPortalContent() {
                           <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                             Trực Tuyến Thời Gian Thực
->>>>>>> origin/nhut-tan
                           </span>
                         </div>
                         <p className="text-xs text-gray-600">
@@ -2239,11 +2188,6 @@ function FarmerPortalContent() {
                               </span>
                             </div>
 
-<<<<<<< HEAD
-                              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                                <Calendar className="w-3 h-3 text-amber-600" />
-                                <RfqCountdown expiresAt={rfq.expiresAt} createdAt={rfq.createdAt} />
-=======
                             {/* Details grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50/70 p-3.5 rounded-2xl text-xs">
                               <div>
@@ -2274,7 +2218,6 @@ function FarmerPortalContent() {
                                   {rfq.hubLocation || 'Kho trung chuyển'}
                                 </p>
                                 <p className="text-[10px] text-gray-500">Hạn nhận: {rfq.deliveryDate || 'Theo hợp đồng'}</p>
->>>>>>> origin/nhut-tan
                               </div>
                             </div>
 
@@ -2303,55 +2246,6 @@ function FarmerPortalContent() {
                                     </span>
                                   </div>
 
-<<<<<<< HEAD
-                        {rfq.contractCode && (
-                          <div className="p-3 bg-emerald-50 rounded-xl text-xs text-emerald-900 border border-emerald-200">
-                            <strong>Hợp đồng đã tạo:</strong> {rfq.contractCode} · Chờ Buyer đặt cọc 30%.
-                          </div>
-                        )}
-
-                        <div className="border-t border-gray-100 pt-3">
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleRfqHistory(rfq.id)}
-                            className="text-xs font-bold text-sky-700 hover:text-sky-900"
-                          >
-                            {expandedRfqHistory === rfq.id ? 'Ẩn lịch sử đàm phán' : 'Xem lịch sử phiên bản giá'}
-                          </button>
-                          {expandedRfqHistory === rfq.id && (
-                            <div className="mt-3">
-                              <RfqHistoryTimeline events={rfqHistories[rfq.id] || []} />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Actions */}
-                        {isRfqWaitingForFarmer(rfq.status) && !isRfqExpiredAt(rfq.expiresAt, rfq.createdAt, rfq.status) && (
-                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-                            <button type="button"
-                              onClick={() => setRejectModalRfq(rfq)}
-                              className="px-3.5 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold rounded-xl transition cursor-pointer"
-                            >
-                              Từ Chối
-                            </button>
-                            <button type="button"
-                              onClick={() => {
-                                setCounterModalRfq(rfq);
-                                setCounterPrice(rfq.targetPrice);
-                                setCounterQty(rfq.requestedQuantity);
-                              }}
-                              className="px-4 py-2 border border-[#10542C] text-[#10542C] hover:bg-emerald-50 text-xs font-bold rounded-xl transition cursor-pointer"
-                            >
-                              Thương Lượng Lại
-                            </button>
-                            <button type="button"
-                              onClick={() => handleAcceptRfq(rfq.id)}
-                              className="px-5 py-2 bg-[#10542C] hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Chấp Thuận & Ký HĐ</span>
-                            </button>
-=======
                                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                                     <Calendar className="w-3 h-3 text-amber-600" />
                                     <RfqCountdown expiresAt={rfq.expiresAt} createdAt={rfq.createdAt} />
@@ -2416,7 +2310,6 @@ function FarmerPortalContent() {
                                 </button>
                               </div>
                             )}
->>>>>>> origin/nhut-tan
                           </div>
                         ))}
                       </div>
@@ -4830,12 +4723,6 @@ function FarmerPortalSkeleton() {
         <div className="w-9 h-9 border-3 border-[#10542C] border-t-transparent rounded-full animate-spin" />
         <span className="text-xs font-bold text-[#10542C]">Đang tải Cổng Nông Dân HoNa Fresh...</span>
       </div>
-      {/* ================= MODAL: XEM VĂN BẢN HỢP ĐỒNG B2B ĐIỆN TỬ 3 BÊN ================= */}
-      <B2bContractViewModal
-        isOpen={Boolean(viewingContractModal)}
-        contract={viewingContractModal}
-        onClose={() => setViewingContractModal(null)}
-      />
     </div>
   );
 }

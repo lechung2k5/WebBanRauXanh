@@ -1,10 +1,6 @@
 'use client';
 
-<<<<<<< HEAD
-import React, { useState, useEffect, useMemo } from 'react';
-=======
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
->>>>>>> origin/nhut-tan
 import Link from 'next/link';
 import ImageUploadField from '../ImageUploadField';
 import {
@@ -77,14 +73,6 @@ const removeVietnameseTones = (str: string) => {
     .replace(/Đ/g, 'D');
 };
 
-const removeVietnameseTones = (str: string) => {
-  return (str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D');
-};
-
 interface Module2HarvestLotsProps {
   activeTab?: 'lots' | 'categories';
 }
@@ -129,8 +117,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
   const [currentPage, setCurrentPage] = useState<number>(0);
-<<<<<<< HEAD
-=======
   const [highlightedLotId, setHighlightedLotId] = useState<number | string | null>(null);
   const [highlightedLotCode, setHighlightedLotCode] = useState<string | null>(null);
 
@@ -140,23 +126,10 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     },
     [categories]
   );
->>>>>>> origin/nhut-tan
 
   // Tìm kiếm tức thì đồng thời khi người dùng gõ
   const PAGE_SIZE = 15;
   const filteredLots = useMemo(() => {
-<<<<<<< HEAD
-    return allLots.filter((lot) => {
-      // 1. Lọc theo trạng thái
-      if (filterStatus !== 'ALL' && lot.status !== filterStatus) return false;
-
-      // 2. Lọc theo ngành hàng
-      if (filterCategory !== 'ALL') {
-        const lotCatCode = getCategoryCode({ id: lot.categoryId, slug: lot.category } as Category);
-        const lotRaw = (lot.category || '').toUpperCase().replace(/-/g, '_');
-        const filterCat = filterCategory.toUpperCase().replace(/-/g, '_');
-        if (lotRaw !== filterCat && lotCatCode !== filterCat) return false;
-=======
     const list = allLots.filter((lot) => {
       // 1. Lọc theo trạng thái
       if (filterStatus !== 'ALL') {
@@ -167,7 +140,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       // 2. Lọc theo ngành hàng (So khớp thông minh đa chiều: ID, Slug, Mã chuẩn, Tên tiếng Việt)
       if (filterCategory !== 'ALL' && !isLotMatchingCategory(lot, filterCategory, categories)) {
         return false;
->>>>>>> origin/nhut-tan
       }
 
       // 3. Tìm kiếm tức thì khi gõ
@@ -183,19 +155,13 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         lot.certification,
         lot.warehouseLocation,
         lot.region,
-<<<<<<< HEAD
-=======
         getCategoryName(lot.category, lot.categoryId),
->>>>>>> origin/nhut-tan
       ]
         .filter(Boolean)
         .map((s) => String(s).toLowerCase());
 
       return targets.some((t) => t.includes(kw) || removeVietnameseTones(t).includes(kwNoTone));
     });
-<<<<<<< HEAD
-  }, [allLots, filterStatus, filterCategory, searchKw]);
-=======
 
     // Sắp xếp ưu tiên:
     // 1. Đưa các lô PENDING_APPROVAL (Chờ duyệt) lên HÀNG ĐẦU TIÊN
@@ -208,7 +174,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       return idB - idA;
     });
   }, [allLots, filterStatus, filterCategory, categories, searchKw, getCategoryName]);
->>>>>>> origin/nhut-tan
 
   const totalPages = Math.ceil(filteredLots.length / PAGE_SIZE) || 1;
   const totalElements = filteredLots.length;
@@ -390,9 +355,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         page: 0,
         size: 200,
       });
-<<<<<<< HEAD
-      setAllLots(res.data || []);
-=======
       let lots = res.data || [];
 
       // Luôn gộp trực tiếp từ Server Shared Cache & localStorage (b2b_farmer_lots và xanhfarm_custom_harvest_lots)
@@ -449,7 +411,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           soldOutLots: lots.filter((l) => l.status === 'SOLD_OUT').length,
         });
       }
->>>>>>> origin/nhut-tan
     } catch (err) {
       console.error('Error fetching harvest lots:', err);
     } finally {
@@ -876,8 +837,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     const today = new Date().toISOString().split('T')[0];
     const defaultExpiry = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
 
-<<<<<<< HEAD
-=======
     const normalizedTiers = (lotForm.tierPricing || []).map((t) => {
       const p = Number(t.price ?? (t as any).pricePerKg ?? 0);
       return {
@@ -895,7 +854,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         ? 'OPEN'
         : lotForm.status || 'OPEN';
 
->>>>>>> origin/nhut-tan
     const payload: HarvestLotRequest = {
       lotCode: lotForm.lotCode.trim() || undefined,
       farmerId: lotForm.farmerId || 4,
@@ -909,19 +867,11 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       expiryDate: lotForm.expiryDate || defaultExpiry,
       totalWeightKg: Number(lotForm.totalWeightKg) || 1000,
       availableWeightKg: Number(lotForm.availableWeightKg) || Number(lotForm.totalWeightKg) || 1000,
-<<<<<<< HEAD
-      basePricePerKg: Number(lotForm.basePricePerKg) || 15000,
-      tierPricingJson: JSON.stringify(lotForm.tierPricing || []),
-      reqTempMin: Number(lotForm.reqTempMin) || 2.0,
-      reqTempMax: Number(lotForm.reqTempMax) || 6.0,
-      status: lotForm.status || 'PENDING_APPROVAL',
-=======
       basePricePerKg: basePrice,
       tierPricingJson: JSON.stringify(normalizedTiers),
       reqTempMin: minTemp,
       reqTempMax: maxTemp,
       status: finalStatus,
->>>>>>> origin/nhut-tan
       imageUrl: lotForm.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
       warehouseLocation: lotForm.warehouseLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
       region: lotForm.region || 'Tây Nguyên & Lâm Đồng',
@@ -931,14 +881,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     setIsSubmittingLot(true);
     try {
       if (editingLot) {
-<<<<<<< HEAD
-        await updateHarvestLotApi(editingLot.id, payload);
-        setIsLotFormOpen(false);
-        await fetchLots();
-      } else {
-        await createHarvestLotApi(payload);
-        setIsLotFormOpen(false);
-=======
         const saved = await updateHarvestLotApi(editingLot.id, payload);
         setIsLotFormOpen(false);
 
@@ -1005,7 +947,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           creatorRole: 'ADMIN',
         });
 
->>>>>>> origin/nhut-tan
         setCurrentPage(0);
         setFilterStatus('ALL');
         setFilterCategory('ALL');
@@ -1105,11 +1046,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   : 'bg-[#EAF5E9] text-[#10542C]'
               }`}
             >
-<<<<<<< HEAD
-              {lotStats.totalLots || allLots.length || 50}
-=======
               {allLots.length > 0 ? allLots.length : (lotStats.totalLots || 50)}
->>>>>>> origin/nhut-tan
             </span>
           </button>
 
@@ -1153,35 +1090,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
             </div>
           </div>
           {/* 4 Thẻ KPI Tóm Tắt */}
-<<<<<<< HEAD
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
-              <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
-                <span className="text-xs font-bold">Lô Mở Bán (OPEN)</span>
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              </div>
-              <p className="font-heading font-black text-2xl text-[#10542C]">{lotStats.openLots || allLots.filter(l => l.status === 'OPEN').length}</p>
-              <span className="text-[11px] text-emerald-600 font-medium">Sẵn sàng xuất khẩu / giao sỉ</span>
-            </div>
-
-            <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
-              <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
-                <span className="text-xs font-bold">Chờ Kiểm Định (QC)</span>
-                <Clock className="w-4 h-4 text-amber-500" />
-              </div>
-              <p className="font-heading font-black text-2xl text-amber-600">{lotStats.pendingLots || allLots.filter(l => l.status === 'PENDING_APPROVAL').length}</p>
-              <span className="text-[11px] text-amber-600 font-medium">Đang chờ lấy mẫu kiểm nghiệm</span>
-            </div>
-
-            <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
-              <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
-                <span className="text-xs font-bold">Tạm Khóa (Cảnh Báo BVTV)</span>
-                <AlertTriangle className="w-4 h-4 text-rose-500" />
-              </div>
-              <p className="font-heading font-black text-2xl text-rose-600">{lotStats.suspendedLots || allLots.filter(l => l.status === 'SUSPENDED').length}</p>
-              <span className="text-[11px] text-rose-600 font-medium">Khiếu nại dư lượng thuốc BVTV</span>
-            </div>
-=======
           {(() => {
             const openLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'OPEN').length;
             const pendingLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
@@ -1224,7 +1132,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                     {filterStatus === 'PENDING_APPROVAL' ? '✓ Đang lọc xem lô này' : '👉 Bấm để xem lô chờ duyệt'}
                   </span>
                 </button>
->>>>>>> origin/nhut-tan
 
                 <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
                   <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
@@ -1248,15 +1155,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   <span className="text-[11px] text-slate-500 font-medium">Hoàn tất hợp đồng thương lái</span>
                 </div>
               </div>
-<<<<<<< HEAD
-              <p className="font-heading font-black text-2xl text-[#2C3E2E]">{lotStats.soldOutLots || allLots.filter(l => l.status === 'SOLD_OUT').length}</p>
-              <span className="text-[11px] text-slate-500 font-medium">Hoàn tất hợp đồng thương lái</span>
-            </div>
-          </div>
-=======
             );
           })()}
->>>>>>> origin/nhut-tan
 
           {/* Thanh Công Cụ: Tìm Kiếm, Lọc & Thao Tác */}
           <div className="bg-white rounded-3xl p-5 border border-[#EAECE8] shadow-xs flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
@@ -2461,9 +2361,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   disabled={isSubmittingLot}
                   className="flex-1 py-2.5 rounded-xl bg-[#10542C] text-white text-xs font-bold hover:bg-[#0C3E20] cursor-pointer shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-<<<<<<< HEAD
-                  {isSubmittingLot ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingLot ? 'Lưu Thay Đổi' : 'Đăng Lô Nông Sản')}
-=======
                   {isSubmittingLot ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : editingLot?.status === 'PENDING_APPROVAL' || lotForm.status === 'PENDING_APPROVAL' ? (
@@ -2473,7 +2370,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   ) : (
                     'Đăng Lô Nông Sản'
                   )}
->>>>>>> origin/nhut-tan
                 </button>
               </div>
             </form>

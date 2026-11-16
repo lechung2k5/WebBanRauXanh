@@ -100,27 +100,6 @@ function ProductListContent() {
   }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage, pageSize]);
 
   useEffect(() => {
-<<<<<<< HEAD
-    const fetchList = async () => {
-      setLoading(true);
-      try {
-        const res = await getProducts({
-          keyword: appliedKeyword || undefined,
-          categorySlug: selectedCategorySlug || undefined,
-          maxPrice: priceRange < 100000 ? priceRange : undefined,
-          isOrganic: selectedCert === 'organic' ? true : undefined,
-          page: currentPage,
-          size: pageSize,
-        });
-        setProducts(res.products);
-        setTotalProducts(res.totalElements);
-        setTotalProductPages(Math.max(1, res.totalPages));
-        setIsSemanticResult(Boolean(res.isSemanticSearch));
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      } finally {
-        setLoading(false);
-=======
     void fetchList();
   }, [fetchList]);
 
@@ -133,7 +112,6 @@ function ProductListContent() {
         event.type === 'LOT_UPDATED'
       ) {
         void fetchList();
->>>>>>> origin/nhut-tan
       }
     });
     const handleStorage = () => void fetchList();
@@ -157,10 +135,6 @@ function ProductListContent() {
     };
   }, [fetchList]);
 
-<<<<<<< HEAD
-    fetchList();
-  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage]);
-=======
   // Apply sorting and farm filter
   const filteredProducts = products.filter((p) => {
     if (!selectedFarm) return true;
@@ -170,7 +144,6 @@ function ProductListContent() {
       p.farmLocation?.toLowerCase().includes(selectedFarm.toLowerCase())
     );
   });
->>>>>>> origin/nhut-tan
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     if (sortBy === 'price-asc') return a.price - b.price;

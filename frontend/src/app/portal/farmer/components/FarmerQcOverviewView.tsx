@@ -505,26 +505,10 @@ export default function FarmerQcOverviewView({
       {/* 1 BÊN LÀ THÔNG TIN TÓM TẮT HÀNG NGANG, CLICK VÀO MỞ RỘNG NỘI DUNG CHI TIẾT TRONG CÙNG FORM */}
       {/* ========================================================================= */}
       {viewMode === 'split' ? (
-<<<<<<< HEAD
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* CỘT TRÁI (COL 7): DANH SÁCH BIÊN BẢN TINH GỌN (THIẾT KẾ CO GIÃN THÔNG MINH, 0 CUỘN NGANG) */}
-          <div className="lg:col-span-7 bg-white rounded-3xl border border-[#EAECE8] shadow-2xs p-5 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-heading font-black text-base text-gray-900">
-                  Danh Sách Biên Bản Kiểm Định KCS ({filteredQcList.length})
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Nhấp vào từng dòng để xem chi tiết thông số bàn cân và chỉ số độ ngọt tự nhiên
-                </p>
-              </div>
-            </div>
-=======
         <div className="space-y-4">
           {filteredQcList.length > 0 ? (
             filteredQcList.map((item) => {
               const isExpanded = expandedQcIds.has(item.id);
->>>>>>> origin/nhut-tan
 
               return (
                 <div
@@ -660,40 +644,6 @@ export default function FarmerQcOverviewView({
                           </p>
                         </div>
 
-<<<<<<< HEAD
-                  {/* PHẾ PHẨM BỊ LOẠI */}
-                  <div className="p-3.5 bg-rose-50/80 rounded-2xl border border-rose-200 shadow-2xs space-y-1">
-                    <p className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Phế Phẩm</p>
-                    <p className="text-base font-black font-heading text-rose-600 tabular-nums">
-                      {selectedQc.rejectedWeight.toLocaleString('vi-VN')}{' '}
-                      <span className="text-[11px] font-normal text-rose-500">kg</span>
-                    </p>
-                    <p className="text-[9.5px] text-rose-500 font-medium">Tách tại chỗ</p>
-                  </div>
-                </div>
-
-                {/* 3. ĐỒNG HỒ ĐỘ NGỌT BRIX & ĐỘ ẨM CHÍNH XÁC (PRECISION GAUGES) */}
-                <div className="space-y-3 pt-1">
-                  {/* GAUGE ĐỘ NGỌT BRIX */}
-                  <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/90 shadow-2xs space-y-2">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-amber-950 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-                        <span>Chỉ Số Độ Ngọt Tự Nhiên</span>
-                      </span>
-                      <strong className="text-amber-900 text-base font-black tabular-nums font-heading">
-                        {selectedQc.brixScore} °Bx
-                      </strong>
-                    </div>
-
-                    {/* Progress Bar với Marker chuẩn xuất khẩu */}
-                    <div className="space-y-1">
-                      <div className="w-full bg-amber-200/60 h-2.5 rounded-full overflow-hidden p-0.5">
-                        <div
-                          className="bg-amber-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, (selectedQc.brixScore / 15) * 100)}%` }}
-                        />
-=======
                         {/* Huy hiệu tỷ lệ đạt chuẩn kho */}
                         <div className="bg-gradient-to-br from-emerald-50 to-teal-50/70 border border-emerald-200/90 px-4 py-3 rounded-2xl text-center shrink-0 shadow-xs min-w-[120px]">
                           <span className="text-[10px] text-emerald-800 font-bold uppercase tracking-wider block">
@@ -706,7 +656,6 @@ export default function FarmerQcOverviewView({
                             ✓ Đủ Điều Kiện
                           </span>
                         </div>
->>>>>>> origin/nhut-tan
                       </div>
 
                       {/* 1. BỘ BA THẺ BÀN CÂN BENTO */}

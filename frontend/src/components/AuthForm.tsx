@@ -381,13 +381,10 @@ export default function AuthForm({
   const [username, setUsername] = useState('');
   const [address, setAddress] = useState('');
   const [warehouseAddress, setWarehouseAddress] = useState('');
-<<<<<<< HEAD
-=======
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
->>>>>>> origin/nhut-tan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');

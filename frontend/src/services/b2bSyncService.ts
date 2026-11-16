@@ -39,11 +39,8 @@ export interface B2bNotification {
   title: string;
   message: string;
   rfqCode?: string;
-<<<<<<< HEAD
-=======
   lotCode?: string;
   lotId?: number;
->>>>>>> origin/nhut-tan
   read: boolean;
   createdAt: string;
 }
@@ -94,54 +91,8 @@ const STORAGE_KEY_CONTRACTS = 'hona_b2b_sync_contracts_v2';
 const STORAGE_KEY_NOTIFICATIONS = 'hona_b2b_notifications_v1';
 const CHANNEL_NAME = 'hona_b2b_sync_channel';
 
-<<<<<<< HEAD
-// Dữ liệu mẫu khởi tạo đồng bộ ban đầu
-const INITIAL_RFQS: B2bSyncRfq[] = [
-  {
-    id: 1,
-    rfqCode: 'RFQ-2026-0042',
-    harvestLotId: 1,
-    lotCode: 'LOT-2026-DL-001',
-    productName: 'Bắp Cải Trái Tim Đà Lạt VietGAP',
-    buyerName: 'Trần Thị Thương',
-    buyerPhone: '0987654321',
-    buyerCompany: 'Bách Hóa XANH Logistics',
-    requestedQuantityKg: 3000,
-    targetPricePerKg: 13500,
-    counterPricePerKg: 14000,
-    desiredDeliveryDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
-    deliveryLocation: 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
-    shippingOption: 'cold_storage_truck',
-    notes: 'Yêu cầu kiểm định độ tươi brix >= 5.0, xe lạnh duy trì 2-5°C.',
-    status: 'WAITING_BUYER',
-    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-  },
-  {
-    id: 2,
-    rfqCode: 'RFQ-2026-0058',
-    harvestLotId: 2,
-    lotCode: 'LOT-2026-DL-002',
-    productName: 'Cà Chua Beef Xuất Khẩu Chuẩn GlobalGAP',
-    buyerName: 'Nguyễn Hải Âu',
-    buyerPhone: '0903111222',
-    buyerCompany: 'Hải Âu Catering Sài Gòn',
-    requestedQuantityKg: 2500,
-    targetPricePerKg: 17500,
-    counterPricePerKg: undefined,
-    desiredDeliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
-    deliveryLocation: 'Bếp Ăn Công Nghiệp KCN Tân Bình, TP.HCM',
-    shippingOption: 'cold_storage_truck',
-    notes: 'Cần phân loại độ chín đồng đều 85-90%.',
-    status: 'WAITING_FARMER',
-    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-  },
-];
-=======
 // Dữ liệu mẫu khởi tạo đồng bộ ban đầu: Để trống để người dùng thực hiện giao dịch mới từ đầu
 const INITIAL_RFQS: B2bSyncRfq[] = [];
->>>>>>> origin/nhut-tan
 
 const INITIAL_CONTRACTS: B2bSyncContract[] = [];
 
@@ -156,170 +107,6 @@ function getChannel(): BroadcastChannel | null {
 }
 
 function addNotification(notification: Omit<B2bNotification, 'id' | 'read' | 'createdAt'>) {
-<<<<<<< HEAD
-  if (typeof window === 'undefined') return;
-  const current = getSyncNotifications();
-  const next: B2bNotification = {
-    ...notification,
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    read: false,
-    createdAt: new Date().toISOString(),
-  };
-  localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify([next, ...current].slice(0, 80)));
-  window.dispatchEvent(new CustomEvent('b2b_notification_updated', { detail: next }));
-}
-
-function createNotificationForEvent(type: string, payload: any) {
-  if (type === 'RFQ_SERVER_SYNCED') return;
-  const rfq = payload?.rfq || payload;
-  const rfqCode = rfq?.rfqCode;
-  const productName = rfq?.productName || payload?.productName || 'lô nông sản';
-  const contractCode = payload?.contractCode || rfq?.contractCode || '';
-
-  if (type === 'RFQ_CREATED') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Có yêu cầu báo giá mới',
-      message: `Khách mua vừa gửi yêu cầu báo giá cho ${productName}.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Yêu cầu đàm phán mới',
-      message: `Khách mua ${rfq?.buyerName || ''} gửi yêu cầu báo giá cho ${productName}.`,
-      rfqCode,
-    });
-  } else if (type === 'RFQ_UPDATED') {
-    const status = rfq?.status;
-    const message =
-      status === 'WAITING_BUYER'
-        ? `Nhà vườn đã gửi phản hồi mức giá cho ${productName}.`
-        : status === 'ACCEPTED'
-        ? `Mức giá đề xuất cho ${productName} đã được chấp thuận!`
-        : status === 'REJECTED'
-        ? `Mức giá đề xuất cho ${productName} chưa được chấp thuận.`
-        : `Yêu cầu báo giá ${rfqCode || ''} vừa được cập nhật.`;
-    addNotification({ audience: 'BUYER', type, title: 'Cập nhật đàm phán giá', message, rfqCode });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Đàm phán giá thay đổi',
-      message: `Yêu cầu ${rfqCode || ''} cho ${productName} vừa được cập nhật trạng thái.`,
-      rfqCode,
-    });
-  } else if (type === 'RFQ_COUNTERED_BY_BUYER') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Khách mua gửi mức giá mới',
-      message: `Khách mua vừa đề xuất mức giá mới cho ${productName}.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Khách mua thương lượng giá',
-      message: `Khách mua vừa gửi mức giá đề xuất mới cho ${productName}.`,
-      rfqCode,
-    });
-  } else if (type === 'RFQ_ACCEPTED_BY_BUYER') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Khách mua đã chốt đơn',
-      message: `Khách mua đã chấp thuận đề xuất giá cho ${productName} và tạo hợp đồng.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Đàm phán chốt thành công',
-      message: `Hai bên đã thống nhất giá cho ${productName}. Hợp đồng đã được tạo.`,
-      rfqCode,
-    });
-  } else if (type === 'CONTRACT_CREATED') {
-    addNotification({
-      audience: 'BUYER',
-      type,
-      title: 'Hợp đồng mua bán đã lập',
-      message: `Hợp đồng cho ${productName} đã sẵn sàng để quét mã đặt cọc 30% bảo chứng.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Hợp đồng mới được tạo',
-      message: `Hợp đồng ${contractCode} cho ${productName} vừa được tạo.`,
-      rfqCode,
-    });
-  } else if (type === 'DEPOSIT_PAID') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Đã nhận tiền cọc 30% bảo chứng',
-      message: `Khách mua đã thanh toán 30% tiền cọc cho hợp đồng ${contractCode}. Nhà vườn có thể tiến hành thu hoạch!`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'BUYER',
-      type,
-      title: 'Đặt cọc 30% thành công',
-      message: `Đã xác nhận tiền cọc 30% cho hợp đồng ${contractCode}. Tiền được sàn bảo chứng an toàn.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Hợp đồng đã nhận cọc 30%',
-      message: `Hợp đồng ${contractCode} đã nhận cọc 30% bảo chứng thành công.`,
-      rfqCode,
-    });
-  } else if (type === 'EPOD_SIGNED') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Khách mua đã ký nhận hàng',
-      message: `Khách mua đã ký biên bản bàn giao cho hợp đồng ${contractCode}. Tiền hàng sẵn sàng giải ngân!`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Biên bản nhận hàng đã ký',
-      message: `Hợp đồng ${contractCode} đã hoàn tất bàn giao và ký nhận hàng.`,
-      rfqCode,
-    });
-  } else if (type === 'FINAL_PAID') {
-    addNotification({
-      audience: 'FARMER',
-      type,
-      title: 'Quyết toán thành công',
-      message: `Toàn bộ tiền hàng hợp đồng ${contractCode} đã được giải ngân về tài khoản ngân hàng.`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'BUYER',
-      type,
-      title: 'Hợp đồng hoàn tất',
-      message: `Đơn hàng ${contractCode} đã hoàn tất thanh toán. Cảm ơn quý khách!`,
-      rfqCode,
-    });
-    addNotification({
-      audience: 'ADMIN',
-      type,
-      title: 'Hợp đồng hoàn tất thanh toán',
-      message: `Hợp đồng ${contractCode} đã hoàn tất quyết toán 100%.`,
-      rfqCode,
-    });
-  }
-}
-
-function notifySyncEvent(type: string, payload: unknown) {
-  if (typeof window === 'undefined') return;
-  createNotificationForEvent(type, payload);
-=======
   if (typeof window === 'undefined') return;
   const current = getSyncNotifications();
   const next: B2bNotification = {
@@ -779,7 +566,6 @@ export function notifySyncEvent(type: string, payload: unknown) {
     }
   }
 
->>>>>>> origin/nhut-tan
   const channel = getChannel();
   if (channel) {
     channel.postMessage({ type, payload, timestamp: Date.now() });
@@ -927,9 +713,6 @@ export function farmerRespondRfq(
   let newContract: B2bSyncContract | undefined;
 
   if (action === 'ACCEPT') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
-    }
     rfq.status = 'ACCEPTED';
     rfq.updatedAt = new Date().toISOString();
     // Tự động sinh hợp đồng B2B
@@ -940,17 +723,11 @@ export function farmerRespondRfq(
     rfq.depositAmount = newContract.depositAmount;
 
   } else if (action === 'COUNTER') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
-    }
     if (!counterPrice || counterPrice <= 0) throw new Error('Giá phản hồi không hợp lệ');
     rfq.status = 'WAITING_BUYER';
     rfq.counterPricePerKg = counterPrice;
     rfq.updatedAt = new Date().toISOString();
   } else if (action === 'REJECT') {
-    if (!['WAITING_FARMER', 'PENDING'].includes(rfq.status)) {
-      throw new Error('RFQ chưa đến lượt người bán phản hồi');
-    }
     rfq.status = 'REJECTED';
     rfq.notes = (rfq.notes ? rfq.notes + ' | ' : '') + (rejectReason || 'Nông dân từ chối');
     rfq.updatedAt = new Date().toISOString();

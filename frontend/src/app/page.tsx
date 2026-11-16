@@ -115,23 +115,6 @@ export default function HomePage() {
   }, [selectedCategory, catalogPage, activeSearchKeyword, catalogPageSize]);
 
   useEffect(() => {
-<<<<<<< HEAD
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [catData, prodData] = await Promise.all([
-          getCategories(),
-          getProducts({ categoryId: selectedCategory || undefined, keyword: activeSearchKeyword || undefined, page: catalogPage, size: catalogPageSize }),
-        ]);
-        setCategories(catData);
-        setProducts(prodData.products);
-        setTotalCatalogItems(prodData.totalElements);
-        setServerCatalogPages(Math.max(1, prodData.totalPages));
-      } catch (err) {
-        console.error('Error loading catalog:', err);
-      } finally {
-        setLoading(false);
-=======
     void fetchData();
   }, [fetchData]);
 
@@ -144,7 +127,6 @@ export default function HomePage() {
         event.type === 'LOT_UPDATED'
       ) {
         void fetchData();
->>>>>>> origin/nhut-tan
       }
     });
     const handleStorage = () => void fetchData();
@@ -158,12 +140,6 @@ export default function HomePage() {
     };
   }, [fetchData]);
 
-<<<<<<< HEAD
-    fetchData();
-  }, [selectedCategory, catalogPage, activeSearchKeyword]);
-
-=======
->>>>>>> origin/nhut-tan
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const term = searchQuery.trim();
