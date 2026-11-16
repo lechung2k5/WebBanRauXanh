@@ -100,6 +100,11 @@ public class FarmerController {
     }
 
     // 5. B2B Contracts & QC
+    @PostMapping("/contracts/{id}/start-harvest")
+    public ResponseEntity<ApiResponse<B2bContractResponse>> startHarvest(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(farmerService.startHarvest(id)));
+    }
+
     @GetMapping("/contracts")
     @Operation(summary = "Lấy danh sách hợp đồng B2B và tiến độ cọc 30% Escrow")
     public ResponseEntity<ApiResponse<List<B2bContractResponse>>> getContracts() {

@@ -108,6 +108,7 @@ import FarmerAiChatView from './components/FarmerAiChatView';
 import FarmerPostSaleView from './components/FarmerPostSaleView';
 import FarmerOrderManagementView from './components/FarmerOrderManagementView';
 import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
 import Pagination from '@/components/Pagination';
@@ -159,6 +160,7 @@ function FarmerPortalContent() {
   >('ALL');
   
   const [settlementViewTab, setSettlementViewTab] = useState<'wallet' | 'settlement'>('wallet');
+  const [viewingContractModal, setViewingContractModal] = useState<B2bContractModalData | null>(null);
 
   // Modal State: Create / Edit Harvest Lot
   const [isLotModalOpen, setIsLotModalOpen] = useState(false);
@@ -680,7 +682,6 @@ function FarmerPortalContent() {
         if (legacyRfqs && legacyRfqs.includes('RFQ-2026-0042')) {
           localStorage.removeItem('hona_b2b_sync_rfqs_v2');
         }
-        localStorage.removeItem('b2b_farmer_rfqs');
       } catch {}
     }
 
@@ -1047,10 +1048,37 @@ function FarmerPortalContent() {
           tierPricingJson: JSON.stringify(tierPricing),
         });
 
+        const mergedUpdatedLot = { ...updatedLot, tierPricing };
         setLots((prev) =>
-          prev.map((l) => (l.id === editingLotId ? { ...l, ...updatedLot, tierPricing } : l))
+          prev.map((l) => (l.id === editingLotId ? { ...l, ...mergedUpdatedLot } : l))
         );
-        alert('Cập nhật thông tin Lô Nông Sản thành công!');
+
+        // ĐỒNG BỘ THỜI GIAN THỰC LÊN SÀN B2B, BUYER CONSOLE & TRÌNH DUYỆT KHÁC
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('b2b_sync_event', {
+              detail: { type: 'LOT_UPDATED', lot: mergedUpdatedLot, lotId: editingLotId },
+            })
+          );
+          window.dispatchEvent(
+            new CustomEvent('b2b_lot_updated', {
+              detail: { type: 'LOT_UPDATED', lot: mergedUpdatedLot, lotId: editingLotId },
+            })
+          );
+          window.dispatchEvent(new Event('storage'));
+        }
+
+        fetch('/api/b2b-shared-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'UPDATE_LOT',
+            lotId: editingLotId,
+            lot: mergedUpdatedLot,
+          }),
+        }).catch(() => {});
+
+        alert('Cập nhật thông tin Lô Nông Sản thành công! Dữ liệu đã được đồng bộ trực tiếp lên sàn B2B.');
         setIsLotModalOpen(false);
         setEditingLotId(null);
         return;
@@ -1111,25 +1139,47 @@ function FarmerPortalContent() {
       const targetRfq = rfqs.find((r) => r.id === rfqId || (r.rfqCode && String(r.id) === String(rfqId)));
       const rfqIdentifier = targetRfq?.rfqCode || rfqId;
 
-      await respondToRfqApi(rfqId, { action: 'ACCEPT' }).catch(() => {});
+      const serverRfq = await respondToRfqApi(rfqId, { action: 'ACCEPT' });
       let syncResultContract: any = null;
-      try {
-        const syncRes = farmerRespondRfq(rfqIdentifier, 'ACCEPT');
-        syncResultContract = syncRes?.newContract;
-      } catch (_) {}
+      let canonicalContract: B2BContract | null = null;
+
+      if (serverRfq?.syncSource === 'BACKEND' && serverRfq.contractId) {
+        // Backend đã tạo hợp đồng thật. Không tạo thêm hợp đồng local giả;
+        // lấy đúng bản ghi server để Buyer/Farmer dùng cùng ID và mã hợp đồng.
+        const serverContracts = await getFarmerContractsApi().catch(() => []);
+        canonicalContract = serverContracts.find((contract) =>
+          contract.id === serverRfq.contractId ||
+          (serverRfq.contractCode && contract.contractCode === serverRfq.contractCode) ||
+          contract.rfqId === rfqId
+        ) || null;
+        if (canonicalContract) saveLocalContract(canonicalContract);
+      }
+
+      if (!canonicalContract) throw new Error('Chưa tải được hợp đồng từ máy chủ. Hãy làm mới danh sách trước khi đặt cọc.');
 
       setRfqs((prev) =>
         prev.map((r) => (r.id === rfqId || (r.rfqCode && r.rfqCode === rfqIdentifier) ? { ...r, status: 'ACCEPTED' } : r))
       );
 
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_RFQ_STATUS',
+          rfqCode: targetRfq?.rfqCode,
+          id: rfqId,
+          status: 'ACCEPTED',
+        }),
+      }).catch(() => {});
+
       if (targetRfq) {
-        const contractCode = syncResultContract?.contractCode || `HD-2026-B2B-${Math.floor(100 + Math.random() * 900)}`;
+        const contractCode = canonicalContract?.contractCode || syncResultContract?.contractCode || `HD-2026-B2B-${Math.floor(100 + Math.random() * 900)}`;
         const resolvedUnitPrice = targetRfq.targetPrice || 15000;
         const resolvedQuantity = targetRfq.requestedQuantity || 1000;
         const total = resolvedQuantity * resolvedUnitPrice;
         const deposit = Math.round(total * 0.3);
 
-        const newContract: B2BContract = {
+        const newContract: B2BContract = canonicalContract || {
           id: syncResultContract?.id || Date.now(),
           contractCode,
           rfqId: targetRfq.id,
@@ -1143,7 +1193,7 @@ function FarmerPortalContent() {
           unitPrice: resolvedUnitPrice,
           totalAmount: total,
           depositAmount: deposit,
-          depositStatus: 'WAITING_DEPOSIT',
+          depositStatus: syncResultContract?.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
           fulfillmentStatus: 'WAITING_HARVEST',
           hubName: targetRfq.hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
           hubDeliveryDate: targetRfq.deliveryDate || new Date().toISOString().slice(0, 10),
@@ -1159,6 +1209,21 @@ function FarmerPortalContent() {
           rfqCode: targetRfq.rfqCode,
           status: 'ACCEPTED',
         });
+
+        // ĐỒNG BỘ THỜI GIAN THỰC CHO CẢ BROADCAST CHANNEL LẪN SERVER SHARED SYNC (BUYER THẤY NGAY 0S)
+        fetch('/api/b2b-shared-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'REGISTER_CONTRACT', contract: newContract }),
+        }).catch(() => {});
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'CONTRACT_CREATED', contract: newContract } }));
+          window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: newContract }));
+          window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: { id: targetRfq.id, rfqCode: targetRfq.rfqCode, status: 'ACCEPTED' } }));
+          window.dispatchEvent(new Event('storage'));
+        }
+
         setSelectedContractId(newContract.id);
         const qc = await getContractQcApi(newContract.id, newContract);
         setSelectedContractQc(qc);
@@ -1224,6 +1289,46 @@ function FarmerPortalContent() {
             : r
         )
       );
+
+      // ĐỒNG BỘ THỜI GIAN THỰC LÊN SERVER SHARED SYNC ĐỂ BÊN BUYER THẤY TỨC THÌ (KHÔNG CẦN F5)
+      fetch('/api/b2b-shared-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_RFQ_STATUS',
+          id: counterModalRfq.id,
+          rfqCode: counterModalRfq.rfqCode,
+          status: 'WAITING_BUYER',
+          counterPrice: Number(counterPrice),
+          counterQuantity: Number(counterQty),
+        }),
+      }).catch(() => {});
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('b2b_sync_event', {
+            detail: {
+              type: 'RFQ_UPDATED',
+              id: counterModalRfq.id,
+              rfqCode: counterModalRfq.rfqCode,
+              status: 'WAITING_BUYER',
+              counterPrice: Number(counterPrice),
+              counterQuantity: Number(counterQty),
+            },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent('b2b_rfq_updated', {
+            detail: {
+              id: counterModalRfq.id,
+              rfqCode: counterModalRfq.rfqCode,
+              status: 'WAITING_BUYER',
+              counterPrice: Number(counterPrice),
+            },
+          })
+        );
+        window.dispatchEvent(new Event('storage'));
+      }
 
       alert('Đã gửi đề xuất thương lượng lại thành công cho Thương lái.');
       setCounterModalRfq(null);
@@ -2279,6 +2384,41 @@ function FarmerPortalContent() {
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingContractModal({
+                                  id: c.id,
+                                  contractCode: c.contractCode,
+                                  rfqCode: c.rfqCode,
+                                  lotCode: c.lotCode,
+                                  productName: c.productName,
+                                  buyerName: c.buyerName,
+                                  buyerCompany: c.buyerName,
+                                  buyerPhone: c.buyerPhone,
+                                  farmerName: profile?.farmName || profile?.fullName || 'HTX Nông Nghiệp',
+                                  farmerCompany: profile?.farmName || profileForm.farmName || 'HTX Nông Nghiệp',
+                                  farmerPhone: profile?.phone || profileForm.contactPhone || '0988.100.222',
+                                  farmerPuc: profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849',
+                                  farmerAddress: profile?.location || profileForm.farmAddress,
+                                  quantityKg: c.quantity,
+                                  unitPrice: c.unitPrice,
+                                  totalAmount: c.totalAmount,
+                                  depositAmount: c.depositAmount,
+                                  remainingAmount: c.totalAmount - c.depositAmount,
+                                  depositStatus: c.depositStatus,
+                                  fulfillmentStatusName: c.fulfillmentStatus,
+                                  deliveryAddress: c.hubName,
+                                  deliveryTimeSlot: c.hubDeliveryDate,
+                                  createdAt: c.createdAt,
+                                })
+                              }
+                              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold flex items-center gap-1.5 text-xs transition border border-emerald-200 cursor-pointer shadow-2xs"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-[#10542C]" />
+                              <span>Xem Hợp Đồng B2B</span>
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => handleOpenScheduleModal(c)}
@@ -4056,55 +4196,214 @@ function FarmerPortalContent() {
         </div>
       )}
 
-      {/* ================= MODAL: COUNTER OFFER ================= */}
-      {counterModalRfq && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl text-xs">
-            <h3 className="font-heading font-bold text-sm text-[#10542C]">
-              Thương Lượng Lại Giá RFQ ({counterModalRfq.rfqCode})
-            </h3>
-            <p className="text-gray-600">
-              Đề xuất mức giá hoặc khối lượng mới gửi lại cho Thương lái <strong>{counterModalRfq.buyerName}</strong>:
-            </p>
+      {/* ================= MODAL: COUNTER OFFER (VỪA CHO GÕ TAY VỪA CHO BẤM NÚT TĂNG/GIẢM +/-) ================= */}
+      {counterModalRfq && (() => {
+        const curPrice = Number(counterPrice) || 0;
+        const curQty = Number(counterQty) || 0;
+        const buyerTargetPrice = counterModalRfq.targetPrice || 0;
+        const priceDiff = curPrice - buyerTargetPrice;
+        const estTotal = curPrice * curQty;
 
-            <div className="space-y-3">
-              <div>
-                <label className="block font-semibold mb-1">Đơn Giá Đề Xuất Mới (VNĐ/kg):</label>
-                <input
-                  type="number"
-                  value={counterPrice}
-                  onChange={(e) => setCounterPrice(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 font-bold text-[#10542C]"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Khối Lượng Có Thể Cung Cấp (kg):</label>
-                <input
-                  type="number"
-                  value={counterQty}
-                  onChange={(e) => setCounterQty(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 font-bold"
-                />
-              </div>
-            </div>
+        const adjustPrice = (delta: number) => {
+          setCounterPrice((prev) => Math.max(1000, (Number(prev) || 0) + delta));
+        };
 
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button type="button"
-                onClick={() => setCounterModalRfq(null)}
-                className="px-3.5 py-1.5 border border-gray-200 rounded-xl font-bold text-gray-600 cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button type="button"
-                onClick={handleCounterRfq}
-                className="px-4 py-1.5 bg-[#10542C] text-white rounded-xl font-bold shadow-xs hover:bg-emerald-800 cursor-pointer"
-              >
-                Gửi Thương Lượng
-              </button>
+        const adjustQty = (delta: number) => {
+          setCounterQty((prev) => Math.max(50, (Number(prev) || 0) + delta));
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-4 shadow-2xl border border-emerald-100 text-xs">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#10542C] flex items-center justify-center font-bold">
+                    <Handshake className="w-4 h-4 text-[#10542C]" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-black text-sm text-[#10542C]">
+                      Thương Lượng Lại Giá RFQ ({counterModalRfq.rfqCode})
+                    </h3>
+                    <p className="text-[11px] text-gray-500">
+                      Đối tác: <strong>{counterModalRfq.buyerCompany || counterModalRfq.buyerName}</strong> · Lô: {counterModalRfq.productName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCounterModalRfq(null)}
+                  className="w-7 h-7 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Thông tin chào mua ban đầu của Buyer */}
+              <div className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100 text-xs">
+                <div>
+                  <span className="text-[10px] text-gray-500 block">Thương lái đề xuất ban đầu:</span>
+                  <strong className="text-gray-900 font-mono text-sm">{formatVnd(buyerTargetPrice)}/kg</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 block">Khối lượng thương lái hỏi mua:</span>
+                  <strong className="text-gray-900 font-mono text-sm">{(counterModalRfq.requestedQuantity || 0).toLocaleString()} kg</strong>
+                </div>
+              </div>
+
+              {/* 1. ĐIỀU CHỈNH ĐƠN GIÁ (NHẬP TỰ DO BÀN PHÍM + NÚT TĂNG/GIẢM +/-) */}
+              <div className="space-y-2">
+                <label className="block font-bold text-gray-800">
+                  1. Đơn Giá Nhà Vườn Muốn Đề Xuất (VNĐ/kg):
+                </label>
+
+                {/* Input + Stepper +/- */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustPrice(-500)}
+                    className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 font-black text-lg flex items-center justify-center transition border border-gray-200 cursor-pointer shrink-0"
+                    title="Giảm 500 đ/kg"
+                  >
+                    −
+                  </button>
+
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min={1000}
+                      step={100}
+                      value={counterPrice}
+                      onChange={(e) => setCounterPrice(e.target.value === '' ? 0 : Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-[#FAFBF9] border-2 border-emerald-200 rounded-2xl font-mono font-black text-[#10542C] text-center text-sm focus:outline-none focus:border-[#10542C] focus:bg-white transition"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                      đ/kg
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => adjustPrice(500)}
+                    className="w-10 h-10 rounded-2xl bg-[#10542C] hover:bg-[#0C3E20] active:scale-95 text-white font-black text-lg flex items-center justify-center transition shadow-xs cursor-pointer shrink-0"
+                    title="Tăng 500 đ/kg"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Nút bấm nhanh bước giá */}
+                <div className="grid grid-cols-6 gap-1 pt-1">
+                  {[
+                    { label: '-2.000', val: -2000 },
+                    { label: '-1.000', val: -1000 },
+                    { label: '-500', val: -500 },
+                    { label: '+500', val: 500 },
+                    { label: '+1.000', val: 1000 },
+                    { label: '+2.000', val: 2000 },
+                  ].map((btn) => (
+                    <button
+                      key={btn.label}
+                      type="button"
+                      onClick={() => adjustPrice(btn.val)}
+                      className={`py-1 rounded-xl text-[10px] font-bold transition cursor-pointer border ${
+                        btn.val < 0
+                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                      }`}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. ĐIỀU CHỈNH KHỐI LƯỢNG (NHẬP TỰ DO BÀN PHÍM + NÚT TĂNG/GIẢM +/-) */}
+              <div className="space-y-2">
+                <label className="block font-bold text-gray-800">
+                  2. Khối Lượng Có Thể Bán (kg):
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustQty(-100)}
+                    className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 font-bold text-xs flex items-center justify-center transition border border-gray-200 cursor-pointer shrink-0"
+                    title="Giảm 100 kg"
+                  >
+                    -100
+                  </button>
+
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min={50}
+                      step={50}
+                      value={counterQty}
+                      onChange={(e) => setCounterQty(e.target.value === '' ? 0 : Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-[#FAFBF9] border rounded-2xl font-mono font-bold text-gray-800 text-center text-sm focus:outline-none focus:border-[#10542C] focus:bg-white transition"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                      kg
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => adjustQty(100)}
+                    className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 font-bold text-xs flex items-center justify-center transition border border-gray-200 cursor-pointer shrink-0"
+                    title="Tăng 100 kg"
+                  >
+                    +100
+                  </button>
+                </div>
+              </div>
+
+              {/* Bảng so sánh và tổng tiền tức thì */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-100 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Chênh lệch so với giá Buyer đề xuất:</span>
+                  <strong
+                    className={`font-mono font-bold ${
+                      priceDiff > 0 ? 'text-emerald-700' : priceDiff < 0 ? 'text-rose-600' : 'text-gray-600'
+                    }`}
+                  >
+                    {priceDiff > 0 ? `+${formatVnd(priceDiff)}` : formatVnd(priceDiff)} / kg
+                  </strong>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-emerald-200/60">
+                  <span className="text-gray-700 font-semibold">Tổng giá trị đơn hàng mới:</span>
+                  <strong className="text-[#10542C] font-mono font-black text-sm">
+                    {formatVnd(estTotal)}
+                  </strong>
+                </div>
+                <div className="flex justify-between text-[11px] text-emerald-800">
+                  <span>Tiền cọc 30% bảo chứng thương lái sẽ nộp:</span>
+                  <strong className="font-mono">{formatVnd(Math.round(estTotal * 0.3))}</strong>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setCounterModalRfq(null)}
+                  className="px-4 py-2 border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={!curPrice || curPrice <= 0 || !curQty || curQty <= 0}
+                  onClick={handleCounterRfq}
+                  className="px-5 py-2.5 bg-[#10542C] text-white rounded-xl font-bold shadow-md hover:bg-emerald-800 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Gửi Mức Giá Mới Tới Thương Lái</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ================= MODAL: REJECT REASON ================= */}
       {rejectModalRfq && (
@@ -4406,6 +4705,12 @@ function FarmerPortalContent() {
           </div>
         </div>
       )}
+      {/* ================= MODAL: XEM VĂN BẢN HỢP ĐỒNG B2B ĐIỆN TỬ 3 BÊN ================= */}
+      <B2bContractViewModal
+        isOpen={Boolean(viewingContractModal)}
+        contract={viewingContractModal}
+        onClose={() => setViewingContractModal(null)}
+      />
     </div>
   );
 }
@@ -4418,6 +4723,12 @@ function FarmerPortalSkeleton() {
         <div className="w-9 h-9 border-3 border-[#10542C] border-t-transparent rounded-full animate-spin" />
         <span className="text-xs font-bold text-[#10542C]">Đang tải Cổng Nông Dân HoNa Fresh...</span>
       </div>
+      {/* ================= MODAL: XEM VĂN BẢN HỢP ĐỒNG B2B ĐIỆN TỬ 3 BÊN ================= */}
+      <B2bContractViewModal
+        isOpen={Boolean(viewingContractModal)}
+        contract={viewingContractModal}
+        onClose={() => setViewingContractModal(null)}
+      />
     </div>
   );
 }

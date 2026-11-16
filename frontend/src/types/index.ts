@@ -374,6 +374,7 @@ export interface RfqItem {
   contractStatus?: string;
   depositStatus?: string;
   depositAmount?: number;
+  syncSource?: 'BACKEND' | 'LOCAL';
   createdAt: string;
 }
 

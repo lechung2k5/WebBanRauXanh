@@ -39,9 +39,13 @@ public class HarvestLotService {
             String sortBy,
             String sortDir
     ) {
-        Sort sort = sortDir.equalsIgnoreCase("ASC")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
+        Sort.Direction direction = sortDir.equalsIgnoreCase("ASC")
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        // Thêm id làm tiêu chí phụ để các bản ghi cùng createdAt/giá luôn có
+        // thứ tự ổn định, tránh trùng hoặc bỏ sót lô giữa hai trang.
+        Sort sort = Sort.by(direction, sortBy)
+                .and(Sort.by(Sort.Direction.DESC, "id"));
 
         Pageable pageable = PageRequest.of(page, size, sort);
         Page<HarvestLot> lotPage = harvestLotRepository.searchLots(keyword, status, category, pageable);

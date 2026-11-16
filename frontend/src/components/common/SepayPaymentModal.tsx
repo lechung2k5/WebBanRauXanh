@@ -24,12 +24,14 @@ import {
 interface SepayPaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  type?: 'ORDER' | 'CONTRACT';
+  type?: 'ORDER' | 'CONTRACT' | 'FINAL_PAYMENT';
   code: string; // Mã đơn hàng (DH-...) hoặc Mã hợp đồng (HD-...)
   amount: number; // Số tiền cần thanh toán (VNĐ)
   title?: string;
   recipientName?: string;
   onSuccess?: () => void;
+  // Dùng cho thanh toán giả lập: gọi API nghiệp vụ ngay khi người dùng xác nhận đã chuyển tiền.
+  onManualConfirm?: () => Promise<void>;
 }
 
 export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
@@ -41,15 +43,17 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
   title,
   recipientName,
   onSuccess,
+  onManualConfirm,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isPaid, setIsPaid] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(600); // 10 phút đếm ngược
 
   // Nội dung chuyển khoản chuẩn hóa
   const cleanCode = code.toUpperCase().replaceAll(/[^A-Z0-9-]/g, '');
-  const transferContent = type === 'ORDER' ? `HONA ${cleanCode}` : `COC ${cleanCode}`;
+  const transferContent = type === 'ORDER' ? `HONA ${cleanCode}` : type === 'FINAL_PAYMENT' ? `TT70 ${cleanCode}` : `COC ${cleanCode}`;
 
   const qrImageUrl = generateVietQrUrl({
     amount,
@@ -79,7 +83,7 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
           setIsPaid(true);
           if (onSuccess) onSuccess();
         }
-      } else {
+      } else if (type === 'CONTRACT') {
         const res = await checkContractDepositStatus(code);
         if (res.isDepositPaid) {
           setIsPaid(true);
@@ -91,16 +95,35 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
     }
   }, [code, isPaid, type, onSuccess]);
 
+  const handleManualConfirm = async () => {
+    if (checking) return;
+    setChecking(true);
+    setManualError(null);
+    try {
+      if (onManualConfirm) {
+        await onManualConfirm();
+        setIsPaid(true);
+        onSuccess?.();
+      } else {
+        await verifyPayment();
+      }
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : 'Không thể xác nhận thanh toán. Vui lòng thử lại.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
   // 2. Tự động kiểm tra định kỳ mỗi 3 giây
   useEffect(() => {
-    if (!isOpen || isPaid) return;
+    if (!isOpen || isPaid || (type === 'FINAL_PAYMENT' && onManualConfirm)) return;
 
     const interval = setInterval(() => {
       void verifyPayment();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isOpen, isPaid, verifyPayment]);
+  }, [isOpen, isPaid, type, onManualConfirm, verifyPayment]);
 
   // 3. Bộ đếm ngược thời gian
   useEffect(() => {
@@ -266,6 +289,13 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
               </p>
             </div>
 
+            {manualError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{manualError}</span>
+              </div>
+            )}
+
             {/* Nút bấm kiểm tra thủ công & Hủy */}
             <div className="flex items-center justify-between pt-1 gap-2">
               <button
@@ -278,7 +308,7 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => void verifyPayment()}
+                onClick={() => void handleManualConfirm()}
                 disabled={checking}
                 className="px-5 py-2.5 rounded-xl bg-[#10542C] hover:bg-[#0C3E20] text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >

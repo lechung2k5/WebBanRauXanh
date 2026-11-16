@@ -348,6 +348,25 @@ public class FarmerService {
     }
 
     // 5. B2B Contracts & QC
+    @Transactional
+    public B2bContractResponse startHarvest(Long contractId) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng."));
+        if (contract.getFarmer() == null || !contract.getFarmer().getId().equals(farmer.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
+        }
+        if (!"DEPOSIT_PAID".equals(contract.getDepositStatus())) {
+            throw new IllegalStateException("Hợp đồng cần được xác nhận cọc trước khi thu hoạch.");
+        }
+        String progress = contract.getFulfillmentStatus();
+        if (!"WAITING_HARVEST".equals(progress) && !"HARVESTING".equals(progress)) {
+            throw new IllegalStateException("Hợp đồng đã qua giai đoạn bắt đầu thu hoạch.");
+        }
+        contract.setFulfillmentStatus("HARVESTING");
+        return mapToContractResponse(b2bContractRepository.save(contract));
+    }
+
     @Transactional(readOnly = true)
     public List<B2bContractResponse> getContracts() {
         User farmer = getCurrentFarmer();

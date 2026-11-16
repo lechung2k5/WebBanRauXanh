@@ -57,6 +57,8 @@ import {
   getColdChainTelemetryApi,
   getDeliveryProofApi,
   getLotTraceApi,
+  getFarmerContractsFromServer,
+  startFarmerHarvest,
 } from '@/services/farmerApi';
 
 interface FarmerPostSaleViewProps {
@@ -68,10 +70,34 @@ interface FarmerPostSaleViewProps {
 
 export default function FarmerPostSaleView({
   lots,
-  contracts,
+  contracts: initialContracts,
   formatVnd,
   initialContractId,
 }: FarmerPostSaleViewProps) {
+  const [contracts, setContracts] = useState(initialContracts);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const [startingHarvest, setStartingHarvest] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refreshContracts = async () => {
+    setRefreshing(true);
+    try {
+      setContracts(await getFarmerContractsFromServer());
+      setRefreshVersion((value) => value + 1);
+      setRefreshError('');
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Không thể làm mới dữ liệu');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  useEffect(() => {
+    void refreshContracts();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshContracts();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [subTab, setSubTab] = useState<'allocation' | 'coldchain' | 'epod' | 'trace'>('allocation');
 
   // 1. ALLOCATION STATE
@@ -157,19 +183,13 @@ export default function FarmerPostSaleView({
   }, [initialContractId]);
 
   useEffect(() => {
-    const list: B2bSyncContract[] = getSyncContracts();
-    const matched = list.find((c: B2bSyncContract) => c.id === selectedContractId);
-    if (matched) {
-      setFulfillmentStep(matched.fulfillmentStep);
-    }
-    const unsub = subscribeB2bSyncEvents(() => {
-      const refreshed = getSyncContracts().find((c: B2bSyncContract) => c.id === selectedContractId);
-      if (refreshed) {
-        setFulfillmentStep(refreshed.fulfillmentStep);
-      }
-    });
-    return () => unsub();
-  }, [selectedContractId]);
+    const contract = contracts.find((item) => item.id === selectedContractId) || contracts[0];
+    const steps: Record<string, number> = {
+      WAITING_HARVEST: 1, HARVESTING: 2, IN_TRANSIT: 3,
+      HUB_DELIVERED: 4, COMPLETED: 6,
+    };
+    setFulfillmentStep(contract ? steps[contract.fulfillmentStatus] || 1 : 1);
+  }, [contracts, selectedContractId]);
 
   // 3. EPOD STATE
   const [epodContractId, setEpodContractId] = useState<number>(contracts[0]?.id || 1);
@@ -185,37 +205,9 @@ export default function FarmerPostSaleView({
   const [labelSize, setLabelSize] = useState<'DECAL_100X75' | 'A4_SHEET'>('DECAL_100X75');
 
   // Hợp nhất danh sách Hợp đồng từ props và đồng bộ B2B Realtime
-  const effectiveContracts: B2BContract[] = useMemo<B2BContract[]>(() => {
-    const syncList = getSyncContracts();
-    const map = new Map<number, B2BContract>();
-    contracts.forEach((c) => map.set(c.id, c));
-    syncList.forEach((sc) => {
-      const existing = map.get(sc.id);
-      map.set(sc.id, {
-        ...(existing || {}),
-        id: sc.id,
-        contractCode: sc.contractCode,
-        rfqCode: sc.rfqCode,
-        buyerName: sc.buyerName,
-        buyerPhone: sc.buyerPhone,
-        buyerCompany: sc.buyerCompany,
-        farmerName: sc.farmerName,
-        farmerPhone: sc.farmerPhone,
-        farmerCompany: sc.farmerCompany,
-        quantity: sc.quantityKg,
-        unitPrice: sc.agreedPricePerKg,
-        totalAmount: sc.totalAmount,
-        depositAmount: sc.depositAmount,
-        depositStatus: sc.depositStatus,
-        fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : 'IN_TRANSIT',
-        hubDeliveryDate: sc.deliveryTimeSlot || '29/10/2026',
-        hubName: sc.deliveryAddress,
-      } as B2BContract);
-    });
-    const result = Array.from(map.values());
-    return result.length > 0 ? result : contracts;
-  }, [contracts]);
-
+  // Parent refreshes these contracts from the Farmer API. Do not overwrite
+  // payment status with another browser's stale localStorage snapshot.
+  const effectiveContracts = contracts;
   const currentSelectedContract = effectiveContracts.find((c: B2BContract) => c.id === selectedContractId) || effectiveContracts[0];
   const currentEpodContract = effectiveContracts.find((c: B2BContract) => c.id === epodContractId) || effectiveContracts[0];
   const currentTraceLot = lots.find((l) => l.lotCode === traceLotCode) || lots[0];
@@ -438,7 +430,7 @@ export default function FarmerPostSaleView({
     return () => {
       isMounted = false;
     };
-  }, [traceLotCode, lots]);
+  }, [traceLotCode, lots, refreshVersion]);
 
   const handleCopyTraceLink = () => {
     if (typeof window === 'undefined') return;
@@ -510,17 +502,14 @@ export default function FarmerPostSaleView({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                if (subTab === 'allocation') setSelectedLotId((prev) => prev);
-                if (subTab === 'coldchain') setSelectedContractId((prev) => prev);
-                if (subTab === 'epod') setEpodContractId((prev) => prev);
-                if (subTab === 'trace') setTraceLotCode((prev) => prev);
-              }}
+              onClick={() => void refreshContracts()}
+              disabled={refreshing}
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-white/60 active:scale-[0.98]"
             >
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>Làm mới dữ liệu</span>
             </button>
+            {refreshError && <p role="alert" className="text-sm text-white">{refreshError}</p>}
           </div>
         </div>
 
@@ -1566,21 +1555,28 @@ export default function FarmerPostSaleView({
                   {fulfillmentStep === 1 && (
                     <>
                       {(() => {
-                        const syncContracts = getSyncContracts();
-                        const activeC = syncContracts.find((c: any) => c.id === selectedContractId) || syncContracts[0];
+                        const activeC = currentSelectedContract;
                         const isPaid = (activeC?.depositStatus as string) === 'DEPOSIT_PAID' || (activeC?.depositStatus as string) === 'PAID';
                         if (isPaid) {
                           return (
                             <button
                               type="button"
                               onClick={() => {
-                                setFulfillmentStep(2);
-                                updateContractFulfillmentStep(selectedContractId, 2);
+                                if (!currentSelectedContract || startingHarvest) return;
+                                setStartingHarvest(true);
+                                void startFarmerHarvest(currentSelectedContract.id)
+                                  .then(async () => {
+                                    await refreshContracts();
+                                  })
+                                  .catch((error) => {
+                                    setRefreshError(error instanceof Error ? error.message : 'Không thể bắt đầu thu hoạch');
+                                  })
+                                  .finally(() => setStartingHarvest(false));
                               }}
                               className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                             >
                               <Sprout className="w-4 h-4" />
-                              <span>✓ Bắt Đầu Thu Hoạch & Đóng Gói (Tiến Mốc 2)</span>
+                              <span>{startingHarvest ? 'Đang lưu tiến trình...' : '✓ Bắt Đầu Thu Hoạch & Đóng Gói (Tiến Mốc 2)'}</span>
                             </button>
                           );
                         }
@@ -1682,9 +1678,11 @@ export default function FarmerPostSaleView({
                   Hình Thức Thu Tiền:
                 </span>
                 <p className="font-bold text-gray-900 mt-0.5 tabular-nums">
-                  Đã thu đủ 100% (30% Tiền Cọc Bảo Chứng + 70% Thanh Toán Còn Lại)
+                  {currentSelectedContract?.depositStatus === 'DEPOSIT_PAID'
+                    ? 'Đã nhận cọc 30% bảo chứng'
+                    : 'Chưa xác nhận tiền cọc'}
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Biên bản nhận hàng số: KCS-08491</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">Hợp đồng: {currentSelectedContract?.contractCode || 'Chưa chọn'}</p>
               </div>
               <div>
                 <span className="text-gray-500 font-semibold flex items-center gap-1">
@@ -1702,9 +1700,9 @@ export default function FarmerPostSaleView({
                   Quyết Toán Về Ví Tiền:
                 </span>
                 <p className="font-bold text-[#10542C] mt-0.5 tabular-nums">
-                  {formatVnd ? formatVnd(58425000) : '58.425.000 đ'} &bull; Sẵn Sàng Rút
+                  {currentSelectedContract?.settlementId ? 'Đã có quyết toán' : 'Chưa có quyết toán được xác nhận'}
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Tự động cộng vào Số Dư Khả Dụng</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">Xem số tiền thực nhận tại mục quyết toán</p>
               </div>
             </div>
           </div>

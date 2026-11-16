@@ -277,7 +277,7 @@ public class BuyerWorkflowService {
     public List<Map<String, Object>> contracts() {
         User buyer = currentBuyer();
         return db.queryForList("""
-                SELECT c.id, c.contract_code, c.status, c.total_goods_amount, c.deposit_30_amount,
+                SELECT c.id, c.contract_code, c.status, c.fulfillment_status, c.total_goods_amount, c.deposit_30_amount,
                        c.deposit_received, c.balance_received, c.refund_amount, c.delivery_address,
                        c.offered_weight_kg, c.offered_price_per_kg, c.created_at, c.lot_id,
                        l.product_name, l.lot_code, l.puc_code, l.image_url,
@@ -313,11 +313,18 @@ public class BuyerWorkflowService {
     @Transactional
     public Map<String, Object> confirmDeposit(Long contractId) {
         Map<String, Object> contract = ownedContract(contractId);
+        // Farmer's legacy entity writes deposit_amount, while accounting reads deposit_30_amount.
+        db.update("UPDATE b2b_contracts SET deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount) WHERE id=?", contractId);
+        contract = ownedContract(contractId);
+        if (decimal(contract, "deposit_30_amount").signum() <= 0) {
+            throw new AuthException(400, "INVALID_DEPOSIT", "Hợp đồng chưa có số tiền cọc hợp lệ.");
+        }
         ObjectNode request = objectMapper.createObjectNode()
                 .put("status", "DEPOSIT_PAID")
                 .put("reference", "DEP-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase())
                 .put("amount", decimal(contract, "deposit_30_amount"));
         business.transition(contractId, request);
+        db.update("UPDATE b2b_contracts SET deposit_status='DEPOSIT_PAID',deposit_paid_at=CURRENT_TIMESTAMP WHERE id=?", contractId);
         return ownedContract(contractId);
     }
 

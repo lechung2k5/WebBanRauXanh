@@ -915,6 +915,24 @@ export const saveLocalRfqUpdate = (updatedRfq: Partial<RfqItem> & { id: number; 
       });
       localStorage.setItem('b2b_farmer_rfqs', JSON.stringify(updatedFarmer));
     }
+
+    // Đẩy ngay lên Server Shared Sync để bên Buyer tức thì nhận được (kể cả tab ẩn danh hoặc trình duyệt khác)
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_RFQ_STATUS',
+        id: updatedRfq.id,
+        rfqCode: updatedRfq.rfqCode,
+        status: updatedRfq.status,
+        counterPrice: updatedRfq.counterPrice,
+        counterQuantity: updatedRfq.counterQuantity,
+        rejectReason: updatedRfq.rejectReason,
+      }),
+    }).catch(() => {});
+
+    window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'RFQ_UPDATED', ...updatedRfq } }));
+    window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: updatedRfq }));
   } catch (err) {
     console.error('Error saving local RFQ update:', err);
   }
@@ -1032,6 +1050,7 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
   // Áp dụng overrides từ b2b_rfq_status_overrides cho các RFQ
   const overrides = getLocalRfqOverrides();
   const list = Array.from(map.values()).map((rfq) => {
+    if (serverRfqs.some((item) => item.id === rfq.id)) return rfq;
     const override =
       overrides[String(rfq.id)] ||
       (rfq.rfqCode ? overrides[rfq.rfqCode] : undefined);
@@ -1074,56 +1093,17 @@ export const respondToRfqApi = async (
     rejectReason?: string;
   }
 ): Promise<RfqItem> => {
-  const newStatus =
-    actionData.action === 'ACCEPT'
-      ? 'ACCEPTED'
-      : actionData.action === 'REJECT'
-      ? 'REJECTED'
-      : 'WAITING_BUYER';
-
-  // Lưu trạng thái vào storage
-  saveLocalRfqUpdate({
-    id: rfqId,
-    status: newStatus,
-    counterPrice: actionData.counterPrice,
-    counterQuantity: actionData.counterQuantity,
-    rejectReason: actionData.rejectReason,
+  const res = await fetch(`${API_BASE_URL}/farmer/rfq/${rfqId}/respond`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(actionData),
   });
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/farmer/rfq/${rfqId}/respond`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      credentials: 'include',
-      body: JSON.stringify(actionData),
-    });
-    const data: ApiResponse<RfqItem> = await res.json();
-    if (res.ok && data.code === 200 && data.result) {
-      return data.result;
-    }
-  } catch (err: unknown) {
-    console.warn('Backend API respond RFQ offline, simulating success:', err);
+  const data: ApiResponse<RfqItem> = await res.json();
+  if (!res.ok || !data.result) {
+    throw new Error(data.message || 'Không thể lưu phản hồi RFQ trên máy chủ.');
   }
-
-  return {
-    id: rfqId,
-    rfqCode: `RFQ-2026-${rfqId}`,
-    harvestLotId: 1,
-    harvestLotCode: 'LOT-2026-DL-001',
-    productName: 'Nông Sản VietGAP',
-    buyerName: 'Thương Lái Chợ Đầu Mối',
-    buyerPhone: '0908.776.889',
-    buyerCompany: 'Vựa Nông Sản B2B',
-    requestedQuantity: actionData.counterQuantity || 3000,
-    targetPrice: actionData.counterPrice || 14000,
-    deliveryDate: '2026-10-28',
-    hubLocation: 'Trạm Lạnh Đức Trọng',
-    status: newStatus,
-    counterPrice: actionData.counterPrice,
-    counterQuantity: actionData.counterQuantity,
-    rejectReason: actionData.rejectReason,
-    createdAt: new Date().toISOString(),
-  };
+  return { ...data.result, syncSource: 'BACKEND' };
 };
 
 // Helper: Lưu Hợp Đồng B2B vào localStorage để bảo toàn dữ liệu
@@ -1137,7 +1117,11 @@ export const saveLocalContract = (contract: B2BContract) => {
     localStorage.setItem('b2b_farmer_contracts', JSON.stringify(filtered));
 
     // 2. Đồng bộ sang b2b_sync_contracts
-    const syncExisting: any[] = JSON.parse(localStorage.getItem('b2b_sync_contracts') || '[]');
+    const syncKey = 'hona_b2b_sync_contracts_v2';
+    const legacySyncKey = 'b2b_sync_contracts';
+    const syncExisting: any[] = JSON.parse(
+      localStorage.getItem(syncKey) || localStorage.getItem(legacySyncKey) || '[]'
+    );
     const syncFiltered = syncExisting.filter((c) => c.id !== contract.id && c.contractCode !== contract.contractCode);
     const convertedToSync: B2bSyncContract = {
       id: contract.id,
@@ -1149,16 +1133,16 @@ export const saveLocalContract = (contract: B2BContract) => {
       buyerName: contract.buyerName,
       buyerPhone: contract.buyerPhone || '0901234567',
       buyerCompany: contract.buyerName,
-      farmerName: contract.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+      farmerName: contract.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
       farmerPhone: '0912345678',
-      farmerCompany: contract.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+      farmerCompany: contract.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
       quantityKg: contract.quantity,
       agreedPricePerKg: contract.unitPrice,
       totalAmount: contract.totalAmount,
       depositAmount: contract.depositAmount,
       remainingAmount: (contract.totalAmount || 0) - (contract.depositAmount || 0),
-      depositStatus: contract.depositStatus || 'WAITING_DEPOSIT',
-      fulfillmentStep: contract.fulfillmentStep || (contract.fulfillmentStatus === 'COMPLETED' ? 6 : contract.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1),
+      depositStatus: contract.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+      fulfillmentStep: contract.fulfillmentStatus === 'COMPLETED' ? 6 : contract.fulfillmentStatus === 'IN_TRANSIT' ? 3 : contract.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : contract.fulfillmentStatus === 'HARVESTING' ? 2 : 1,
       fulfillmentStatusName: contract.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
       truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
       truckDriverName: 'Tài xế Nguyễn Văn Tài',
@@ -1166,11 +1150,13 @@ export const saveLocalContract = (contract: B2BContract) => {
       truckTempCurrent: 4.0,
       deliveryAddress: contract.hubName || 'Trạm Trung Chuyển Đức Trọng',
       deliveryTimeSlot: '06:00 - 09:00',
-      finalPaidStatus: contract.finalPaidStatus || 'UNPAID',
+      finalPaidStatus: contract.settlementId ? 'PAID' : 'UNPAID',
       createdAt: contract.createdAt || new Date().toISOString(),
     };
     syncFiltered.unshift(convertedToSync);
-    localStorage.setItem('b2b_sync_contracts', JSON.stringify(syncFiltered));
+    localStorage.setItem(syncKey, JSON.stringify(syncFiltered));
+    // Dọn kho key cũ để Buyer/Farmer không đọc hai bản khác nhau.
+    localStorage.removeItem(legacySyncKey);
 
     // 3. Đẩy lên Server Shared Sync
     fetch('/api/b2b-shared-sync', {
@@ -1185,6 +1171,24 @@ export const saveLocalContract = (contract: B2BContract) => {
 };
 
 // 5. Contracts & QC
+export const getFarmerContractsFromServer = async (): Promise<B2BContract[]> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts`, {
+    cache: 'no-store', credentials: 'include', headers: getAuthHeaders(),
+  });
+  const data: ApiResponse<B2BContract[]> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải hợp đồng từ máy chủ');
+  return data.result || [];
+};
+
+export const startFarmerHarvest = async (id: number): Promise<B2BContract> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${id}/start-harvest`, {
+    method: 'POST', credentials: 'include', headers: getAuthHeaders(), body: '{}',
+  });
+  const data: ApiResponse<B2BContract> = await res.json();
+  if (!res.ok || !data.result) throw new Error(data.message || 'Không thể bắt đầu thu hoạch');
+  return data.result;
+};
+
 export const getFarmerContractsApi = async (): Promise<B2BContract[]> => {
   const contractMap = new Map<string, B2BContract>();
 

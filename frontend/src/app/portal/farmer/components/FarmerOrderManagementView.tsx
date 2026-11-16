@@ -26,7 +26,8 @@ import {
   getSyncContracts,
   subscribeB2bSyncEvents,
 } from '@/services/b2bSyncService';
-import { getFarmerContractsApi } from '@/services/farmerApi';
+import { getFarmerContractsFromServer } from '@/services/farmerApi';
+import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -41,14 +42,15 @@ export default function FarmerOrderManagementView({
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'WAITING_DEPOSIT' | 'STEP_2' | 'STEP_3' | 'STEP_4' | 'STEP_6'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [viewingContract, setViewingContract] = useState<B2bContractModalData | null>(null);
 
   // Load contracts from sync service and backend API
   const reloadContracts = async () => {
+    setRefreshing(true);
     try {
-      const [apiContracts, localSync] = await Promise.all([
-        getFarmerContractsApi().catch(() => []),
-        Promise.resolve(getSyncContracts()),
-      ]);
+      const apiContracts = await getFarmerContractsFromServer();
+      const localSync: B2bSyncContract[] = [];
       const map = new Map<string, B2bSyncContract>();
       for (const lc of localSync) {
         if (lc && lc.contractCode) map.set(lc.contractCode.trim().toUpperCase(), lc);
@@ -67,16 +69,16 @@ export default function FarmerOrderManagementView({
               buyerName: ac.buyerName,
               buyerPhone: ac.buyerPhone || '0901234567',
               buyerCompany: ac.buyerName,
-              farmerName: ac.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+              farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
               farmerPhone: '0912345678',
-              farmerCompany: ac.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+              farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
               quantityKg: ac.quantity,
               agreedPricePerKg: ac.unitPrice,
               totalAmount: ac.totalAmount,
               depositAmount: ac.depositAmount,
               remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
-              depositStatus: ac.depositStatus || 'WAITING_DEPOSIT',
-              fulfillmentStep: ac.fulfillmentStep || (ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1),
+              depositStatus: ac.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+              fulfillmentStep: ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'IN_TRANSIT' ? 3 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : ac.fulfillmentStatus === 'HARVESTING' ? 2 : 1,
               fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
               truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
               truckDriverName: 'Tài xế Nguyễn Văn Tài',
@@ -84,15 +86,17 @@ export default function FarmerOrderManagementView({
               truckTempCurrent: 4.0,
               deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
               deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
-              finalPaidStatus: ac.finalPaidStatus || 'UNPAID',
+              finalPaidStatus: ac.settlementId ? 'PAID' : 'UNPAID',
               createdAt: ac.createdAt || new Date().toISOString(),
             });
           }
         }
       }
       setContracts(Array.from(map.values()));
-    } catch {
-      setContracts(getSyncContracts());
+    } catch (error) {
+      setActionSuccessMsg(error instanceof Error ? error.message : 'Không thể làm mới hợp đồng');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -108,7 +112,11 @@ export default function FarmerOrderManagementView({
     window.addEventListener('b2b_sync_event', handleCustomSync);
     window.addEventListener('b2b_contract_updated', handleCustomSync);
     window.addEventListener('storage', handleCustomSync);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void reloadContracts();
+    }, 5000);
     return () => {
+      window.clearInterval(timer);
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleCustomSync);
       window.removeEventListener('b2b_contract_updated', handleCustomSync);
@@ -182,9 +190,10 @@ export default function FarmerOrderManagementView({
             <button
               type="button"
               onClick={reloadContracts}
+              disabled={refreshing}
               className="flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-3.5 py-2.5 text-xs font-bold text-white transition active:scale-95"
             >
-              <RotateCw className="w-4 h-4 text-emerald-300" />
+              <RotateCw className={`w-4 h-4 text-emerald-300 ${refreshing ? 'animate-spin' : ''}`} />
               <span>Đồng Bộ Ngay</span>
             </button>
           </div>
@@ -511,21 +520,64 @@ export default function FarmerOrderManagementView({
                     </span>
                   </div>
 
-                  {/* Nút Xem chi tiết Vận chuyển & Biên bản -> Chuyển sang tab Hành Trình Xe Lạnh */}
-                  <button
-                    type="button"
-                    onClick={() => onNavigateToPostSale(contract.id)}
-                    className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
-                  >
-                    <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Nút Xem Văn Bản Hợp Đồng B2B Điện Tử */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingContract({
+                          id: Number(contract.id),
+                          contractCode: contract.contractCode,
+                          rfqCode: contract.rfqCode,
+                          lotCode: contract.lotCode,
+                          productName: contract.productName,
+                          buyerName: contract.buyerName,
+                          buyerCompany: contract.buyerCompany || contract.buyerName,
+                          buyerPhone: contract.buyerPhone,
+                          farmerName: contract.farmerName,
+                          farmerCompany: contract.farmerCompany || contract.farmerName,
+                          farmerPhone: contract.farmerPhone,
+                          quantityKg: contract.quantityKg,
+                          unitPrice: contract.agreedPricePerKg,
+                          totalAmount: contract.totalAmount,
+                          depositAmount: contract.depositAmount,
+                          remainingAmount: contract.remainingAmount,
+                          depositStatus: contract.depositStatus,
+                          fulfillmentStatusName: contract.fulfillmentStatusName,
+                          deliveryAddress: contract.deliveryAddress,
+                          deliveryTimeSlot: contract.deliveryTimeSlot,
+                          createdAt: contract.createdAt,
+                        })
+                      }
+                      className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs px-3.5 py-2.5 rounded-xl transition border border-emerald-200 cursor-pointer shadow-2xs"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[#10542C]" />
+                      <span>Xem Hợp Đồng B2B</span>
+                    </button>
+
+                    {/* Nút Xem chi tiết Vận chuyển & Biên bản -> Chuyển sang tab Hành Trình Xe Lạnh */}
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToPostSale(contract.id)}
+                      className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
+                    >
+                      <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Modal Xem Toàn Văn Hợp Đồng B2B Điện Tử */}
+      <B2bContractViewModal
+        isOpen={Boolean(viewingContract)}
+        contract={viewingContract}
+        onClose={() => setViewingContract(null)}
+      />
     </div>
   );
 }
