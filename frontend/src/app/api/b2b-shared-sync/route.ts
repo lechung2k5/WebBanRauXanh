@@ -243,21 +243,53 @@ export async function POST(req: NextRequest) {
 
     // 4. Thao tác khi Farmer hoặc Buyer cập nhật trạng thái RFQ (UPDATE_RFQ_STATUS)
     if (action === 'UPDATE_RFQ_STATUS' && (body.rfqCode || body.id)) {
-      const code = String(body.rfqCode || body.id).trim().toUpperCase();
-      const existing = sharedRfqsMap.get(code);
-      if (existing) {
+      const code = String(body.rfqCode || '').trim().toUpperCase();
+      const idStr = String(body.id || '').trim();
+
+      // Tìm kiếm trong sharedRfqsMap theo cả rfqCode lẫn ID
+      let targetKey: string | null = null;
+      if (code && sharedRfqsMap.has(code)) {
+        targetKey = code;
+      } else {
+        for (const [k, v] of sharedRfqsMap.entries()) {
+          const vCode = String(v.rfqCode || '').trim().toUpperCase();
+          const vId = String(v.id || '').trim();
+          if ((code && vCode === code) || (idStr && vId === idStr)) {
+            targetKey = k;
+            break;
+          }
+        }
+      }
+
+      if (targetKey) {
+        const existing = sharedRfqsMap.get(targetKey)!;
         const updated = {
           ...existing,
           status: body.status || existing.status,
           counterPrice: body.counterPrice !== undefined ? body.counterPrice : existing.counterPrice,
+          counterPricePerKg: body.counterPrice !== undefined ? body.counterPrice : existing.counterPricePerKg,
           counterQuantity: body.counterQuantity !== undefined ? body.counterQuantity : existing.counterQuantity,
           rejectReason: body.rejectReason !== undefined ? body.rejectReason : existing.rejectReason,
           updatedAt: new Date().toISOString(),
         };
-        sharedRfqsMap.set(code, updated);
-        return NextResponse.json({ code: 200, message: 'Đã cập nhật RFQ', result: updated });
+        sharedRfqsMap.set(targetKey, updated);
+        return NextResponse.json({ code: 200, message: 'Đã cập nhật RFQ trong shared cache', result: updated });
+      } else {
+        // Tự động tạo bản ghi mới vào shared cache nếu chưa có để không bị rơi rớt giữa các trình duyệt
+        const rfqKey = code || `RFQ-${idStr || Date.now()}`;
+        const newEntry = {
+          id: body.id || Date.now(),
+          rfqCode: rfqKey,
+          status: body.status || 'WAITING_BUYER',
+          counterPrice: body.counterPrice,
+          counterPricePerKg: body.counterPrice,
+          counterQuantity: body.counterQuantity,
+          rejectReason: body.rejectReason,
+          updatedAt: new Date().toISOString(),
+        };
+        sharedRfqsMap.set(rfqKey, newEntry);
+        return NextResponse.json({ code: 200, message: 'Đã tạo và cập nhật RFQ mới vào shared cache', result: newEntry });
       }
-      return NextResponse.json({ code: 200, message: 'RFQ không tìm thấy trong shared cache' });
     }
 
     // 5. Thao tác đăng ký Hợp Đồng B2B mới sau khi chốt đàm phán (REGISTER_CONTRACT)
@@ -270,6 +302,20 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date().toISOString(),
       };
       sharedContractsMap.set(code, savedContract);
+
+      // Đồng thời tự động cập nhật trạng thái RFQ liên kết sang ACCEPTED
+      const relatedRfqCode = String(c.rfqCode || '').trim().toUpperCase();
+      if (relatedRfqCode && sharedRfqsMap.has(relatedRfqCode)) {
+        const existingRfq = sharedRfqsMap.get(relatedRfqCode);
+        sharedRfqsMap.set(relatedRfqCode, {
+          ...existingRfq,
+          status: 'ACCEPTED',
+          contractCode: code,
+          contractId: c.id,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       return NextResponse.json({ code: 200, message: 'Đã lưu Hợp Đồng vào server shared cache', result: savedContract });
     }
 

@@ -1009,6 +1009,24 @@ export const saveLocalRfqUpdate = (updatedRfq: Partial<RfqItem> & { id: number; 
       });
       localStorage.setItem('b2b_farmer_rfqs', JSON.stringify(updatedFarmer));
     }
+
+    // Đẩy ngay lên Server Shared Sync để bên Buyer tức thì nhận được (kể cả tab ẩn danh hoặc trình duyệt khác)
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_RFQ_STATUS',
+        id: updatedRfq.id,
+        rfqCode: updatedRfq.rfqCode,
+        status: updatedRfq.status,
+        counterPrice: updatedRfq.counterPrice,
+        counterQuantity: updatedRfq.counterQuantity,
+        rejectReason: updatedRfq.rejectReason,
+      }),
+    }).catch(() => {});
+
+    window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'RFQ_UPDATED', ...updatedRfq } }));
+    window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: updatedRfq }));
   } catch (err) {
     console.error('Error saving local RFQ update:', err);
   }

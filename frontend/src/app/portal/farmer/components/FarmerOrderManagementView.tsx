@@ -27,6 +27,7 @@ import {
   subscribeB2bSyncEvents,
 } from '@/services/b2bSyncService';
 import { getFarmerContractsFromServer } from '@/services/farmerApi';
+import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -42,6 +43,7 @@ export default function FarmerOrderManagementView({
   const [searchQuery, setSearchQuery] = useState('');
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewingContract, setViewingContract] = useState<B2bContractModalData | null>(null);
 
   // Load contracts from sync service and backend API
   const reloadContracts = async () => {
@@ -510,99 +512,6 @@ export default function FarmerOrderManagementView({
 
                 {/* Footer: Chỉ xem và điều hướng sang trang Hành trình xe lạnh để xem & quản lý tiến trình */}
                 <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
-<<<<<<< HEAD
-                  {/* Nút hành động tương ứng theo mốc */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Bước 1 -> Bước 2 */}
-                    {contract.fulfillmentStep === 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdvanceStep(
-                            contract,
-                            2,
-                            `Đã xác nhận thu hoạch & đóng gói đơn ${contract.contractCode} tại nông trại!`
-                          )
-                        }
-                        className="flex items-center gap-1.5 rounded-xl bg-[#10542C] hover:bg-[#0c4021] text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs"
-                      >
-                        <ArrowRight className="w-3.5 h-3.5" /> Bắt Đầu Thu Hoạch & Đóng Gói (Mốc 2)
-                      </button>
-                    )}
-
-                    {/* Bước 2 -> Bước 3 */}
-                    {contract.fulfillmentStep === 2 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdvanceStep(
-                            contract,
-                            3,
-                            `Đã bàn giao đơn ${contract.contractCode} cho xe tải lạnh IoT ${contract.truckLicensePlate}!`
-                          )
-                        }
-                        className="flex items-center gap-1.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs"
-                      >
-                        <Truck className="w-3.5 h-3.5" /> Bàn Giao Xe Tải Lạnh Chuyên Dụng (Mốc 3)
-                      </button>
-                    )}
-
-                    {/* Bước 3 -> Bước 4 */}
-                    {contract.fulfillmentStep === 3 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdvanceStep(
-                            contract,
-                            4,
-                            `Đã cập nhật xe lạnh tới điểm giao ${contract.deliveryAddress}. Chờ Buyer kiểm đếm và ký ePOD!`
-                          )
-                        }
-                        className="flex items-center gap-1.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Xác Nhận Hàng Đã Đến Kho Buyer (Mốc 4)
-                      </button>
-                    )}
-
-                    {/* Bước 4 hoặc 5 -> Bước 6 */}
-                    {(contract.fulfillmentStep === 4 || contract.fulfillmentStep === 5) && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdvanceStep(
-                            contract,
-                            6,
-                            `Đã hoàn tất đối soát và giải ngân toàn bộ số tiền về ví nông dân thành công!`
-                          )
-                        }
-                        className="flex items-center gap-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs"
-                      >
-                        <CreditCard className="w-3.5 h-3.5" /> Yêu Cầu Chuyển Tiền Vào Tài Khoản (Mốc 6)
-                      </button>
-                    )}
-
-                    {contract.fulfillmentStep === 6 && (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        Đơn hàng đã hoàn tất trọn vẹn và giải ngân
-                      </span>
-                    )}
-
-                    {/* Nút Auto-advance simulation */}
-                    <button
-                      type="button"
-                      disabled={isAutoRunning || contract.fulfillmentStep === 6}
-                      onClick={() => handleAutoRunSimulation(contract)}
-                      className="flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 text-xs font-bold transition shadow-2xs disabled:opacity-50"
-                      title="Hệ thống sẽ tự động nhảy lần lượt qua các mốc sau mỗi 2.5s"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      {isAutoRunning ? 'Đang chạy tự động...' : '▶ Tự Động Chạy Tiến Trình'}
-                    </button>
-                  </div>
-
-                  {/* Nút Xem chi tiết Vận chuyển & Biên bản */}
-=======
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-gray-500 font-medium">Trạng thái vận hành:</span>
                     <span className="font-bold text-[#10542C] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5">
@@ -611,22 +520,65 @@ export default function FarmerOrderManagementView({
                     </span>
                   </div>
 
-                  {/* Nút Xem chi tiết Vận chuyển & Biên bản -> Chuyển sang tab Hành Trình Xe Lạnh */}
->>>>>>> origin/nhut-tan
-                  <button
-                    type="button"
-                    onClick={() => onNavigateToPostSale(contract.id)}
-                    className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
-                  >
-                    <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Nút Xem Văn Bản Hợp Đồng B2B Điện Tử */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingContract({
+                          id: Number(contract.id),
+                          contractCode: contract.contractCode,
+                          rfqCode: contract.rfqCode,
+                          lotCode: contract.lotCode,
+                          productName: contract.productName,
+                          buyerName: contract.buyerName,
+                          buyerCompany: contract.buyerCompany || contract.buyerName,
+                          buyerPhone: contract.buyerPhone,
+                          farmerName: contract.farmerName,
+                          farmerCompany: contract.farmerCompany || contract.farmerName,
+                          farmerPhone: contract.farmerPhone,
+                          quantityKg: contract.quantityKg,
+                          unitPrice: contract.agreedPricePerKg,
+                          totalAmount: contract.totalAmount,
+                          depositAmount: contract.depositAmount,
+                          remainingAmount: contract.remainingAmount,
+                          depositStatus: contract.depositStatus,
+                          fulfillmentStatusName: contract.fulfillmentStatusName,
+                          deliveryAddress: contract.deliveryAddress,
+                          deliveryTimeSlot: contract.deliveryTimeSlot,
+                          createdAt: contract.createdAt,
+                        })
+                      }
+                      className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold text-xs px-3.5 py-2.5 rounded-xl transition border border-emerald-200 cursor-pointer shadow-2xs"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[#10542C]" />
+                      <span>Xem Hợp Đồng B2B</span>
+                    </button>
+
+                    {/* Nút Xem chi tiết Vận chuyển & Biên bản -> Chuyển sang tab Hành Trình Xe Lạnh */}
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToPostSale(contract.id)}
+                      className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
+                    >
+                      <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Modal Xem Toàn Văn Hợp Đồng B2B Điện Tử */}
+      <B2bContractViewModal
+        isOpen={Boolean(viewingContract)}
+        contract={viewingContract}
+        onClose={() => setViewingContract(null)}
+      />
     </div>
   );
 }
