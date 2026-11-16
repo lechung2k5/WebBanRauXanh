@@ -552,7 +552,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
                         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-gray-100">
                           <span>
-                            Số lượng: <strong className="text-slate-700">{c.quantity.toLocaleString('vi-VN')} kg</strong>
+                            Số lượng: <strong className="text-slate-700">{(Number(c.quantity) || 0).toLocaleString('vi-VN')} kg</strong>
                           </span>
                           <span className="font-bold text-[#10542C]">
                             {formatVnd(c.totalAmount)}
@@ -674,7 +674,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   <div className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-100">
                     <span className="text-[11px] text-slate-500 block">Khối Lượng Hợp Đồng</span>
                     <span className="text-base font-black text-[#10542C]">
-                      {currentContract.quantity.toLocaleString('vi-VN')} kg
+                      {(Number(currentContract.quantity) || 0).toLocaleString('vi-VN')} kg
                     </span>
                     <span className="text-[10px] text-slate-500 block mt-0.5">
                       Đơn giá: {formatVnd(currentContract.unitPrice)}/kg
@@ -839,11 +839,11 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Cân thực nhận trạm (Gross):</span>
-                  <span className="font-bold text-slate-800">{selectedQc.grossWeight.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-slate-800">{(Number(selectedQc.grossWeight) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Cân chuẩn thực tế (Net):</span>
-                  <span className="font-bold text-emerald-600">{selectedQc.netQualifiedWeight.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-emerald-600">{(Number(selectedQc.netQualifiedWeight) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Tỷ lệ đạt chuẩn:</span>
@@ -973,11 +973,11 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Khối lượng xuất trạm:</span>
-                  <span className="font-bold text-slate-800">{selectedProof.loadedWeightKg?.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-slate-800">{(Number(selectedProof.loadedWeightKg) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Khối lượng giao tại kho:</span>
-                  <span className="font-bold text-emerald-700">{selectedProof.deliveredWeightKg?.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-emerald-700">{(Number(selectedProof.deliveredWeightKg) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Hao hụt tự nhiên chuỗi lạnh:</span>
@@ -1024,7 +1024,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs text-slate-700 space-y-1">
                 <div className="flex justify-between">
                   <span>Khối lượng nghiệm thu:</span>
-                  <strong>{currentContract.quantity.toLocaleString('vi-VN')} kg</strong>
+                  <strong>{(Number(currentContract.quantity) || 0).toLocaleString('vi-VN')} kg</strong>
                 </div>
                 <div className="flex justify-between">
                   <span>Tổng tiền quyết toán:</span>

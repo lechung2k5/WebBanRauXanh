@@ -284,7 +284,7 @@ export default function B2bContractViewModal({
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
-                      {contract.quantityKg.toLocaleString('vi-VN')} kg
+                      {(contract.quantityKg ?? 0).toLocaleString('vi-VN')} kg
                     </td>
                     <td className="py-3 px-3 text-right font-mono font-bold text-[#10542C]">
                       {formatVnd(contract.unitPrice)}/kg

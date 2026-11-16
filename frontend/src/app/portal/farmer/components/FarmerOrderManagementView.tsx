@@ -49,11 +49,19 @@ export default function FarmerOrderManagementView({
   const reloadContracts = async () => {
     setRefreshing(true);
     try {
-      const apiContracts = await getFarmerContractsFromServer();
-      const localSync: B2bSyncContract[] = [];
+      const apiContracts = await getFarmerContractsFromServer().catch(() => []);
+      const localSync: B2bSyncContract[] = getSyncContracts();
       const map = new Map<string, B2bSyncContract>();
       for (const lc of localSync) {
-        if (lc && lc.contractCode) map.set(lc.contractCode.trim().toUpperCase(), lc);
+        if (lc && lc.contractCode) {
+          map.set(lc.contractCode.trim().toUpperCase(), {
+            ...lc,
+            quantityKg: Number(lc.quantityKg) || 0,
+            agreedPricePerKg: Number(lc.agreedPricePerKg) || 0,
+            totalAmount: Number(lc.totalAmount) || 0,
+            depositAmount: Number(lc.depositAmount) || 0,
+          });
+        }
       }
       for (const ac of apiContracts) {
         if (ac && ac.contractCode) {
@@ -65,22 +73,22 @@ export default function FarmerOrderManagementView({
               rfqCode: ac.rfqCode || `RFQ-${ac.id}`,
               lotId: ac.harvestLotId,
               lotCode: ac.lotCode || 'LOT-2026-DL-001',
-              productName: ac.productName,
-              buyerName: ac.buyerName,
+              productName: ac.productName || 'Nông sản VietGAP',
+              buyerName: ac.buyerName || 'Khách mua',
               buyerPhone: ac.buyerPhone || '0901234567',
-              buyerCompany: ac.buyerName,
+              buyerCompany: ac.buyerName || 'Khách mua sỉ',
               farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-              farmerPhone: '0912345678',
+              farmerPhone: ac.farmerPhone || '0912345678',
               farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-              quantityKg: ac.quantity,
-              agreedPricePerKg: ac.unitPrice,
-              totalAmount: ac.totalAmount,
-              depositAmount: ac.depositAmount,
-              remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
+              quantityKg: Number(ac.quantity) || 0,
+              agreedPricePerKg: Number(ac.unitPrice) || 0,
+              totalAmount: Number(ac.totalAmount) || 0,
+              depositAmount: Number(ac.depositAmount) || 0,
+              remainingAmount: Number(ac.remainingAmount) || (Number(ac.totalAmount || 0) - Number(ac.depositAmount || 0)),
               depositStatus: ac.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
               fulfillmentStep: ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'IN_TRANSIT' ? 3 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : ac.fulfillmentStatus === 'HARVESTING' ? 2 : 1,
               fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
-              truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
+              truckLicensePlate: ac.truckType || '49C-198.86 (Xe Thùng Lạnh)',
               truckDriverName: 'Tài xế Nguyễn Văn Tài',
               truckDriverPhone: '0944556677',
               truckTempCurrent: 4.0,
@@ -408,7 +416,7 @@ export default function FarmerOrderManagementView({
                     <strong className="text-sm font-bold text-[#10542C] block">{contract.productName}</strong>
                     <div className="flex justify-between text-gray-600 pt-1">
                       <span>Sản lượng chốt:</span>
-                      <b className="text-gray-800 font-mono">{contract.quantityKg.toLocaleString('vi-VN')} kg</b>
+                      <b className="text-gray-800 font-mono">{(contract.quantityKg ?? 0).toLocaleString('vi-VN')} kg</b>
                     </div>
                     <div className="flex justify-between text-gray-600">
                       <span>Đơn giá chốt:</span>
