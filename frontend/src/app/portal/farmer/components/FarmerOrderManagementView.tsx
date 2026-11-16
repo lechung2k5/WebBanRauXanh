@@ -566,7 +566,6 @@ export default function FarmerOrderManagementView({
                     </button>
                   </div>
                 </div>
-                </div>
               </div>
             );
           })}
