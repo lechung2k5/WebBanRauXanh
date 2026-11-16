@@ -54,12 +54,6 @@ CREATE TABLE IF NOT EXISTS iot_sensor_logs (
 -- Compatible with databases created by the earlier farmer portal schema.
 -- Keep the old contract_id/alert columns and add the admin-business columns when missing.
 ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS asset_id BIGINT;
-<<<<<<< HEAD
-ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS is_alert BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS alert_message TEXT;
-ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS simulated BOOLEAN NOT NULL DEFAULT TRUE;
-UPDATE iot_sensor_logs SET is_alert = alert WHERE alert IS NOT NULL AND is_alert = FALSE;
-=======
 ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS contract_id BIGINT REFERENCES b2b_contracts(id);
 ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS alert BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE iot_sensor_logs ADD COLUMN IF NOT EXISTS is_alert BOOLEAN NOT NULL DEFAULT FALSE;
@@ -74,7 +68,6 @@ BEGIN
         EXECUTE 'UPDATE iot_sensor_logs SET is_alert = alert WHERE alert IS NOT NULL AND is_alert = FALSE';
     END IF;
 END $$;
->>>>>>> origin/nhut-tan
 CREATE INDEX IF NOT EXISTS iot_asset_recorded ON iot_sensor_logs(asset_id,recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS spoilage_claims (

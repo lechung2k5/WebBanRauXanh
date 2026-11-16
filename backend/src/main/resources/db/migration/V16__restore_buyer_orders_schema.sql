@@ -26,8 +26,6 @@ CREATE TABLE IF NOT EXISTS order_items (
     updated_at TIMESTAMP
 );
 
-<<<<<<< HEAD
-=======
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS quantity_kg NUMERIC(12,2);
 ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS agreed_price_per_kg NUMERIC(12,2);
 ALTER TABLE hub_inspections ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
@@ -79,5 +77,3 @@ CREATE TABLE IF NOT EXISTS buyer_rfqs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ
 );
-
->>>>>>> origin/nhut-tan

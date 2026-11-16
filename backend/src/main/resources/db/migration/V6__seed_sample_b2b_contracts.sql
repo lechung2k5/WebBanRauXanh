@@ -1,14 +1,6 @@
 -- V6__seed_sample_b2b_contracts.sql
 -- Tự động import dữ liệu mẫu hợp đồng sỉ B2B & ký quỹ escrow đã giao dịch thành công (SETTLED) và các hợp đồng đang thực hiện
 
-<<<<<<< HEAD
--- 1. Bổ sung các tài khoản Doanh nghiệp thu mua / Siêu thị B2B uy tín (nếu chưa có)
-INSERT INTO users (username, password, full_name, email, phone, address, company_name, tax_code, warehouse_address, enabled, email_verified, kyc_status, created_at)
-VALUES 
-  ('buyer_coop', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Nguyễn Thị Minh Hạnh', 'thu-mua@saigonco-op.com.vn', '02838360143', '199-205 Nguyễn Thái Học, Quận 1, TP.HCM', 'Liên hiệp HTX Thương Mại TP.HCM (Saigon Co.op)', '0300481559', 'Tổng Kho Phân Phối Co.op Mart, KCN Sóng Thần, Dĩ An, Bình Dương', TRUE, TRUE, 'VERIFIED', '2026-10-01 08:00:00+07'),
-  ('buyer_winmart', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Phạm Hoàng Nam', 'purchasing@winmart.masangroup.com', '02471066866', 'Tòa nhà Mplaza Saigon, 39 Lê Duẩn, Bến Nghé, Quận 1, TP.HCM', 'Công Ty Cổ Phần Dịch Vụ Thương Mại Tổng Hợp WinCommerce', '0104918404', 'Trung Tâm Trung Chuyển Nông Sản WinMart, An Khánh, TP. Thủ Đức, TP.HCM', TRUE, TRUE, 'VERIFIED', '2026-10-02 08:30:00+07'),
-  ('buyer_lotte', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Lê Trọng Đạt', 'freshfood@lotte.vn', '02837753232', '469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP.HCM', 'Công Ty TNHH Trung Tâm Thương Mại Lotte Việt Nam', '0304741634', 'Kho Lạnh Phân Phối Nông Sản Lotte Mart Miền Nam, Quận 7, TP.HCM', TRUE, TRUE, 'VERIFIED', '2026-10-03 09:00:00+07')
-=======
 -- 1. Bổ sung các tài khoản Doanh nghiệp thu mua, Đối tác QC, Tài xế và Nông dân B2B chuẩn (nếu chưa có)
 INSERT INTO users (username, password, full_name, email, phone, address, company_name, tax_code, warehouse_address, enabled, email_verified, kyc_status, created_at)
 VALUES 
@@ -19,7 +11,6 @@ VALUES
   ('buyer_lotte', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Lê Trọng Đạt', 'freshfood@lotte.vn', '02837753232', '469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP.HCM', 'Công Ty TNHH Trung Tâm Thương Mại Lotte Việt Nam', '0304741634', 'Kho Lạnh Phân Phối Nông Sản Lotte Mart Miền Nam, Quận 7, TP.HCM', TRUE, TRUE, 'VERIFIED', '2026-10-03 09:00:00+07'),
   ('driver_tms', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Tài Xế Nguyễn Văn Tài', 'driver@honafresh.vn', '0944556677', 'Đội xe Lạnh HoNa Express, TP.HCM', 'Đội Vận Tải Lạnh HoNa Express', '0312998877', 'Bãi Xe Trung Chuyển Tân Bình, TP.HCM', TRUE, TRUE, 'VERIFIED', '2026-10-01 08:00:00+07'),
   ('qc_tram1', '$2a$10$g20zYXhEyUGPQRsBFG61bOdi30JeaalkUncB9.l2OFsPeXYc6TttC', 'Kỹ Thuật Viên Kiểm Định 01', 'qc@honafresh.vn', '0933112233', 'Trạm Trung Chuyển Dầu Giây, Đồng Nai', 'Trung Tâm Kiểm Định Nông Sản HoNa', '0312665544', 'Trạm QC HoNa Fresh Dầu Giây', TRUE, TRUE, 'VERIFIED', '2026-10-01 08:00:00+07')
->>>>>>> origin/nhut-tan
 ON CONFLICT (username) DO UPDATE 
 SET full_name = EXCLUDED.full_name,
     address = EXCLUDED.address,
@@ -28,29 +19,11 @@ SET full_name = EXCLUDED.full_name,
     kyc_status = 'VERIFIED', 
     email_verified = TRUE;
 
-<<<<<<< HEAD
--- Gán quyền ROLE_BUYER cho các đối tác thu mua
-=======
 -- Gán quyền cho các tài khoản B2B
->>>>>>> origin/nhut-tan
 INSERT INTO users_roles (user_id, role_id)
 SELECT u.id, r.id 
 FROM users u 
 CROSS JOIN roles r 
-<<<<<<< HEAD
-WHERE u.username IN ('buyer_coop', 'buyer_winmart', 'buyer_lotte') 
-  AND r.name = 'ROLE_BUYER'
-ON CONFLICT DO NOTHING;
-
--- Đảm bảo buyer_sg có đầy đủ thông tin chuẩn hóa
-UPDATE users 
-SET company_name = 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
-    tax_code = '0312345678',
-    warehouse_address = 'Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
-    kyc_status = 'VERIFIED',
-    email_verified = TRUE
-WHERE username = 'buyer_sg';
-=======
 WHERE u.username IN ('buyer_coop', 'buyer_winmart', 'buyer_lotte', 'buyer_sg') 
   AND r.name = 'ROLE_BUYER'
 ON CONFLICT DO NOTHING;
@@ -78,20 +51,14 @@ CROSS JOIN roles r
 WHERE u.username = 'qc_tram1' 
   AND r.name = 'ROLE_WAREHOUSE_QC'
 ON CONFLICT DO NOTHING;
->>>>>>> origin/nhut-tan
 
 -- 2. Khởi tạo tài sản chuỗi lạnh (Cold Assets: Buồng lạnh Hub & Xe tải lạnh) nếu chưa có
 INSERT INTO cold_assets (asset_code, asset_type, asset_name, capacity_kg, driver_id, current_temp, current_humidity, target_temp_min, target_temp_max, status)
 VALUES 
   ('CR-DL-01', 'COLD_ROOM', 'Buồng Lạnh Lưu Trữ Trạm Đà Lạt A1', 25000.00, NULL, 4.0, 85.0, 2.0, 6.0, 'NORMAL'),
   ('CR-DG-02', 'COLD_ROOM', 'Buồng Lạnh Trung Chuyển Dầu Giây B2', 30000.00, NULL, 3.8, 88.0, 2.0, 6.0, 'NORMAL'),
-<<<<<<< HEAD
-  ('TRK-51D-88234', 'REFRIGERATED_TRUCK', 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)', 5000.00, (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 4.2, 85.0, 2.0, 6.0, 'NORMAL'),
-  ('TRK-49C-67890', 'REFRIGERATED_TRUCK', 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)', 8000.00, (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 3.9, 86.0, 2.0, 6.0, 'NORMAL')
-=======
   ('TRK-51D-88234', 'REFRIGERATED_TRUCK', 'Xe Tải Lạnh HoNa Express Isuzu 5 Tấn (51D-882.34)', 5000.00, COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 4.2, 85.0, 2.0, 6.0, 'NORMAL'),
   ('TRK-49C-67890', 'REFRIGERATED_TRUCK', 'Xe Tải Lạnh Lâm Đồng Fresh Hino 8 Tấn (49C-678.90)', 8000.00, COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 3.9, 86.0, 2.0, 6.0, 'NORMAL')
->>>>>>> origin/nhut-tan
 ON CONFLICT (asset_code) DO UPDATE 
 SET status = 'NORMAL', current_temp = EXCLUDED.current_temp, current_humidity = EXCLUDED.current_humidity;
 
@@ -103,8 +70,6 @@ DELETE FROM shipments WHERE contract_id IN (SELECT id FROM b2b_contracts WHERE c
 DELETE FROM hub_inspections WHERE contract_id IN (SELECT id FROM b2b_contracts WHERE contract_code LIKE 'HD-2026-B2B-%');
 DELETE FROM b2b_contracts WHERE contract_code LIKE 'HD-2026-B2B-%';
 
-<<<<<<< HEAD
-=======
 -- 3.5. Đảm bảo 50 lô nông sản B2B chuẩn đã tồn tại trong harvest_lots trước khi tạo hợp đồng
 ALTER TABLE harvest_lots ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
 
@@ -655,7 +620,6 @@ BEGIN
 
 END $$;
 
->>>>>>> origin/nhut-tan
 -- 4. Thêm 6 Hợp Đồng B2B Nguyên Tắc Mẫu (4 SETTLED thành công, 1 DELIVERED, 1 DEPOSIT_PAID)
 -- Contract 1: Cải Bó Xôi Đà Lạt -> Saigon Buyer (SETTLED)
 INSERT INTO b2b_contracts (
@@ -666,15 +630,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-001', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-001' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
-  COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-001' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'RAU_AN_LA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users WHERE username = 'buyer_coop' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   1500.00, 18000.00, 27000000.00, 8100000.00, 
   3.00, 810000.00, 1200000.00, 10.00, 
   'Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM', 'SETTLED', 
@@ -692,11 +650,7 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-002', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-002' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-002' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'RAU_AN_LA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_coop' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   3000.00, 12000.00, 36000000.00, 10800000.00, 
@@ -716,11 +670,7 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-003', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-014' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-DD-2026-014' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'CU_QUA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   2500.00, 22000.00, 55000000.00, 16500000.00, 
@@ -740,11 +690,7 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-004', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-SLA-2026-025' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-SLA-2026-025' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'CU_QUA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_lotte' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   3000.00, 16000.00, 48000000.00, 14400000.00, 
@@ -764,15 +710,9 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-005', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-013' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-  COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
-  COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-013' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'RAU_AN_LA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_sg' LIMIT 1), (SELECT id FROM users WHERE username = 'buyer_coop' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   2000.00, 32000.00, 64000000.00, 19200000.00, 
   3.00, 1920000.00, 1600000.00, 10.00, 
   'Kho Tổng hợp Chuỗi Lạnh Thủ Đức, TP.HCM', 'DELIVERED', 
@@ -790,11 +730,7 @@ INSERT INTO b2b_contracts (
   deposit_received, balance_received, payout_amount, refund_amount, created_at, updated_at
 ) VALUES (
   'HD-2026-B2B-006', 
-<<<<<<< HEAD
-  COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-008' LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
-=======
   COALESCE((SELECT id FROM harvest_lots WHERE lot_code = 'LOT-LD-2026-008' LIMIT 1), (SELECT id FROM harvest_lots WHERE category = 'RAU_AN_LA' ORDER BY id LIMIT 1), (SELECT id FROM harvest_lots ORDER BY id LIMIT 1)), 
->>>>>>> origin/nhut-tan
   COALESCE((SELECT id FROM users WHERE username = 'farmer_dalat' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   COALESCE((SELECT id FROM users WHERE username = 'buyer_winmart' LIMIT 1), (SELECT id FROM users ORDER BY id LIMIT 1)), 
   1500.00, 28000.00, 42000000.00, 12600000.00, 
@@ -810,19 +746,11 @@ INSERT INTO hub_inspections (
   inspection_code, contract_id, cold_room_id, received_weight_kg, qualified_weight_kg, rejected_weight_kg, 
   brix_degree, moisture_pct, qc_staff_id, qc_note, inspected_at
 ) VALUES 
-<<<<<<< HEAD
-  ('QC-20261011-001', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-001'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 1500.00, 1500.00, 0.00, 7.5, 88.0, (SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), 'Rau tươi xanh đồng đều, cuống không dập nát, đạt chuẩn kiểm định VietGAP xuất khẩu.', '2026-10-11 14:00:00+07'),
-  ('QC-20261013-002', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-002'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 3000.00, 3000.00, 0.00, 6.8, 85.0, (SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), 'Bắp cải trái tim chặt búp, cuống khô sạch, không sâu bệnh, bảo quản buồng lạnh tốt.', '2026-10-13 15:30:00+07'),
-  ('QC-20261016-003', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-003'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DG-02'), 2500.00, 2500.00, 0.00, 9.2, 82.0, (SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), 'Cà rốt loại 1 đều củ, màu cam đậm tự nhiên, hàm lượng đường đạt tiêu chuẩn tươi ngọt.', '2026-10-16 11:20:00+07'),
-  ('QC-20261019-004', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-004'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DG-02'), 3000.00, 3000.00, 0.00, 5.5, 89.0, (SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), 'Su hào búp tròn non ngọt, không xơ, thu hoạch sáng sớm chuyển thẳng trạm lạnh.', '2026-10-19 16:15:00+07'),
-  ('QC-20261025-005', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-005'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 2000.00, 2000.00, 0.00, 8.0, 87.0, (SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), 'Xà lách Iceberg cuộn chặt tròn đều, nhiệt độ lõi 4°C trước khi lên xe lạnh vận chuyển.', '2026-10-25 10:00:00+07')
-=======
   ('QC-20261011-001', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-001'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 1500.00, 1500.00, 0.00, 7.5, 88.0, COALESCE((SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), (SELECT id FROM users LIMIT 1)), 'Rau tươi xanh đồng đều, cuống không dập nát, đạt chuẩn kiểm định VietGAP xuất khẩu.', '2026-10-11 14:00:00+07'),
   ('QC-20261013-002', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-002'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 3000.00, 3000.00, 0.00, 6.8, 85.0, COALESCE((SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), (SELECT id FROM users LIMIT 1)), 'Bắp cải trái tim chặt búp, cuống khô sạch, không sâu bệnh, bảo quản buồng lạnh tốt.', '2026-10-13 15:30:00+07'),
   ('QC-20261016-003', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-003'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DG-02'), 2500.00, 2500.00, 0.00, 9.2, 82.0, COALESCE((SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), (SELECT id FROM users LIMIT 1)), 'Cà rốt loại 1 đều củ, màu cam đậm tự nhiên, hàm lượng đường đạt tiêu chuẩn tươi ngọt.', '2026-10-16 11:20:00+07'),
   ('QC-20261019-004', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-004'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DG-02'), 3000.00, 3000.00, 0.00, 5.5, 89.0, COALESCE((SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), (SELECT id FROM users LIMIT 1)), 'Su hào búp tròn non ngọt, không xơ, thu hoạch sáng sớm chuyển thẳng trạm lạnh.', '2026-10-19 16:15:00+07'),
   ('QC-20261025-005', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-005'), (SELECT id FROM cold_assets WHERE asset_code = 'CR-DL-01'), 2000.00, 2000.00, 0.00, 8.0, 87.0, COALESCE((SELECT id FROM users WHERE username = 'qc_tram1' LIMIT 1), (SELECT id FROM users LIMIT 1)), 'Xà lách Iceberg cuộn chặt tròn đều, nhiệt độ lõi 4°C trước khi lên xe lạnh vận chuyển.', '2026-10-25 10:00:00+07')
->>>>>>> origin/nhut-tan
 ON CONFLICT (inspection_code) DO NOTHING;
 
 -- 6. Seed Lịch trình & Biên bản giao hàng Vận tải lạnh (Shipments & ePOD)
@@ -831,19 +759,11 @@ INSERT INTO shipments (
   damaged_weight_kg, natural_shrinkage_kg, epod_signature_name, epod_photo_url, epod_signature_data, 
   departed_at, delivered_at, status
 ) VALUES 
-<<<<<<< HEAD
-  ('SHP-20261012-001', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-001'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 1500.00, 1500.00, 0.00, 0.00, 'Trần Thị Thương (Giám Đốc Thu Mua)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-12 04:00:00+07', '2026-10-14 11:30:00+07', 'DELIVERED'),
-  ('SHP-20261015-002', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-002'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-49C-67890'), (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 3000.00, 3000.00, 0.00, 0.00, 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-15 05:00:00+07', '2026-10-17 14:00:00+07', 'DELIVERED'),
-  ('SHP-20261018-003', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-003'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 2500.00, 2500.00, 0.00, 0.00, 'Vũ Đình Phong (Điều Phối WinMart)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-18 04:30:00+07', '2026-10-21 10:15:00+07', 'DELIVERED'),
-  ('SHP-20261021-004', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-004'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-49C-67890'), (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 3000.00, 3000.00, 0.00, 0.00, 'Kim Jin Woo (Logistics Lotte Mart)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-21 03:45:00+07', '2026-10-23 16:40:00+07', 'DELIVERED'),
-  ('SHP-20261025-005', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-005'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), (SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), 2000.00, 2000.00, 0.00, 0.00, 'Trần Thị Thương (Giám Đốc Thu Mua)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-25 04:00:00+07', '2026-10-26 15:30:00+07', 'DELIVERED')
-=======
   ('SHP-20261012-001', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-001'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 1500.00, 1500.00, 0.00, 0.00, 'Trần Thị Thương (Giám Đốc Thu Mua)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-12 04:00:00+07', '2026-10-14 11:30:00+07', 'DELIVERED'),
   ('SHP-20261015-002', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-002'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-49C-67890'), COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 3000.00, 3000.00, 0.00, 0.00, 'Nguyễn Hoàng Nam (Trưởng Kho Tiếp Nhận)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-15 05:00:00+07', '2026-10-17 14:00:00+07', 'DELIVERED'),
   ('SHP-20261018-003', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-003'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 2500.00, 2500.00, 0.00, 0.00, 'Vũ Đình Phong (Điều Phối WinMart)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-18 04:30:00+07', '2026-10-21 10:15:00+07', 'DELIVERED'),
   ('SHP-20261021-004', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-004'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-49C-67890'), COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 3000.00, 3000.00, 0.00, 0.00, 'Kim Jin Woo (Logistics Lotte Mart)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-21 03:45:00+07', '2026-10-23 16:40:00+07', 'DELIVERED'),
   ('SHP-20261025-005', (SELECT id FROM b2b_contracts WHERE contract_code = 'HD-2026-B2B-005'), (SELECT id FROM cold_assets WHERE asset_code = 'TRK-51D-88234'), COALESCE((SELECT id FROM users WHERE username = 'driver_tms' LIMIT 1), (SELECT id FROM users LIMIT 1)), 2000.00, 2000.00, 0.00, 0.00, 'Trần Thị Thương (Giám Đốc Thu Mua)', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', '2026-10-25 04:00:00+07', '2026-10-26 15:30:00+07', 'DELIVERED')
->>>>>>> origin/nhut-tan
 ON CONFLICT (shipment_code) DO NOTHING;
 
 -- 7. Seed Bút toán Sổ cái Kế toán kép VAS (GL Journal Entries & Lines)

@@ -647,7 +647,6 @@ public class DataInitializer implements CommandLineRunner {
             log.warn("Lưu ý đồng bộ V5__seed_50_harvest_lots.sql: {}", ex.getMessage());
         }
 
-<<<<<<< HEAD
         // 5. Tự động kiểm tra và import hợp đồng mẫu B2B & ký quỹ escrow thành công (nếu b2b_contracts đang trống)
         try {
             Long contractCount = jdbcTemplate.queryForObject("SELECT count(*) FROM b2b_contracts", Long.class);
@@ -662,14 +661,14 @@ public class DataInitializer implements CommandLineRunner {
             }
         } catch (Exception ex) {
             log.warn("Lưu ý đồng bộ hợp đồng mẫu B2B: {}", ex.getMessage());
-=======
-        // 5. Đồng bộ cấu trúc hợp đồng B2B & đảm bảo cột lot_id tồn tại
+        }
+
+        // 5.1 Đồng bộ cấu trúc hợp đồng B2B & đảm bảo cột lot_id tồn tại
         try {
             jdbcTemplate.execute("ALTER TABLE b2b_contracts ADD COLUMN IF NOT EXISTS lot_id BIGINT REFERENCES harvest_lots(id)");
             jdbcTemplate.execute("UPDATE b2b_contracts SET lot_id = harvest_lot_id WHERE lot_id IS NULL AND harvest_lot_id IS NOT NULL");
         } catch (Exception ex) {
             log.warn("Lưu ý đồng bộ cột lot_id trên b2b_contracts: {}", ex.getMessage());
->>>>>>> origin/nhut-tan
         }
 
         // 6. Sửa lỗi font chữ tiếng Việt có dấu cho các tài khoản người dùng B2B

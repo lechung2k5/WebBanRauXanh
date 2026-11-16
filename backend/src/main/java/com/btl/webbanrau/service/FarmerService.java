@@ -151,11 +151,6 @@ public class FarmerService {
         BigDecimal availableWeight = request.getAvailableWeightKg() != null
                 ? request.getAvailableWeightKg()
                 : totalWeight;
-<<<<<<< HEAD
-        BigDecimal basePrice = request.getBasePricePerKg() != null
-                ? request.getBasePricePerKg()
-                : new BigDecimal("15000.00");
-=======
         BigDecimal basePrice = request.getBasePricePerKg();
         if (basePrice == null && request.getTierPricingJson() != null && !request.getTierPricingJson().isBlank()) {
             try {
@@ -176,7 +171,6 @@ public class FarmerService {
 
         Double minTemp = request.getMinTemp() != null ? request.getMinTemp() : (request.getReqTempMin() != null ? request.getReqTempMin().doubleValue() : 2.0);
         Double maxTemp = request.getMaxTemp() != null ? request.getMaxTemp() : (request.getReqTempMax() != null ? request.getReqTempMax().doubleValue() : 6.0);
->>>>>>> origin/nhut-tan
         String category = request.getCategory() != null && !request.getCategory().isBlank()
                 ? request.getCategory().toUpperCase()
                 : (request.getCategorySlug() != null ? request.getCategorySlug().replace("-", "_").toUpperCase() : "RAU_AN_LA");
@@ -202,18 +196,6 @@ public class FarmerService {
                 .remainingQuantity(availableWeight.doubleValue())
                 .basePricePerKg(basePrice)
                 .unit(request.getUnit() != null ? request.getUnit() : "kg")
-<<<<<<< HEAD
-                .minTemp(request.getMinTemp() != null ? request.getMinTemp() : 2.0)
-                .maxTemp(request.getMaxTemp() != null ? request.getMaxTemp() : 6.0)
-                .reqTempMin(BigDecimal.valueOf(request.getMinTemp() != null ? request.getMinTemp() : 2.0))
-                .reqTempMax(BigDecimal.valueOf(request.getMaxTemp() != null ? request.getMaxTemp() : 6.0))
-                .tierPricingJson(request.getTierPricingJson() != null ? request.getTierPricingJson() : "[]")
-                .status("OPEN")
-                .warehouseLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
-                .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
-                .region("Tây Nguyên & Lâm Đồng")
-                .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + farmer.getFullName() + " đăng bán trực tiếp trên sàn.")
-=======
                 .minTemp(minTemp)
                 .maxTemp(maxTemp)
                 .reqTempMin(BigDecimal.valueOf(minTemp))
@@ -224,7 +206,6 @@ public class FarmerService {
                 .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
                 .region("Tây Nguyên & Lâm Đồng")
                 .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + (farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName()) + " đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.")
->>>>>>> origin/nhut-tan
                 .build();
 
         HarvestLot saved = harvestLotRepository.save(lot);

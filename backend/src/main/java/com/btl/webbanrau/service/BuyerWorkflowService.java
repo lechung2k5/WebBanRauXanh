@@ -461,12 +461,9 @@ public class BuyerWorkflowService {
         result.put("productName", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getProductName());
         result.put("harvestLotId", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getId());
         result.put("lotCode", rfq.getHarvestLot() == null ? null : rfq.getHarvestLot().getLotCode());
-<<<<<<< HEAD
-=======
         result.put("farmerId", rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null ? null : rfq.getHarvestLot().getFarmer().getId());
         result.put("farmerName", rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null ? null : (rfq.getHarvestLot().getFarmer().getCompanyName() != null ? rfq.getHarvestLot().getFarmer().getCompanyName() : rfq.getHarvestLot().getFarmer().getFullName()));
         result.put("farmerPhone", rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null ? null : rfq.getHarvestLot().getFarmer().getPhone());
->>>>>>> origin/nhut-tan
         result.put("buyerName", rfq.getBuyerName());
         result.put("buyerPhone", rfq.getBuyerPhone());
         result.put("buyerCompany", rfq.getBuyerCompany());
