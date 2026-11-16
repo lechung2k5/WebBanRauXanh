@@ -223,13 +223,6 @@ export default function B2BNegotiationModal({
         JSON.stringify([historyItem, ...existingSubmitted])
       );
 
-      // ĐỒNG BỘ XUYÊN TRÌNH DUYỆT (Cross-Browser Shared Sync)
-      fetch('/api/b2b-shared-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'REGISTER_RFQ', rfq: historyItem }),
-      }).catch(() => {});
-
       window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: historyItem }));
     } catch (storageErr) {
       console.error('Lỗi lưu history storage:', storageErr);

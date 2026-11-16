@@ -357,25 +357,6 @@ export const getPublicHarvestLotsApi = async (params?: {
   const customLots = getStoredCustomLots();
   const openCustomLots = customLots.filter((l) => l.status === 'OPEN');
 
-  // Nạp thêm từ kênh Shared Sync trên server để nhận diện ngay các lô vừa được Admin duyệt xuyên trình duyệt
-  if (typeof window !== 'undefined') {
-    try {
-      const syncRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
-      if (syncRes.ok) {
-        const syncJson = await syncRes.json();
-        const sharedLots: HarvestLot[] = syncJson.result || [];
-        for (const s of sharedLots) {
-          if (s.status === 'OPEN') {
-            const key = (s.lotCode || String(s.id)).trim().toUpperCase();
-            if (!openCustomLots.some((c) => (c.lotCode || String(c.id)).trim().toUpperCase() === key)) {
-              openCustomLots.push(s);
-            }
-          }
-        }
-      }
-    } catch {}
-  }
-
   try {
     const query = new URLSearchParams();
     if (params?.keyword) query.append('keyword', params.keyword);

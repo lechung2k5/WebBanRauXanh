@@ -306,13 +306,6 @@ export const saveLocalLot = (lot: HarvestLot) => {
     filteredCustom.unshift(lot);
     localStorage.setItem('xanhfarm_custom_harvest_lots', JSON.stringify(filteredCustom));
 
-    // ĐỒNG BỘ XUYÊN TRÌNH DUYỆT (Cross-Browser Server Shared Sync)
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'REGISTER_LOT', lot }),
-    }).catch(() => {});
-
     window.dispatchEvent(new CustomEvent('b2b_lot_updated', { detail: lot }));
     window.dispatchEvent(new Event('storage'));
   } catch {}
@@ -404,35 +397,6 @@ export const getFarmerHarvestLotsApi = async (): Promise<HarvestLot[]> => {
         });
       }
     }
-  }
-
-  // 2.5. Đồng bộ trực tiếp từ Server-side Shared Cache (Cross-Browser Realtime Sync)
-  if (typeof window !== 'undefined') {
-    try {
-      const sharedRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
-      if (sharedRes.ok) {
-        const sharedJson = await sharedRes.json();
-        const sharedItems: HarvestLot[] = sharedJson.result || [];
-        for (const s of sharedItems) {
-          if (s && (s.lotCode || s.id)) {
-            const key = (s.lotCode || String(s.id)).trim().toUpperCase();
-            const current = map.get(key);
-            if (current) {
-              const resolved = resolveDecidedStatus(current.status, s.status);
-              map.set(key, {
-                ...current,
-                ...s,
-                status: resolved,
-                auditNote: s.auditNote !== undefined ? s.auditNote : current.auditNote,
-                rejectionReason: s.rejectionReason !== undefined ? s.rejectionReason : current.rejectionReason,
-              });
-            } else if (lotMatchesFarmer(s)) {
-              map.set(key, s);
-            }
-          }
-        }
-      }
-    } catch {}
   }
 
   // 3. Đồng bộ trạng thái mới nhất từ xanhfarm_custom_harvest_lots (nơi Admin duyệt & cập nhật)
@@ -916,21 +880,6 @@ export const saveLocalRfqUpdate = (updatedRfq: Partial<RfqItem> & { id: number; 
       localStorage.setItem('b2b_farmer_rfqs', JSON.stringify(updatedFarmer));
     }
 
-    // Đẩy ngay lên Server Shared Sync để bên Buyer tức thì nhận được (kể cả tab ẩn danh hoặc trình duyệt khác)
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'UPDATE_RFQ_STATUS',
-        id: updatedRfq.id,
-        rfqCode: updatedRfq.rfqCode,
-        status: updatedRfq.status,
-        counterPrice: updatedRfq.counterPrice,
-        counterQuantity: updatedRfq.counterQuantity,
-        rejectReason: updatedRfq.rejectReason,
-      }),
-    }).catch(() => {});
-
     window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'RFQ_UPDATED', ...updatedRfq } }));
     window.dispatchEvent(new CustomEvent('b2b_rfq_updated', { detail: updatedRfq }));
   } catch (err) {
@@ -985,57 +934,6 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
       const key = (s.rfqCode || String(s.id)).trim().toUpperCase();
       map.set(key, s);
     }
-  }
-
-  // Đồng bộ thêm từ Server Shared Sync (Cross-Browser) nếu có RFQ mới gửi và chưa kịp nạp vào DB
-  if (typeof window !== 'undefined') {
-    try {
-      const sharedRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
-      if (sharedRes.ok) {
-        const sharedJson = await sharedRes.json();
-        const sharedRfqs: any[] = sharedJson.rfqs || [];
-        for (const sr of sharedRfqs) {
-          if (!sr) continue;
-          let match = false;
-          if (farmerId && sr.farmerId && Number(sr.farmerId) === Number(farmerId)) match = true;
-          else if (farmerName && sr.farmerName) {
-            const sn = String(sr.farmerName).toLowerCase();
-            const fn = farmerName.toLowerCase();
-            if (sn.includes(fn) || fn.includes(sn)) match = true;
-          } else if (sr.harvestLotCode && userLotCodes.has(String(sr.harvestLotCode).trim().toUpperCase())) {
-            match = true;
-          }
-          if (match) {
-            const key = (sr.rfqCode || String(sr.id)).trim().toUpperCase();
-            if (!map.has(key)) {
-              let numId = typeof sr.id === 'number' ? sr.id : Number(sr.id);
-              if (!numId || isNaN(numId)) {
-                numId = Date.now() + Math.floor(Math.random() * 100000);
-              }
-              map.set(key, {
-                id: numId,
-                rfqCode: sr.rfqCode || `RFQ-${numId}`,
-                harvestLotId: sr.harvestLotId || 1,
-                harvestLotCode: sr.harvestLotCode || sr.lotCode || 'LOT-2026-DL-001',
-                productName: sr.productName || 'Nông sản',
-                buyerName: sr.buyerName || 'Thương lái mua sỉ',
-                buyerPhone: sr.buyerPhone || '0908.776.889',
-                buyerCompany: sr.buyerCompany || 'Đơn vị mua sỉ B2B',
-                requestedQuantity: Number(sr.requestedQuantity || sr.requestedQuantityKg || 1000),
-                targetPrice: Number(sr.targetPrice || sr.targetPricePerKg || 15000),
-                counterPrice: sr.counterPrice,
-                counterQuantity: sr.counterQuantity,
-                rejectReason: sr.rejectReason,
-                deliveryDate: sr.deliveryDate || '2026-11-20',
-                hubLocation: sr.hubLocation || sr.deliveryLocation || 'Kho lạnh trung chuyển',
-                status: sr.status || 'WAITING_FARMER',
-                createdAt: sr.createdAt || new Date().toISOString(),
-              });
-            }
-          }
-        }
-      }
-    } catch {}
   }
 
   // Nếu Backend API offline hoặc có thêm local RFQs của đúng farmer này
@@ -1158,13 +1056,6 @@ export const saveLocalContract = (contract: B2BContract) => {
     // Dọn kho key cũ để Buyer/Farmer không đọc hai bản khác nhau.
     localStorage.removeItem(legacySyncKey);
 
-    // 3. Đẩy lên Server Shared Sync
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'REGISTER_CONTRACT', contract: convertedToSync }),
-    }).catch(() => {});
-
     window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'CONTRACT_CREATED', contract: convertedToSync } }));
     window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: convertedToSync }));
   } catch {}
@@ -1246,45 +1137,6 @@ export const getFarmerContractsApi = async (): Promise<B2BContract[]> => {
     }
   } catch {}
 
-  // 2. Tải từ Server Shared Sync (Cross-Browser)
-  if (typeof window !== 'undefined') {
-    try {
-      const sharedRes = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
-      if (sharedRes.ok) {
-        const sharedData = await sharedRes.json();
-        const sharedContracts: any[] = sharedData.contracts || [];
-        for (const sc of sharedContracts) {
-          const code = (sc.contractCode || `HD-${sc.id}`).trim().toUpperCase();
-          if (!contractMap.has(code)) {
-            contractMap.set(code, {
-              id: Number(sc.id) || Date.now(),
-              contractCode: sc.contractCode,
-              rfqId: Number(sc.rfqId || sc.id),
-              rfqCode: sc.rfqCode || `RFQ-${sc.id}`,
-              harvestLotId: Number(sc.lotId || sc.harvestLotId || 1),
-              lotCode: sc.lotCode || 'LOT-2026-DL-001',
-              productName: sc.productName || 'Nông sản VietGAP',
-              buyerName: sc.buyerCompany ? `${sc.buyerName} (${sc.buyerCompany})` : sc.buyerName,
-              buyerPhone: sc.buyerPhone || '0901234567',
-              quantity: Number(sc.quantityKg || sc.quantity || 1000),
-              unitPrice: Number(sc.agreedPricePerKg || sc.unitPrice || 15000),
-              totalAmount: Number(sc.totalAmount || 0),
-              depositAmount: Number(sc.depositAmount || 0),
-              depositStatus: sc.depositStatus || 'WAITING_DEPOSIT',
-              fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : sc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
-              hubName: sc.deliveryAddress || sc.hubName || 'Trạm Trung Chuyển Đức Trọng',
-              hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-              createdAt: sc.createdAt || new Date().toISOString(),
-              hasQc: true,
-              fulfillmentStep: sc.fulfillmentStep,
-              finalPaidStatus: sc.finalPaidStatus,
-            } as unknown as B2BContract);
-          }
-        }
-      }
-    } catch {}
-  }
-
   // 3. Tải từ LocalStorage (b2b_sync_contracts & b2b_farmer_contracts)
   if (typeof window !== 'undefined') {
     try {
@@ -1329,20 +1181,6 @@ export const getFarmerContractsApi = async (): Promise<B2BContract[]> => {
   }
 
   const result = Array.from(contractMap.values());
-
-  // Tự động đẩy toàn bộ hợp đồng hiện có lên Server Shared Sync để bên Buyer tức thì nhìn thấy
-  if (typeof window !== 'undefined' && result.length > 0) {
-    try {
-      for (const c of result) {
-        fetch('/api/b2b-shared-sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'REGISTER_CONTRACT', contract: c }),
-        }).catch(() => {});
-      }
-    } catch {}
-  }
-
   return result.length > 0 ? result : FALLBACK_CONTRACTS;
 };
 

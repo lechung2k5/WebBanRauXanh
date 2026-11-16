@@ -444,23 +444,14 @@ export function syncLotStatusToFarmerStorage(
     }
   } catch {}
 
-  // 3. ĐỒNG BỘ XUYÊN TRÌNH DUYỆT (Cross-Browser Server Shared Sync)
-  // Gửi trực tiếp lên Server Endpoint để mọi trình duyệt khác (Chrome, Edge, Firefox, Incognito)
-  // nhận được trạng thái mới nhất ngay lập tức khi polling
-  try {
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'UPDATE_STATUS',
-        lotCode: normalizedCode,
-        id: normalizedId,
-        status: newStatus,
-        auditNote,
-        rejectionReason,
-      }),
-    }).catch(() => {});
-  } catch {}
+  // 3. Thông báo sự kiện đồng bộ
+  notifySyncEvent('LOT_STATUS_UPDATED', {
+    lotCode: normalizedCode,
+    id: normalizedId,
+    status: newStatus,
+    auditNote,
+    rejectionReason,
+  });
 }
 
 export function syncLotFieldsToFarmerStorage(updatedLot: any) {
@@ -741,19 +732,6 @@ export function farmerRespondRfq(
 
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
-  if (typeof window !== 'undefined') {
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'UPDATE_RFQ_STATUS',
-        rfqCode: rfq.rfqCode,
-        status: rfq.status,
-        counterPrice: rfq.counterPricePerKg,
-        counterQuantity: rfq.requestedQuantityKg,
-      }),
-    }).catch(() => {});
-  }
   notifySyncEvent('RFQ_UPDATED', { rfq, newContract });
   return { rfq, newContract };
 }
@@ -793,13 +771,6 @@ export function buyerAcceptCounterRfq(
   rfq.depositAmount = newContract.depositAmount;
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
-  if (typeof window !== 'undefined') {
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'UPDATE_RFQ_STATUS', rfqCode: rfq.rfqCode, status: 'ACCEPTED' }),
-    }).catch(() => {});
-  }
   notifySyncEvent('RFQ_ACCEPTED_BY_BUYER', { rfq, newContract });
   return { rfq, newContract };
 }
@@ -823,19 +794,6 @@ export function buyerCounterRfq(
   rfq.updatedAt = new Date().toISOString();
   current[idx] = rfq;
   localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
-  if (typeof window !== 'undefined') {
-    fetch('/api/b2b-shared-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'UPDATE_RFQ_STATUS',
-        rfqCode: rfq.rfqCode,
-        status: 'WAITING_FARMER',
-        counterPrice: rfq.counterPricePerKg,
-        counterQuantity: rfq.requestedQuantityKg,
-      }),
-    }).catch(() => {});
-  }
   notifySyncEvent('RFQ_COUNTERED_BY_BUYER', rfq);
   return rfq;
 }
@@ -993,13 +951,6 @@ function createContractFromRfq(
       filteredFarmer.unshift(newContract);
       localStorage.setItem('b2b_farmer_contracts', JSON.stringify(filteredFarmer));
 
-      // Đẩy lên Server Shared Sync API
-      fetch('/api/b2b-shared-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'REGISTER_CONTRACT', contract: newContract }),
-      }).catch(() => {});
-
       window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'CONTRACT_CREATED', contract: newContract } }));
       window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: newContract }));
     } catch {}
@@ -1142,19 +1093,6 @@ function mirrorContractStatus(contract: B2bSyncContract) {
   } catch {
     // Không để lỗi kho local làm hỏng xác nhận thanh toán.
   }
-
-  fetch('/api/b2b-shared-sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'UPDATE_CONTRACT_STATUS',
-      contractCode: contract.contractCode,
-      depositStatus: contract.depositStatus,
-      fulfillmentStep: contract.fulfillmentStep,
-      fulfillmentStatusName: contract.fulfillmentStatusName,
-      finalPaidStatus: contract.finalPaidStatus,
-    }),
-  }).catch(() => {});
 }
 
 /**

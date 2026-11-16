@@ -16,6 +16,7 @@ import {
 } from '@/services/api';
 import { updateContractFulfillmentStatusApi } from '@/services/farmerApi';
 import { formatDateVi, formatStatusVi } from '@/utils/formatters';
+import { b2bWebSocket } from '@/services/websocketService';
 import {
   B2bSyncContract,
   B2bSyncRfq,
@@ -489,6 +490,24 @@ export default function BuyerManagementConsole() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // Đăng ký trực tiếp với STOMP WebSocket Message Broker của Spring Boot (/topic/contracts, /topic/rfqs, /topic/lots)
+    const unsubContracts = b2bWebSocket.subscribeContracts((payload) => {
+      setNotification(`Hợp đồng ${payload?.contractCode || ''} vừa được cập nhật thời gian thực!`);
+      setTimeout(() => setNotification(null), 4000);
+      void loadAllData();
+    });
+
+    const unsubRfqs = b2bWebSocket.subscribeRfqs((payload) => {
+      setNotification(`Yêu cầu báo giá ${payload?.rfqCode || ''} vừa được cập nhật thời gian thực!`);
+      setTimeout(() => setNotification(null), 4000);
+      void loadAllData();
+    });
+
+    const unsubLots = b2bWebSocket.subscribeLots(() => {
+      void loadCatalogData();
+      void loadAllData();
+    });
+
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       // Nhận sự kiện thời gian thực từ kênh đồng bộ BroadcastChannel (cùng trình duyệt)
       void loadAllData();
@@ -515,6 +534,9 @@ export default function BuyerManagementConsole() {
     });
 
     return () => {
+      unsubContracts();
+      unsubRfqs();
+      unsubLots();
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleDataSync);
       window.removeEventListener('b2b_contract_updated', handleDataSync);

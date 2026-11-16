@@ -108,6 +108,7 @@ import FarmerAiChatView from './components/FarmerAiChatView';
 import FarmerPostSaleView from './components/FarmerPostSaleView';
 import FarmerOrderManagementView from './components/FarmerOrderManagementView';
 import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import FarmerQcOverviewView from './components/FarmerQcOverviewView';
 import { getSafeCurrentDate, getSafeIsoDate } from './utils/farmerHelpers';
@@ -705,97 +706,36 @@ function FarmerPortalContent() {
       }
     });
 
-    // POLLING HEARTBEAT ĐA TRÌNH DUYỆT (Cross-Browser Realtime Sync: Chrome <-> Edge / Incognito)
-    // Tự động kiểm tra thay đổi từ Backend mỗi 2.5 giây để đảm bảo 2 trình duyệt độc lập cập nhật tức thì
-    const syncInterval = setInterval(async () => {
-      try {
-        const [freshLots, freshContracts, freshRfqs] = await Promise.all([
-          getFarmerHarvestLotsApi().catch(() => []),
-          getFarmerContractsApi().catch(() => []),
-          getFarmerRfqsApi().catch(() => []),
-        ]);
-
-        // 1. Đồng bộ trạng thái Lô Mùa Vụ
-        if (Array.isArray(freshLots) && freshLots.length > 0) {
-          setLots((prevLots) => {
-            let hasLotChange = false;
-            const updated = prevLots.map((oldLot) => {
-              const oldCode = (oldLot.lotCode || '').trim().toUpperCase();
-              const oldId = String(oldLot.id || '').trim();
-              const match = freshLots.find((f) => {
-                const fCode = (f.lotCode || '').trim().toUpperCase();
-                const fId = String(f.id || '').trim();
-                return (oldCode && (fCode === oldCode || fId === oldCode)) ||
-                       (oldId && (fId === oldId || fCode === oldId));
-              });
-
-              if (match) {
-                const oldStatus = (oldLot.status || 'PENDING_APPROVAL').trim().toUpperCase();
-                const newStatus = (match.status || 'PENDING_APPROVAL').trim().toUpperCase();
-                if (oldStatus !== newStatus) {
-                  hasLotChange = true;
-                  if (newStatus === 'OPEN' && oldStatus === 'PENDING_APPROVAL') {
-                    setRealtimeNotification(`✓ Lô hàng ${oldLot.lotCode} đã được Quản trị viên duyệt mở bán sỉ thành công!`);
-                    setTimeout(() => setRealtimeNotification(null), 6000);
-                  }
-                  return { ...oldLot, ...match, status: newStatus };
-                }
-              }
-              return oldLot;
-            });
-
-            // Nếu server có thêm lô mới mà local chưa có
-            if (freshLots.length > prevLots.length) {
-              const existingCodes = new Set(prevLots.map(l => (l.lotCode || String(l.id)).trim().toUpperCase()));
-              const newIncoming = freshLots.filter(f => !existingCodes.has((f.lotCode || String(f.id)).trim().toUpperCase()));
-              if (newIncoming.length > 0) {
-                return [...newIncoming, ...updated];
-              }
-            }
-
-            return hasLotChange ? updated : prevLots;
-          });
-        }
-
-        // 2. Đồng bộ trạng thái Đơn hàng / Hợp đồng B2B
-        if (Array.isArray(freshContracts) && freshContracts.length > 0) {
-          setContracts((prevContracts) => {
-            let hasContractChange = false;
-            const updated = prevContracts.map((oldC) => {
-              const matchC = freshContracts.find((fc) => fc.id === oldC.id || (fc.contractCode && fc.contractCode === oldC.contractCode));
-              if (matchC && (matchC.fulfillmentStatus !== oldC.fulfillmentStatus || (matchC as any).depositStatus !== (oldC as any).depositStatus)) {
-                hasContractChange = true;
-                return { ...oldC, ...matchC };
-              }
-              return oldC;
-            });
-            return hasContractChange ? updated : prevContracts;
-          });
-        }
-
-        // 3. Đồng bộ trạng thái Hộp Thư Báo Giá Sỉ RFQ
-        if (Array.isArray(freshRfqs)) {
-          setRfqs((prevRfqs) => {
-            const prevKeys = new Set(prevRfqs.map((r) => (r.rfqCode || String(r.id)).trim().toUpperCase()));
-            const hasNewRfq = freshRfqs.some((r) => !prevKeys.has((r.rfqCode || String(r.id)).trim().toUpperCase()));
-            const hasStatusDiff = freshRfqs.some((r) => {
-              const old = prevRfqs.find((o) => (o.rfqCode && o.rfqCode === r.rfqCode) || o.id === r.id);
-              return old && (old.status !== r.status || old.counterPrice !== r.counterPrice);
-            });
-            if (hasNewRfq) {
-              setRealtimeNotification('📩 Có đề xuất đàm phán giá sỉ (RFQ) mới vừa được gửi đến!');
-              setTimeout(() => setRealtimeNotification(null), 5000);
-            }
-            if (hasNewRfq || hasStatusDiff || freshRfqs.length !== prevRfqs.length) {
-              return freshRfqs;
-            }
-            return prevRfqs;
-          });
-        }
-      } catch {
-        // Im lặng nếu polling server không phản hồi
+    // ĐỒNG BỘ REALTIME WEBSOCKET STOMP (Thay thế hoàn toàn setInterval polling gây spam log)
+    const unsubWsLots = b2bWebSocket.subscribeLots((payload) => {
+      loadPortalData();
+      if (payload?.action === 'LOT_APPROVED' || payload?.action === 'APPROVED') {
+        const lotCode = payload?.lot?.lotCode || payload?.lotCode || 'Lô nông sản';
+        setRealtimeNotification(`✓ Lô hàng ${lotCode} đã được Quản trị viên duyệt mở bán sỉ thành công!`);
+        setTimeout(() => setRealtimeNotification(null), 6000);
       }
-    }, 2500);
+    });
+
+    const unsubWsRfqs = b2bWebSocket.subscribeRfqs((payload) => {
+      loadPortalData();
+      const rfqCode = payload?.rfqCode || payload?.rfq?.rfqCode || '';
+      setRealtimeNotification(`📩 Có đề xuất đàm phán giá sỉ (RFQ ${rfqCode}) vừa được gửi đến!`);
+      setTimeout(() => setRealtimeNotification(null), 5000);
+    });
+
+    const unsubWsContracts = b2bWebSocket.subscribeContracts((payload) => {
+      loadPortalData();
+      const contractCode = payload?.contractCode || payload?.contract?.contractCode || '';
+      const action = payload?.action || '';
+      if (action === 'DEPOSIT_PAID') {
+        setRealtimeNotification(`Thương lái đã nộp cọc 30% cho hợp đồng ${contractCode}! Bạn có thể bắt đầu thu hoạch.`);
+      } else if (action === 'EPOD_SIGNED' || action === 'DELIVERED') {
+        setRealtimeNotification(`Hợp đồng ${contractCode} đã được ký nhận giao hàng!`);
+      } else {
+        setRealtimeNotification(`Hợp đồng ${contractCode} vừa có cập nhật mới!`);
+      }
+      setTimeout(() => setRealtimeNotification(null), 5000);
+    });
 
     // KẾT NỐI BROADCAST CHANNEL (Realtime sync hai chiều tức thì với Buyer Portal & Quản Trị Viên)
     const unsubscribeSync = subscribeB2bSyncEvents((event) => {
@@ -867,7 +807,9 @@ function FarmerPortalContent() {
     });
 
     return () => {
-      clearInterval(syncInterval);
+      unsubWsLots();
+      unsubWsRfqs();
+      unsubWsContracts();
       window.removeEventListener('b2b_rfq_updated', handleRfqUpdate);
       window.removeEventListener('b2b_lot_updated', handleRfqUpdate);
       window.removeEventListener('b2b_sync_event', handleRfqUpdate);

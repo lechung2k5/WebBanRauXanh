@@ -6,6 +6,7 @@ import com.btl.webbanrau.model.Order;
 import com.btl.webbanrau.model.OrderStatus;
 import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.repository.OrderRepository;
+import com.btl.webbanrau.service.B2bRealtimeService;
 import com.btl.webbanrau.service.SepayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class SepayServiceImpl implements SepayService {
 
     private final OrderRepository orderRepository;
     private final B2bContractRepository b2bContractRepository;
+    private final B2bRealtimeService b2bRealtimeService;
 
     @Value("${sepay.api-key:}")
     private String sepayApiKey;
@@ -84,6 +86,7 @@ public class SepayServiceImpl implements SepayService {
                 contract.setStatus("DEPOSIT_PAID");
                 contract.setDepositPaidAt(LocalDateTime.now());
                 b2bContractRepository.save(contract);
+                b2bRealtimeService.notifyContractUpdated("DEPOSIT_PAID", contract.getContractCode(), contract);
                 matched = true;
                 log.info("[SePay Webhook] Khớp Hợp đồng B2B thành công: {}", contract.getContractCode());
                 response.put("matchedType", "B2B_CONTRACT");

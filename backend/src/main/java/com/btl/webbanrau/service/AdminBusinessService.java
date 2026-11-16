@@ -18,6 +18,7 @@ public class AdminBusinessService {
     private final JdbcTemplate db;
     private final UserRepository users;
     private final MailService mail;
+    private final B2bRealtimeService b2bRealtimeService;
     public List<Map<String,Object>> lots(boolean publicOnly) {
         var rows=db.queryForList("select l.*,u.company_name farmer_name from harvest_lots l join users u on u.id=l.farmer_id "+(publicOnly?"where l.status='OPEN' and l.expiry_date>=CURRENT_DATE ":"")+"order by l.id desc limit 500");
         rows.forEach(row->row.put("tier_pricing_json",Objects.toString(row.get("tier_pricing_json"),"[]")));
@@ -127,6 +128,8 @@ public class AdminBusinessService {
         }
         db.update("update b2b_contracts set status=?,updated_at=CURRENT_TIMESTAMP where id=?",next,id);audit("CONTRACT_"+next,id);
         notifyContractParties(c, next);
+        String contractCode = Objects.toString(c.get("contract_code"), "");
+        b2bRealtimeService.notifyContractUpdated(next, contractCode, c);
     }
 
     private void notifyContractParties(Map<String,Object> contract, String nextStatus) {
@@ -188,6 +191,8 @@ public class AdminBusinessService {
         if(!(photo.startsWith("https://")||photo.startsWith("data:image/"))||!signature.startsWith("data:image/png;base64,")||photo.length()>2_000_000||signature.length()>200_000) bad("Ảnh/chữ ký không hợp lệ hoặc quá lớn");
         db.update("update shipments set delivered_weight_kg=?,damaged_weight_kg=?,natural_shrinkage_kg=?,epod_signature_name=?,epod_photo_url=?,epod_signature_data=?,status='DELIVERED',delivered_at=CURRENT_TIMESTAMP where id=?",delivered,damaged,shrinkage,text(n,"signatureName"),photo,signature,id);
         if(damaged.signum()>0) createClaim(c,damaged,"DELIVERY_DAMAGE","PLATFORM");audit("EPOD",id);
+        String contractCode = Objects.toString(c.get("contract_code"), "");
+        b2bRealtimeService.notifyContractUpdated("DELIVERED", contractCode, c);
     }
     public List<Map<String,Object>> telemetry(long assetId) { return db.queryForList("select * from iot_sensor_logs where asset_id=? order by id desc limit 60",assetId); }
     @Transactional public Map<String,Object> inject(JsonNode n,boolean reset) {

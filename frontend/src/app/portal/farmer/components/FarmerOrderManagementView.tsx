@@ -29,6 +29,7 @@ import {
 import { getFarmerContractsFromServer } from '@/services/farmerApi';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import { formatDateVi, formatStatusVi } from '@/utils/formatters';
+import { b2bWebSocket } from '@/services/websocketService';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -111,6 +112,14 @@ export default function FarmerOrderManagementView({
 
   useEffect(() => {
     void reloadContracts();
+
+    // Lắng nghe trực tiếp từ STOMP WebSocket Message Broker (/topic/contracts)
+    const unsubContracts = b2bWebSocket.subscribeContracts((payload) => {
+      setActionSuccessMsg(`Hợp đồng ${payload?.contractCode || ''} vừa được cập nhật thời gian thực!`);
+      setTimeout(() => setActionSuccessMsg(null), 4000);
+      void reloadContracts();
+    });
+
     // Lắng nghe sự kiện đồng bộ từ tab Buyer hoặc các tab khác
     const unsubscribe = subscribeB2bSyncEvents(() => {
       void reloadContracts();
@@ -122,6 +131,7 @@ export default function FarmerOrderManagementView({
     window.addEventListener('b2b_contract_updated', handleCustomSync);
     window.addEventListener('storage', handleCustomSync);
     return () => {
+      unsubContracts();
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleCustomSync);
       window.removeEventListener('b2b_contract_updated', handleCustomSync);
