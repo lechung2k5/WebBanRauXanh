@@ -1189,6 +1189,21 @@ export const startFarmerHarvest = async (id: number): Promise<B2BContract> => {
   return data.result;
 };
 
+export const updateContractFulfillmentStatusApi = async (id: number, status: string): Promise<B2BContract> => {
+  const res = await fetch(`${API_BASE_URL}/farmer/contracts/${id}/fulfillment-status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+  const data: ApiResponse<B2BContract> = await res.json();
+  if (!res.ok || !data.result) throw new Error(data.message || 'Không thể cập nhật tiến trình');
+  return data.result;
+};
+
 export const getFarmerContractsApi = async (): Promise<B2BContract[]> => {
   const contractMap = new Map<string, B2BContract>();
 

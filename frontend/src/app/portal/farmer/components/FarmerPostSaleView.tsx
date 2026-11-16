@@ -59,6 +59,7 @@ import {
   getLotTraceApi,
   getFarmerContractsFromServer,
   startFarmerHarvest,
+  updateContractFulfillmentStatusApi,
 } from '@/services/farmerApi';
 
 interface FarmerPostSaleViewProps {
@@ -82,7 +83,33 @@ export default function FarmerPostSaleView({
   const refreshContracts = async () => {
     setRefreshing(true);
     try {
-      setContracts(await getFarmerContractsFromServer());
+      const serverContracts = await getFarmerContractsFromServer().catch(() => []);
+      const syncList = getSyncContracts();
+      const syncMap = new Map<string, B2bSyncContract>();
+      for (const sc of syncList) {
+        if (sc?.contractCode) syncMap.set(sc.contractCode.trim().toUpperCase(), sc);
+      }
+
+      const merged = serverContracts.map((sc) => {
+        const syncItem = syncMap.get(sc.contractCode?.trim().toUpperCase());
+        if (syncItem && syncItem.fulfillmentStep) {
+          const stepMap: Record<number, B2BContract['fulfillmentStatus']> = {
+            1: 'WAITING_HARVEST',
+            2: 'HARVESTING',
+            3: 'IN_TRANSIT',
+            4: 'HUB_DELIVERED',
+            6: 'COMPLETED',
+          };
+          const mappedStatus = stepMap[syncItem.fulfillmentStep];
+          return {
+            ...sc,
+            fulfillmentStatus: mappedStatus || sc.fulfillmentStatus,
+          };
+        }
+        return sc;
+      });
+
+      setContracts(merged.length > 0 ? merged : serverContracts);
       setRefreshVersion((value) => value + 1);
       setRefreshError('');
     } catch (error) {
@@ -93,10 +120,16 @@ export default function FarmerPostSaleView({
   };
   useEffect(() => {
     void refreshContracts();
+    const unsub = subscribeB2bSyncEvents(() => {
+      void refreshContracts();
+    });
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refreshContracts();
     }, 5000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      unsub();
+    };
   }, []);
   const [subTab, setSubTab] = useState<'allocation' | 'coldchain' | 'epod' | 'trace'>('allocation');
 
@@ -1596,6 +1629,12 @@ export default function FarmerPostSaleView({
                       onClick={() => {
                         setFulfillmentStep(3);
                         updateContractFulfillmentStep(selectedContractId, 3);
+                        setContracts((prev) =>
+                          prev.map((c) =>
+                            c.id === selectedContractId ? { ...c, fulfillmentStatus: 'IN_TRANSIT' } : c
+                          )
+                        );
+                        void updateContractFulfillmentStatusApi(selectedContractId, 'IN_TRANSIT').catch(() => {});
                       }}
                       className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                     >
@@ -1610,6 +1649,12 @@ export default function FarmerPostSaleView({
                       onClick={() => {
                         setFulfillmentStep(4);
                         updateContractFulfillmentStep(selectedContractId, 4);
+                        setContracts((prev) =>
+                          prev.map((c) =>
+                            c.id === selectedContractId ? { ...c, fulfillmentStatus: 'HUB_DELIVERED' } : c
+                          )
+                        );
+                        void updateContractFulfillmentStatusApi(selectedContractId, 'HUB_DELIVERED').catch(() => {});
                       }}
                       className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                     >
@@ -1630,6 +1675,12 @@ export default function FarmerPostSaleView({
                           autoCompleteContractAfterTimeout(selectedContractId);
                           setFulfillmentStep(6);
                           setAutoCompleteType('AUTO_48H');
+                          setContracts((prev) =>
+                            prev.map((c) =>
+                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED' } : c
+                            )
+                          );
+                          void updateContractFulfillmentStatusApi(selectedContractId, 'COMPLETED').catch(() => {});
                         }}
                         className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                         title="Kích hoạt tự động hoàn tất sau 48h nếu khách mua chưa bấm ký nhận"
@@ -1651,6 +1702,12 @@ export default function FarmerPostSaleView({
                         onClick={() => {
                           setFulfillmentStep(6);
                           updateContractFulfillmentStep(selectedContractId, 6);
+                          setContracts((prev) =>
+                            prev.map((c) =>
+                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED' } : c
+                            )
+                          );
+                          void updateContractFulfillmentStatusApi(selectedContractId, 'COMPLETED').catch(() => {});
                         }}
                         className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                       >

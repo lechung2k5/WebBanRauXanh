@@ -105,6 +105,18 @@ public class FarmerController {
         return ResponseEntity.ok(ApiResponse.success(farmerService.startHarvest(id)));
     }
 
+    @PatchMapping("/contracts/{id}/fulfillment-status")
+    @Operation(summary = "Cập nhật tiến trình hợp đồng B2B (HARVESTING, IN_TRANSIT, HUB_DELIVERED, COMPLETED)")
+    public ResponseEntity<ApiResponse<B2bContractResponse>> updateFulfillmentStatus(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String status = body != null ? body.get("status") : null;
+        if (status == null || status.isBlank()) {
+            throw new IllegalArgumentException("Trạng thái tiến trình không được để trống.");
+        }
+        return ResponseEntity.ok(ApiResponse.success(farmerService.updateFulfillmentStatus(id, status.trim())));
+    }
+
     @GetMapping("/contracts")
     @Operation(summary = "Lấy danh sách hợp đồng B2B và tiến độ cọc 30% Escrow")
     public ResponseEntity<ApiResponse<List<B2bContractResponse>>> getContracts() {

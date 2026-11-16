@@ -367,6 +367,18 @@ public class FarmerService {
         return mapToContractResponse(b2bContractRepository.save(contract));
     }
 
+    @Transactional
+    public B2bContractResponse updateFulfillmentStatus(Long contractId, String status) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng."));
+        if (contract.getFarmer() == null || !contract.getFarmer().getId().equals(farmer.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
+        }
+        contract.setFulfillmentStatus(status);
+        return mapToContractResponse(b2bContractRepository.save(contract));
+    }
+
     @Transactional(readOnly = true)
     public List<B2bContractResponse> getContracts() {
         User farmer = getCurrentFarmer();
