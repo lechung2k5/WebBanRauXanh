@@ -50,6 +50,7 @@ public class BuyerWorkflowService {
     private final AdminBusinessService business;
     private final OrderService orderService;
     private final ObjectMapper objectMapper;
+    private final B2bRealtimeService b2bRealtimeService;
 
     public User currentBuyer() {
         User user = AuthService.current();
@@ -186,7 +187,9 @@ public class BuyerWorkflowService {
         RfqNegotiation saved = rfqs.save(rfq);
         recordRfqEvent(saved, buyer.getId(), "BUYER", "CREATED", null, RfqStatus.WAITING_FARMER,
                 saved.getRequestedQuantity(), saved.getTargetPrice(), saved.getNotes());
-        return rfqView(saved);
+        Map<String, Object> view = rfqView(saved);
+        b2bRealtimeService.notifyRfqUpdated("RFQ_CREATED", saved.getRfqCode(), view);
+        return view;
     }
 
     @Transactional
@@ -196,6 +199,53 @@ public class BuyerWorkflowService {
             expireIfNeeded(rfq);
             return rfqView(rfq);
         }).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> updateRfq(Long id, BuyerRfqRequest request) {
+        User buyer = currentBuyer();
+        RfqNegotiation rfq = rfqs.findById(id)
+                .orElseThrow(() -> new AuthException(404, "RFQ_NOT_FOUND", "Không tìm thấy RFQ."));
+        if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
+            throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền sửa RFQ này.");
+        }
+        if (!"WAITING_FARMER".equalsIgnoreCase(rfq.getStatus()) && !"PENDING".equalsIgnoreCase(rfq.getStatus())) {
+            throw new AuthException(400, "CANNOT_EDIT_RFQ", "Chỉ có thể chỉnh sửa khi đơn đang chờ nhà vườn phản hồi.");
+        }
+        if (request.getQuantityKg() != null) rfq.setRequestedQuantity(request.getQuantityKg().doubleValue());
+        if (request.getProposedPricePerKg() != null) rfq.setTargetPrice(request.getProposedPricePerKg());
+        if (request.getDesiredDeliveryDate() != null) rfq.setDeliveryDate(request.getDesiredDeliveryDate());
+        if (request.getDeliveryLocation() != null) rfq.setHubLocation(request.getDeliveryLocation().trim());
+        if (request.getShippingOption() != null) rfq.setShippingOption(request.getShippingOption());
+        if (request.getNotes() != null) rfq.setNotes(request.getNotes());
+
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "EDITED", rfq.getStatus(), saved.getStatus(),
+                saved.getRequestedQuantity(), saved.getTargetPrice(), "Người mua cập nhật lại đơn đàm phán");
+        Map<String, Object> view = rfqView(saved);
+        b2bRealtimeService.notifyRfqUpdated("RFQ_EDITED", saved.getRfqCode(), view);
+        return view;
+    }
+
+    @Transactional
+    public Map<String, Object> cancelRfq(Long id) {
+        User buyer = currentBuyer();
+        RfqNegotiation rfq = rfqs.findById(id)
+                .orElseThrow(() -> new AuthException(404, "RFQ_NOT_FOUND", "Không tìm thấy RFQ."));
+        if (rfq.getBuyer() == null || !Objects.equals(rfq.getBuyer().getId(), buyer.getId())) {
+            throw new AuthException(403, "RFQ_OWNER_REQUIRED", "Bạn không có quyền hủy RFQ này.");
+        }
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
+        if ("ACCEPTED".equalsIgnoreCase(currentStatus) || "CONTRACT_CREATED".equalsIgnoreCase(currentStatus)) {
+            throw new AuthException(400, "CANNOT_CANCEL_RFQ", "Đơn đàm phán đã được chốt hợp đồng, không thể hủy.");
+        }
+        rfq.setStatus(RfqStatus.CANCELLED);
+        RfqNegotiation saved = rfqs.save(rfq);
+        recordRfqEvent(saved, buyer.getId(), "BUYER", "CANCEL", currentStatus, RfqStatus.CANCELLED,
+                saved.getRequestedQuantity(), saved.getTargetPrice(), "Người mua chủ động hủy đơn đàm phán");
+        Map<String, Object> view = rfqView(saved);
+        b2bRealtimeService.notifyRfqUpdated("RFQ_CANCELLED", saved.getRfqCode(), view);
+        return view;
     }
 
     @Transactional(readOnly = true)
@@ -234,7 +284,9 @@ public class BuyerWorkflowService {
             recordRfqEvent(saved, buyer.getId(), "BUYER", "COUNTER", currentStatus, saved.getStatus(),
                     saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
                     saved.getCounterPrice(), "Người mua gửi đề xuất mới");
-            return rfqView(saved);
+            Map<String, Object> view = rfqView(saved);
+            b2bRealtimeService.notifyRfqUpdated("COUNTER", saved.getRfqCode(), view);
+            return view;
         }
         if ("REJECT".equals(action)) {
             if (!RfqStatus.isBuyerTurn(currentStatus)) {
@@ -246,7 +298,9 @@ public class BuyerWorkflowService {
             recordRfqEvent(saved, buyer.getId(), "BUYER", "REJECT", currentStatus, saved.getStatus(),
                     saved.getRequestedQuantity(), saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
                     request.getRejectReason());
-            return rfqView(saved);
+            Map<String, Object> view = rfqView(saved);
+            b2bRealtimeService.notifyRfqUpdated("REJECTED", saved.getRfqCode(), view);
+            return view;
         }
         if (!"ACCEPT".equals(action)) throw new AuthException(400, "INVALID_RFQ_ACTION", "Chỉ hỗ trợ ACCEPT, COUNTER hoặc REJECT.");
         if (!RfqStatus.isBuyerTurn(currentStatus)) {
@@ -270,7 +324,10 @@ public class BuyerWorkflowService {
         recordRfqEvent(saved, buyer.getId(), "BUYER", "ACCEPT", currentStatus, saved.getStatus(),
                 saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(), price,
                 "Người mua chấp nhận đề xuất và tạo hợp đồng");
-        return rfqView(saved);
+        Map<String, Object> view = rfqView(saved);
+        b2bRealtimeService.notifyRfqUpdated("ACCEPTED", saved.getRfqCode(), view);
+        b2bRealtimeService.notifyContractUpdated("CONTRACT_CREATED", (String) view.get("contractCode"), view);
+        return view;
     }
 
     @Transactional(readOnly = true)
@@ -325,7 +382,9 @@ public class BuyerWorkflowService {
                 .put("amount", decimal(contract, "deposit_30_amount"));
         business.transition(contractId, request);
         db.update("UPDATE b2b_contracts SET deposit_status='DEPOSIT_PAID',deposit_paid_at=CURRENT_TIMESTAMP WHERE id=?", contractId);
-        return ownedContract(contractId);
+        Map<String, Object> updated = ownedContract(contractId);
+        b2bRealtimeService.notifyContractUpdated("DEPOSIT_PAID", (String) updated.get("contract_code"), updated);
+        return updated;
     }
 
     @Transactional(readOnly = true)
@@ -355,7 +414,9 @@ public class BuyerWorkflowService {
                 .put("signatureData", request.getSignatureData())
                 .put("photoUrl", request.getPhotoUrl());
         business.epod(((Number) shipment.get("id")).longValue(), epod);
-        return ownedContract(contractId);
+        Map<String, Object> updated = ownedContract(contractId);
+        b2bRealtimeService.notifyContractUpdated("EPOD_SIGNED", (String) updated.get("contract_code"), updated);
+        return updated;
     }
 
     @Transactional(readOnly = true)
@@ -378,7 +439,9 @@ public class BuyerWorkflowService {
                 .put("status", "DELIVERED")
                 .put("reference", "BAL-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase());
         business.transition(contractId, request);
-        return ownedContract(contractId);
+        Map<String, Object> updated = ownedContract(contractId);
+        b2bRealtimeService.notifyContractUpdated("FINAL_PAID", (String) updated.get("contract_code"), updated);
+        return updated;
     }
 
     @Transactional(readOnly = true)

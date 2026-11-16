@@ -28,6 +28,7 @@ import {
 } from '@/services/b2bSyncService';
 import { getFarmerContractsFromServer } from '@/services/farmerApi';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
+import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -120,11 +121,7 @@ export default function FarmerOrderManagementView({
     window.addEventListener('b2b_sync_event', handleCustomSync);
     window.addEventListener('b2b_contract_updated', handleCustomSync);
     window.addEventListener('storage', handleCustomSync);
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void reloadContracts();
-    }, 5000);
     return () => {
-      window.clearInterval(timer);
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleCustomSync);
       window.removeEventListener('b2b_contract_updated', handleCustomSync);
@@ -448,18 +445,32 @@ export default function FarmerOrderManagementView({
 
                   {/* Cột 3: Vận chuyển xe lạnh & Biên bản bàn giao */}
                   <div className="space-y-1.5 p-3 rounded-2xl bg-gray-50/70 border border-gray-100">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Vận Chuyển Lạnh & Nhận Hàng</span>
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-blue-600 shrink-0" />
-                      <span className="font-bold text-gray-800 truncate">{contract.truckLicensePlate}</span>
-                    </div>
-                    <div className="flex justify-between text-gray-600">
-                      <span>Cảm biến thùng xe:</span>
-                      <span className="font-mono font-bold text-emerald-600">
-                        {contract.truckTempCurrent}°C (Chuẩn 2-6°C)
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-gray-600">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Vận Chuyển & Bàn Giao</span>
+                    {contract.fulfillmentStep < 3 ? (
+                      <div className="space-y-1.5 py-1">
+                        <div className="flex items-center gap-1.5 text-amber-800 bg-amber-50 px-2 py-1 rounded-lg text-[11px] font-bold border border-amber-200">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Chờ xong đóng gói để điều xe</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          Phương tiện vận chuyển sẽ được điều phối sau khi nhà vườn xác nhận đóng gói và in tem dán thùng.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Truck className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span className="font-bold text-gray-800 truncate">{contract.truckLicensePlate}</span>
+                        </div>
+                        <div className="flex justify-between text-gray-600">
+                          <span>Cảm biến thùng xe:</span>
+                          <span className="font-mono font-bold text-emerald-600">
+                            {contract.truckTempCurrent}°C (Chuẩn 2-6°C)
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between text-gray-600 pt-1 border-t border-gray-100">
                       <span>Biên bản nhận hàng:</span>
                       {contract.epodSignedAt ? (
                         <span className="text-emerald-700 font-bold flex items-center gap-1">

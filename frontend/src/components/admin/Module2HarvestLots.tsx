@@ -1452,7 +1452,7 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                               {(lot.reqTempMin ?? (lot as any).minTemp ?? 2.0)}°C - {(lot.reqTempMax ?? (lot as any).maxTemp ?? 6.0)}°C
                             </div>
                             <p className="text-[10px] text-[#6B7280] mt-1 truncate max-w-[150px]">
-                              {lot.warehouseLocation || (lot as any).hubLocation || 'Kho tổng Trạm'}
+                              {(lot as any).farmAddress || lot.farmerName || 'Xuất vườn nông trại'}
                             </p>
                           </td>
 
@@ -1811,8 +1811,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-[#6B7280] font-bold block">VỊ TRÍ LƯU TRẠM / KHO</span>
-                    <span className="font-bold text-[#2C3E2E]">{selectedLotDetail.warehouseLocation || (selectedLotDetail as any).hubLocation || 'Kho tổng'}</span>
+                    <span className="text-[10px] text-[#6B7280] font-bold block">PHƯƠNG ÁN GIAO NHẬN</span>
+                    <span className="font-bold text-[#2C3E2E]">Thỏa thuận khi chốt hợp đồng (PA1: Giao thẳng / PA2: Qua Hub / PA3: Tự lấy)</span>
                   </div>
                   <div>
                     <span className="text-[10px] text-[#6B7280] font-bold block">KHU VỰC VÙNG TRỒNG</span>

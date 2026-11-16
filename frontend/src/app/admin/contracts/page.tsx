@@ -1044,8 +1044,23 @@ export default function AdminContractsPage() {
                       </div>
 
                       <div className="flex justify-between items-center py-1 border-b border-[#F9FAF8]">
+                        <span className="text-[#6B7280]">Phương thức vận chuyển:</span>
+                        <span className="font-bold text-[#10542C]">
+                          {String(detail.shipping_option || '').includes('BUYER') || String(detail.shipping_option || '').includes('pickup')
+                            ? 'PA3 - Buyer tự vận chuyển'
+                            : String(detail.shipping_option || '').includes('HUB')
+                            ? 'PA2 - Qua Trạm Hub Đức Trọng'
+                            : 'PA1 - Xe lạnh HoNa Fresh giao thẳng'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center py-1 border-b border-[#F9FAF8]">
                         <span className="text-[#6B7280]">Phí vận chuyển & trạm lạnh:</span>
-                        <span className="font-bold text-[#2C3E2E]">{money(detail.logistics_fee_amount)} đ</span>
+                        <span className="font-bold text-[#2C3E2E]">
+                          {String(detail.shipping_option || '').includes('BUYER') || String(detail.shipping_option || '').includes('pickup')
+                            ? '0 đ (Buyer tự chở, miễn cước xe)'
+                            : `${money(detail.logistics_fee_amount)} đ`}
+                        </span>
                       </div>
 
                       <div className="flex justify-between items-center py-1 border-b border-[#F9FAF8]">

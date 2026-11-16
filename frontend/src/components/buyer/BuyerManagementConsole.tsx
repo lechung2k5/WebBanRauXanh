@@ -8,10 +8,14 @@ import {
   getBuyerB2bContractsApi,
   getBuyerRfqsApi,
   respondBuyerRfqApi,
+  updateBuyerRfqApi,
+  cancelBuyerRfqApi,
   getStoredUser,
   getProducts,
   confirmBuyerDepositApi,
 } from '@/services/api';
+import { updateContractFulfillmentStatusApi } from '@/services/farmerApi';
+import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 import {
   B2bSyncContract,
   B2bSyncRfq,
@@ -55,6 +59,8 @@ import {
   Check,
   FileCheck2,
   X,
+  Eye,
+  Edit3,
   Filter,
   ArrowUpDown,
 } from 'lucide-react';
@@ -106,6 +112,24 @@ export default function BuyerManagementConsole() {
     farmerName?: string;
   } | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
+
+  // Quản lý Xem / Sửa / Hủy đơn đàm phán RFQ
+  const [viewingRfqDetail, setViewingRfqDetail] = useState<B2bSyncRfq | null>(null);
+  const [editingRfqDetail, setEditingRfqDetail] = useState<{
+    id: number;
+    rfqCode: string;
+    productName: string;
+    quantity: number;
+    price: number;
+    deliveryLocation: string;
+    notes: string;
+  } | null>(null);
+  const [cancellingRfqId, setCancellingRfqId] = useState<number | null>(null);
+
+  // Quản lý Điều Phối Xe Lạnh HoNa Fresh sau khi Farm đóng gói
+  const [dispatchingContract, setDispatchingContract] = useState<any | null>(null);
+  const [selectedTruckPlate, setSelectedTruckPlate] = useState('49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn)');
+  const [selectedDriverInfo, setSelectedDriverInfo] = useState('Tài xế Nguyễn Văn Tài - 0944.556.677');
 
   // Form Profile
   const [profileCompany, setProfileCompany] = useState('');
@@ -465,71 +489,6 @@ export default function BuyerManagementConsole() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Smart Background Polling (Mỗi 2 giây đồng bộ trạng thái RFQ & Hợp đồng từ Server Cache)
-    const syncInterval = window.setInterval(async () => {
-      try {
-        const res = await fetch('/api/b2b-shared-sync', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const serverRfqs: any[] = data.rfqs || [];
-        const serverContracts: any[] = data.contracts || [];
-
-        // Kiểm tra xem có RFQ nào thay đổi trạng thái (nhà vườn phản hồi giá hoặc chốt đơn)
-        setRfqs((prevRfqs) => {
-          let hasChange = false;
-          const updated = prevRfqs.map((pr) => {
-            const match = serverRfqs.find(
-              (sr) =>
-                (sr.rfqCode && pr.rfqCode && sr.rfqCode.trim().toUpperCase() === pr.rfqCode.trim().toUpperCase()) ||
-                sr.id === pr.id
-            );
-            if (
-              match &&
-              (match.status !== pr.status ||
-                match.counterPrice !== pr.counterPricePerKg ||
-                match.counterPricePerKg !== pr.counterPricePerKg)
-            ) {
-              hasChange = true;
-              return {
-                ...pr,
-                status: match.status,
-                counterPricePerKg: match.counterPrice ?? match.counterPricePerKg ?? pr.counterPricePerKg,
-              };
-            }
-            return pr;
-          });
-
-          // Nếu có RFQ mới được tạo
-          if (serverRfqs.length > prevRfqs.length) {
-            hasChange = true;
-          }
-
-          if (hasChange) {
-            void loadAllData();
-            setNotification('Dữ liệu đàm phán giá vừa được nhà vườn cập nhật thời gian thực!');
-            setTimeout(() => setNotification(null), 4000);
-          }
-          return prevRfqs;
-        });
-
-        // Kiểm tra xem có Hợp đồng mới được chốt từ phía nhà vườn
-        setContracts((prevContracts) => {
-          const prevCodes = new Set(prevContracts.map((c) => (c.contractCode || String(c.id)).trim().toUpperCase()));
-          const hasNewContract = serverContracts.some(
-            (sc) => !prevCodes.has((sc.contractCode || String(sc.id)).trim().toUpperCase())
-          );
-          if (hasNewContract) {
-            void loadAllData();
-            setNotification('Hợp đồng B2B mới vừa được nhà vườn xác lập thành công!');
-            setTimeout(() => setNotification(null), 4000);
-          }
-          return prevContracts;
-        });
-      } catch {
-        // Im lặng khi mạng chập chờn
-      }
-    }, 2000);
-
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       // Nhận sự kiện thời gian thực từ kênh đồng bộ BroadcastChannel (cùng trình duyệt)
       void loadAllData();
@@ -556,7 +515,6 @@ export default function BuyerManagementConsole() {
     });
 
     return () => {
-      window.clearInterval(syncInterval);
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleDataSync);
       window.removeEventListener('b2b_contract_updated', handleDataSync);
@@ -677,6 +635,68 @@ export default function BuyerManagementConsole() {
       setTimeout(() => setNotification(null), 3000);
     } catch {
       alert('Không thể gửi mức giá đề xuất.');
+    }
+  };
+
+  // Xử lý chỉnh sửa đơn đàm phán RFQ
+  const handleSaveEditRfq = async () => {
+    if (!editingRfqDetail) return;
+    try {
+      await updateBuyerRfqApi(editingRfqDetail.id, {
+        requestedQuantityKg: editingRfqDetail.quantity,
+        targetPricePerKg: editingRfqDetail.price,
+        deliveryLocation: editingRfqDetail.deliveryLocation,
+        notes: editingRfqDetail.notes,
+      });
+      setRfqs((prev) =>
+        prev.map((r) =>
+          r.id === editingRfqDetail.id
+            ? {
+                ...r,
+                requestedQuantityKg: editingRfqDetail.quantity,
+                targetPricePerKg: editingRfqDetail.price,
+                deliveryLocation: editingRfqDetail.deliveryLocation,
+                notes: editingRfqDetail.notes,
+              }
+            : r
+        )
+      );
+      setEditingRfqDetail(null);
+      setNotification('Cập nhật đơn đàm phán thành công!');
+      setTimeout(() => setNotification(null), 3000);
+      void loadAllData();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Lỗi cập nhật đàm phán');
+    }
+  };
+
+  // Xử lý hủy đơn đàm phán RFQ
+  const handleConfirmCancelRfq = async (id: number) => {
+    try {
+      await cancelBuyerRfqApi(id);
+      setRfqs((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: 'CANCELLED' as any } : r))
+      );
+      setCancellingRfqId(null);
+      setNotification('Đã hủy đơn đàm phán.');
+      setTimeout(() => setNotification(null), 3000);
+      void loadAllData();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Lỗi khi hủy đàm phán');
+    }
+  };
+
+  // Xử lý điều phối xe lạnh HoNa Fresh sau khi nhà vườn đóng gói (Mốc 2)
+  const handleConfirmDispatchTruck = async () => {
+    if (!dispatchingContract) return;
+    try {
+      await updateContractFulfillmentStatusApi(dispatchingContract.id, 'IN_TRANSIT');
+      setNotification(`Đã điều phối xe ${selectedTruckPlate} đến nhận hàng thành công!`);
+      setTimeout(() => setNotification(null), 4000);
+      setDispatchingContract(null);
+      void loadAllData();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Lỗi điều phối xe');
     }
   };
 
@@ -1225,21 +1245,14 @@ export default function BuyerManagementConsole() {
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-mono font-bold text-sm text-[#10542C]">{rfq.rfqCode}</span>
-                              <span
-                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                  isAccepted
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : isWaitingBuyer
-                                    ? 'bg-amber-100 text-amber-800 animate-pulse'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {isAccepted
-                                  ? 'Đã đồng ý & Tạo hợp đồng'
-                                  : isWaitingBuyer
-                                  ? 'Nhà vườn đã gửi giá mới'
-                                  : 'Đang chờ nhà vườn xem xét'}
-                              </span>
+                              {(() => {
+                                const meta = formatStatusVi(rfq.status);
+                                return (
+                                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${meta.badgeClass}`}>
+                                    {meta.label}
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <h4 className="font-bold text-sm text-[#2C3E2E]">{rfq.productName}</h4>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#6B7280]">
@@ -1247,7 +1260,7 @@ export default function BuyerManagementConsole() {
                               <span>Mã lô: <strong className="font-mono text-slate-800">{rfq.lotCode}</strong></span>
                             </div>
                             <p className="text-[#6B7280]">
-                              Khối lượng: <strong>{rfq.requestedQuantityKg.toLocaleString()} kg</strong> · Giá bạn đề xuất:{' '}
+                              Khối lượng: <strong>{(rfq.requestedQuantityKg || 0).toLocaleString()} kg</strong> · Giá bạn đề xuất:{' '}
                               <strong>{formatVND(rfq.targetPricePerKg)}/kg</strong>
                             </p>
                             {Boolean(rfq.counterPricePerKg) && (
@@ -1258,6 +1271,48 @@ export default function BuyerManagementConsole() {
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
+                            {/* Nút Xem chi tiết đơn đàm phán */}
+                            <button
+                              type="button"
+                              onClick={() => setViewingRfqDetail(rfq)}
+                              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-gray-600" />
+                              <span>Xem chi tiết</span>
+                            </button>
+
+                            {/* Nút Chỉnh sửa & Hủy đàm phán */}
+                            {['WAITING_FARMER', 'WAITING_BUYER', 'PENDING'].includes(rfq.status) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingRfqDetail({
+                                      id: rfq.id,
+                                      rfqCode: rfq.rfqCode,
+                                      productName: rfq.productName,
+                                      quantity: rfq.requestedQuantityKg,
+                                      price: rfq.counterPricePerKg || rfq.targetPricePerKg,
+                                      deliveryLocation: rfq.deliveryLocation || '',
+                                      notes: rfq.notes || '',
+                                    })
+                                  }
+                                  className="px-3 py-1.5 border border-emerald-300 hover:bg-emerald-50 text-[#10542C] font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  <span>Sửa</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCancellingRfqId(rfq.id)}
+                                  className="px-3 py-1.5 border border-rose-200 hover:bg-rose-50 text-rose-700 font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Hủy</span>
+                                </button>
+                              </>
+                            )}
+
                             {isWaitingBuyer && (
                               <>
                                 <button
@@ -1605,6 +1660,18 @@ export default function BuyerManagementConsole() {
                             </div>
                           )}
 
+                          {isPaid && ((c as any).fulfillmentStep === 2 || String(c.fulfillmentStatus) === 'PACKAGED' || c.fulfillmentStatus === 'WAITING_HARVEST') && (
+                            <button
+                              type="button"
+                              onClick={() => setDispatchingContract(c as any)}
+                              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                              title="Điều phối xe lạnh HoNa Fresh đến nhà vườn bốc hàng"
+                            >
+                              <Truck className="w-3.5 h-3.5 text-white" />
+                              <span>Điều Phối Xe Lạnh</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() =>
@@ -1858,6 +1925,336 @@ export default function BuyerManagementConsole() {
         defaultQuery={trackingContractCode}
         initialContracts={contracts}
       />
+
+      {/* =========================================================================
+          4. CÁC MODAL BỔ SUNG: XEM / SỬA / HỦY RFQ & ĐIỀU PHỐI XE LẠNH HONA FRESH
+      ========================================================================= */}
+
+      {/* 4.1. Modal Xem Chi Tiết Đơn Đàm Phán RFQ */}
+      {viewingRfqDetail && (
+        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Chi Tiết Báo Giá</span>
+                <h3 className="font-heading font-black text-base text-[#10542C]">{viewingRfqDetail.rfqCode}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingRfqDetail(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 space-y-1">
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Nông Sản Đàm Phán</span>
+                <strong className="text-sm font-bold text-gray-900 block">{viewingRfqDetail.productName}</strong>
+                <p className="text-gray-600">
+                  Mã lô: <span className="font-mono font-bold text-slate-800">{viewingRfqDetail.lotCode}</span> • Nhà vườn: <strong>{viewingRfqDetail.farmerName || 'HTX Nông Nghiệp'}</strong>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-500 font-semibold block">Khối lượng mua:</span>
+                  <strong className="text-sm font-black text-gray-900 font-mono">
+                    {(viewingRfqDetail.requestedQuantityKg || 0).toLocaleString()} kg
+                  </strong>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-500 font-semibold block">Giá bạn đề xuất:</span>
+                  <strong className="text-sm font-black text-[#10542C] font-mono">
+                    {formatVND(viewingRfqDetail.targetPricePerKg)}/kg
+                  </strong>
+                </div>
+              </div>
+
+              {Boolean(viewingRfqDetail.counterPricePerKg) && (
+                <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
+                  <span className="text-[10px] text-amber-800 font-semibold block">Nhà vườn phản hồi mức giá:</span>
+                  <strong className="text-sm font-black text-amber-900 font-mono">
+                    {formatVND(viewingRfqDetail.counterPricePerKg!)}/kg
+                  </strong>
+                </div>
+              )}
+
+              <div className="space-y-1 p-3 bg-gray-50 rounded-2xl border border-gray-100 text-gray-600">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Trạng thái:</span>
+                  {(() => {
+                    const meta = formatStatusVi(viewingRfqDetail.status);
+                    return <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${meta.badgeClass}`}>{meta.label}</span>;
+                  })()}
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Phương thức vận chuyển:</span>
+                  <strong className="text-gray-800">{viewingRfqDetail.shippingOption || 'Xe tải lạnh bảo ôn'}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Địa chỉ kho nhận:</span>
+                  <strong className="text-gray-800 text-right max-w-[65%] truncate">{viewingRfqDetail.deliveryLocation}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Ngày giao mong muốn:</span>
+                  <strong className="text-gray-800">{formatDateVi(viewingRfqDetail.desiredDeliveryDate)}</strong>
+                </div>
+                {viewingRfqDetail.notes && (
+                  <div className="pt-1 border-t border-gray-200 mt-1">
+                    <span className="text-gray-500 block">Ghi chú:</span>
+                    <p className="text-gray-700 italic">{viewingRfqDetail.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setViewingRfqDetail(null)}
+              className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition cursor-pointer text-xs"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4.2. Modal Chỉnh Sửa Đơn Đàm Phán RFQ */}
+      {editingRfqDetail && (
+        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Chỉnh Sửa Báo Giá</span>
+                <h3 className="font-heading font-black text-base text-[#10542C]">{editingRfqDetail.rfqCode}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRfqDetail(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Nông sản:</label>
+                <div className="px-3 py-2 bg-gray-100 rounded-xl font-bold text-gray-800">
+                  {editingRfqDetail.productName}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Sản lượng (kg) *</label>
+                  <input
+                    type="number"
+                    min={100}
+                    value={editingRfqDetail.quantity}
+                    onChange={(e) =>
+                      setEditingRfqDetail({ ...editingRfqDetail, quantity: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 border rounded-xl font-mono font-bold text-gray-900 focus:outline-none focus:border-[#10542C]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Giá bạn muốn mua (đ/kg) *</label>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={100}
+                    value={editingRfqDetail.price}
+                    onChange={(e) =>
+                      setEditingRfqDetail({ ...editingRfqDetail, price: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 border rounded-xl font-mono font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Địa điểm giao nhận kho:</label>
+                <input
+                  type="text"
+                  value={editingRfqDetail.deliveryLocation}
+                  onChange={(e) =>
+                    setEditingRfqDetail({ ...editingRfqDetail, deliveryLocation: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded-xl text-gray-800 focus:outline-none focus:border-[#10542C]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Ghi chú bổ sung:</label>
+                <textarea
+                  rows={2}
+                  value={editingRfqDetail.notes}
+                  onChange={(e) =>
+                    setEditingRfqDetail({ ...editingRfqDetail, notes: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded-xl text-gray-800 focus:outline-none focus:border-[#10542C]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingRfqDetail(null)}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition cursor-pointer text-xs"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditRfq}
+                className="flex-1 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold rounded-xl transition cursor-pointer text-xs shadow-md"
+              >
+                Lưu Thay Đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4.3. Modal Xác Nhận Hủy Đơn Đàm Phán RFQ */}
+      {cancellingRfqId !== null && (
+        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 mx-auto flex items-center justify-center border border-rose-100">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-heading font-black text-base text-gray-900">Xác Nhận Hủy Đàm Phán</h3>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Bạn có chắc chắn muốn hủy yêu cầu đàm phán giá này không? Thao tác này sẽ ngừng phiên thương lượng với nhà vườn.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setCancellingRfqId(null)}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition cursor-pointer"
+              >
+                Quay lại
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmCancelRfq(cancellingRfqId)}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition cursor-pointer shadow-md"
+              >
+                Đồng ý hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4.4. Modal Điều Phối Xe Lạnh HoNa Fresh Sau Khi Farm Đóng Gói */}
+      {dispatchingContract && (
+        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block">Điều Phối Vận Tải Lạnh</span>
+                <h3 className="font-heading font-black text-base text-[#10542C]">
+                  Xe Lạnh HoNa Express · {dispatchingContract.contractCode}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDispatchingContract(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 text-xs space-y-1">
+              <span className="text-[10px] text-blue-700 font-bold uppercase tracking-wider block">Thông Tin Đơn Hàng</span>
+              <strong className="text-sm font-bold text-gray-900 block">{dispatchingContract.productName}</strong>
+              <div className="flex justify-between text-blue-900 pt-1 border-t border-blue-200/60">
+                <span>Khối lượng cần vận chuyển:</span>
+                <b className="font-mono">{((dispatchingContract.quantity || dispatchingContract.quantityKg) ?? 0).toLocaleString()} kg</b>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Chọn Phương Tiện Xe Tải Lạnh Chuyên Dụng:</label>
+                <select
+                  value={selectedTruckPlate}
+                  onChange={(e) => setSelectedTruckPlate(e.target.value)}
+                  className="w-full px-3 py-2.5 border rounded-xl font-bold text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C] cursor-pointer"
+                >
+                  <option value="49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn)">
+                    49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn - Đà Lạt)
+                  </option>
+                  <option value="51D-882.34 (Xe Tải Lạnh HoNa Hino 8 Tấn)">
+                    51D-882.34 (Xe Tải Lạnh HoNa Hino 8 Tấn - TP.HCM)
+                  </option>
+                  <option value="60B-345.67 (Xe Lạnh Trung Chuyển Dầu Giây 3.5 Tấn)">
+                    60B-345.67 (Xe Lạnh Trung Chuyển Dầu Giây 3.5 Tấn)
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Tài Xế Phụ Trách & Hotline Vận Hành:</label>
+                <select
+                  value={selectedDriverInfo}
+                  onChange={(e) => setSelectedDriverInfo(e.target.value)}
+                  className="w-full px-3 py-2.5 border rounded-xl font-bold text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C] cursor-pointer"
+                >
+                  <option value="Tài xế Nguyễn Văn Tài - 0944.556.677">
+                    Nguyễn Văn Tài (Đội xe Lâm Đồng - 0944.556.677)
+                  </option>
+                  <option value="Tài xế Lê Văn Hùng - 0912.889.900">
+                    Lê Văn Hùng (Đội xe TP.HCM - 0912.889.900)
+                  </option>
+                  <option value="Tài xế Trần Quốc Bảo - 0988.223.344">
+                    Trần Quốc Bảo (Đội xe Dầu Giây - 0988.223.344)
+                  </option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-gray-600 space-y-1">
+                <div className="flex justify-between">
+                  <span>Nhiệt độ thùng xe kiểm soát IoT:</span>
+                  <b className="text-emerald-700 font-mono">2.0°C - 6.0°C (Đạt chuẩn)</b>
+                </div>
+                <div className="flex justify-between">
+                  <span>Kho giao hàng:</span>
+                  <b className="text-gray-800 text-right max-w-[65%] truncate">
+                    {dispatchingContract.deliveryAddress || dispatchingContract.hubName || 'Kho thương lái'}
+                  </b>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setDispatchingContract(null)}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDispatchTruck}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+              >
+                <Truck className="w-4 h-4 text-white" />
+                <span>Xác Nhận Xuất Xe (Tiến Mốc 3)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

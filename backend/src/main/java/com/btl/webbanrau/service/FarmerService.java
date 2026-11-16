@@ -38,6 +38,7 @@ public class FarmerService {
     private final QcInspectionRepository qcInspectionRepository;
     private final SettlementRepository settlementRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final B2bRealtimeService b2bRealtimeService;
 
     private boolean isAdmin(User user) {
         return user != null && user.getRoles() != null &&
@@ -344,7 +345,9 @@ public class FarmerService {
                 saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
                 saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
                 "ACCEPT".equals(action) ? "Người bán chấp nhận đề xuất" : saved.getRejectReason());
-        return mapToRfqResponse(saved);
+        RfqResponse rfqRes = mapToRfqResponse(saved);
+        b2bRealtimeService.notifyRfqUpdated(action, saved.getRfqCode(), rfqRes);
+        return rfqRes;
     }
 
     // 5. B2B Contracts & QC
@@ -364,7 +367,9 @@ public class FarmerService {
             throw new IllegalStateException("Hợp đồng đã qua giai đoạn bắt đầu thu hoạch.");
         }
         contract.setFulfillmentStatus("HARVESTING");
-        return mapToContractResponse(b2bContractRepository.save(contract));
+        B2bContractResponse res = mapToContractResponse(b2bContractRepository.save(contract));
+        b2bRealtimeService.notifyContractUpdated("HARVESTING", contract.getContractCode(), res);
+        return res;
     }
 
     @Transactional
@@ -376,7 +381,9 @@ public class FarmerService {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
         }
         contract.setFulfillmentStatus(status);
-        return mapToContractResponse(b2bContractRepository.save(contract));
+        B2bContractResponse res = mapToContractResponse(b2bContractRepository.save(contract));
+        b2bRealtimeService.notifyContractUpdated(status, contract.getContractCode(), res);
+        return res;
     }
 
     @Transactional(readOnly = true)

@@ -1,8 +1,14 @@
 /**
  * Dịch vụ Đồng bộ Hóa Dữ liệu B2B Hai Chiều giữa Nông Dân (Farmer) và Thương Lái (Buyer)
- * Sử dụng BroadcastChannel + LocalStorage để đồng bộ tức thì trên trình duyệt,
- * kết hợp tương thích với Backend API.
+ * Sử dụng WebSocket STOMP chuẩn (/ws-b2b) kết hợp BroadcastChannel + LocalStorage
+ * để đồng bộ tức thì trên trình duyệt và giữa nhiều máy tính độc lập.
  */
+
+import { b2bWebSocket, initB2bWebSocket } from './websocketService';
+
+if (typeof window !== 'undefined') {
+  initB2bWebSocket();
+}
 
 export interface B2bSyncRfq {
   id: number;

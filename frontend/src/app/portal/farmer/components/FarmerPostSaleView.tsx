@@ -123,11 +123,7 @@ export default function FarmerPostSaleView({
     const unsub = subscribeB2bSyncEvents(() => {
       void refreshContracts();
     });
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refreshContracts();
-    }, 5000);
     return () => {
-      window.clearInterval(timer);
       unsub();
     };
   }, []);

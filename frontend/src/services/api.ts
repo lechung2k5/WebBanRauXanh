@@ -562,6 +562,7 @@ export const getProducts = async (
 
   try {
     const lotRes = await getPublicHarvestLotsApi({
+      keyword: keyword || undefined,
       status: 'OPEN', // Chỉ có sản phẩm đang mở bán mới được hiển thị trên sàn
       category: resolvedCategory,
       page: shouldFilterKeywordClientSide ? 0 : page,
@@ -864,6 +865,32 @@ export const respondBuyerRfqApi = async (id: number, request: { action: 'ACCEPT'
   });
   const data: ApiResponse<BuyerRfq> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể cập nhật phiên đàm phán');
+  return data.result;
+};
+
+export const updateBuyerRfqApi = async (
+  id: number,
+  request: { targetPricePerKg?: number; requestedQuantityKg?: number; deliveryLocation?: string; notes?: string }
+) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<BuyerRfq> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể chỉnh sửa đơn đàm phán');
+  return data.result;
+};
+
+export const cancelBuyerRfqApi = async (id: number) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/rfq/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  const data: ApiResponse<void> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể hủy đơn đàm phán');
   return data.result;
 };
 

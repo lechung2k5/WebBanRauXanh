@@ -730,45 +730,50 @@ export default function B2BNegotiationModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-[#2C3E2E] mb-1">
-                  Địa điểm giao / Nhận nông sản *
+                  Địa điểm nhận nông sản (Mặc định theo tài khoản, có thể sửa) *
                 </label>
-                <select
+                <input
+                  type="text"
+                  required
                   value={deliveryLocation}
                   onChange={(e) => setDeliveryLocation(e.target.value)}
+                  placeholder="Nhập địa chỉ kho giao hàng..."
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
-                >
-                  {deliveryLocation &&
-                    ![
-                      'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
-                      'Chợ Đầu Mối Hóc Môn, TP.HCM',
-                      'Chợ Đầu Mối Bình Điền, TP.HCM',
-                      'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
-                      'Kho lạnh riêng của thương lái',
-                      'Nhận hàng tại cổng nông trại (FOB xuất vườn)',
-                    ].includes(deliveryLocation) && (
-                      <option value={deliveryLocation}>
-                        {deliveryLocation} (Kho theo tài khoản)
-                      </option>
-                    )}
-                  <option value="Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM">
-                    Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM
-                  </option>
-                  <option value="Chợ Đầu Mối Hóc Môn, TP.HCM">
-                    Chợ Đầu Mối Hóc Môn, TP.HCM
-                  </option>
-                  <option value="Chợ Đầu Mối Bình Điền, TP.HCM">
-                    Chợ Đầu Mối Bình Điền, TP.HCM
-                  </option>
-                  <option value="Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)">
-                    Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)
-                  </option>
-                  <option value="Kho lạnh riêng của thương lái">
-                    Kho lạnh riêng của thương lái
-                  </option>
-                  <option value="Nhận hàng tại cổng nông trại (FOB xuất vườn)">
-                    Nhận hàng tại cổng nông trại (FOB xuất vườn)
-                  </option>
-                </select>
+                />
+                <div className="flex flex-wrap gap-1 mt-1 text-[10px] text-gray-500">
+                  <span className="font-semibold text-gray-600">Gợi ý nhanh:</span>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryLocation('Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM')}
+                    className="underline hover:text-[#10542C] cursor-pointer"
+                  >
+                    Thủ Đức
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryLocation('Chợ Đầu Mối Hóc Môn, TP.HCM')}
+                    className="underline hover:text-[#10542C] cursor-pointer"
+                  >
+                    Hóc Môn
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryLocation('Chợ Đầu Mối Bình Điền, TP.HCM')}
+                    className="underline hover:text-[#10542C] cursor-pointer"
+                  >
+                    Bình Điền
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryLocation('Nhận hàng tại cổng nông trại (FOB xuất vườn)')}
+                    className="underline hover:text-[#10542C] cursor-pointer"
+                  >
+                    Tại vườn
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -786,25 +791,37 @@ export default function B2BNegotiationModal({
 
             {/* Phương thức vận chuyển */}
             <div>
-              <label className="block text-xs font-bold text-[#2C3E2E] mb-1.5">
-                Phương thức vận chuyển & Logistics lạnh
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-[#2C3E2E]">
+                  Phương thức vận chuyển & Logistics lạnh (3 Phương Án Chuẩn)
+                </label>
+                <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded">
+                  {shippingOption === 'farm_pickup'
+                    ? 'PA3: Khấu trừ cước xe ~1.000đ/kg'
+                    : shippingOption === 'farm_delivery'
+                    ? 'PA2: Qua Trạm lạnh Đức Trọng'
+                    : 'PA1: Xe lạnh Hona Fresh giao thẳng'}
+                </span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   {
                     id: 'cold_storage_truck',
-                    label: 'Xe tải lạnh bảo ôn',
-                    desc: 'Kiểm soát nhiệt 5-10°C',
+                    code: 'PA1',
+                    label: 'PA1 - Xe lạnh Hona Fresh',
+                    desc: 'Giao thẳng tận nơi từ nhà vườn đến kho Buyer',
                   },
                   {
                     id: 'farm_delivery',
-                    label: 'HTX bao vận chuyển',
-                    desc: 'Giao tận kho thương lái',
+                    code: 'PA2',
+                    label: 'PA2 - Qua Trạm/Kho Hub',
+                    desc: 'Trung chuyển qua trạm sơ chế & bảo quản lạnh Đức Trọng',
                   },
                   {
                     id: 'farm_pickup',
-                    label: 'Thương lái tự bốc tại vườn',
-                    desc: 'Tiết kiệm chi phí vận chuyển',
+                    code: 'PA3',
+                    label: 'PA3 - Buyer tự vận chuyển',
+                    desc: 'Tự điều xe bốc tại vườn (Giảm cước vận tải)',
                   },
                 ].map((opt) => (
                   <button

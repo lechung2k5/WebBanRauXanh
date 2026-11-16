@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext';
 import { api, portalFor } from '@/services/auth';
 import { LayoutDashboard, Users, Sprout, Handshake, Warehouse, Thermometer, Truck, Receipt, LogOut, Plus, RefreshCw, X, Search, Menu } from 'lucide-react';
 import ImageUploadField from '../ImageUploadField';
+import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 
 export type Row = Record<string, unknown>;
 export type Field = { name: string; label: string; type?: string; options?: string[]; value?: string | number; optional?: boolean; min?: number; max?: number; hint?: string };
@@ -151,18 +152,10 @@ export function DataTable({ rows, columns, actions }: { rows: Row[]; columns: [s
 
   const renderBadge = (val: unknown) => {
     const text = str(val);
-    const positive = ['OPEN', 'NORMAL', 'VERIFIED', 'ACTIVE', 'IN_TRANSIT', 'true'].includes(text);
-    const negative = ['TEMP_WARNING', 'REJECTED', 'MAINTENANCE', 'LOCKED', 'false'].includes(text);
-    const warning = ['PENDING', 'WARNING'].includes(text);
-
-    let colorClass = 'bg-gray-100 text-gray-700 border-gray-200';
-    if (positive) colorClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
-    else if (negative) colorClass = 'bg-rose-50 text-rose-800 border-rose-200';
-    else if (warning) colorClass = 'bg-amber-50 text-amber-800 border-amber-200';
-
+    const meta = formatStatusVi(text);
     return (
-      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${colorClass}`}>
-        {text}
+      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${meta.badgeClass}`}>
+        {meta.label}
       </span>
     );
   };
@@ -187,6 +180,8 @@ export function DataTable({ rows, columns, actions }: { rows: Row[]; columns: [s
                 <td key={key} className="py-3 px-3.5 max-w-[260px] break-words text-[#2C3E2E]">
                   {key === 'status' || key === 'kycStatus'
                     ? renderBadge(row[key])
+                    : ['harvest_date', 'expiry_date', 'created_at', 'updated_at', 'deposit_paid_at'].includes(key)
+                    ? formatDateVi(row[key] as any)
                     : str(row[key], String(row.asset_code || row.username || ''))}
                 </td>
               ))}

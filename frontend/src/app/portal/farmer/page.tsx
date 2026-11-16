@@ -116,6 +116,7 @@ import { getRfqStatusMeta, isRfqExpiredAt, isRfqWaitingForFarmer } from '@/utils
 import RfqHistoryTimeline, { type RfqHistoryEvent } from '@/components/RfqHistoryTimeline';
 import B2BNotificationBell from '@/components/B2BNotificationBell';
 import RfqCountdown from '@/components/RfqCountdown';
+import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 
 const FARMER_LOTS_PAGE_SIZE = 10;
 
@@ -1866,17 +1867,17 @@ function FarmerPortalContent() {
                         <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600">
                           <div>
                             <span className="text-gray-500">Thu hoạch:</span>
-                            <p className="font-bold text-gray-800">{lot.harvestDate}</p>
+                            <p className="font-bold text-gray-800">{formatDateVi(lot.harvestDate)}</p>
                           </div>
                           <div>
                             <span className="text-gray-500">Hạn bảo quản:</span>
-                            <p className="font-bold text-gray-800">{lot.expiryDate}</p>
+                            <p className="font-bold text-gray-800">{formatDateVi(lot.expiryDate)}</p>
                           </div>
                         </div>
 
                         {/* Quantity */}
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-600 font-medium">Sản lượng cung ứng:</span>
+                          <span className="text-gray-600 font-medium">Sản lượng dự kiến thu hoạch (Ước tính):</span>
                           <span className="font-bold text-[#10542C]">
                             {(lot.remainingQuantity ?? lot.availableWeightKg ?? 0).toLocaleString()} / {(lot.totalQuantity ?? lot.totalWeightKg ?? 0).toLocaleString()} {lot.unit || 'kg'}
                           </span>
@@ -3897,7 +3898,7 @@ function FarmerPortalContent() {
               {/* SẢN LƯỢNG & THỜI HẠN THU HOẠCH - FEFO */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">Tổng Sản Lượng (kg) *</label>
+                  <label className="block font-semibold text-gray-700 mb-1">Sản Lượng Dự Kiến Thu Hoạch (Ước tính kg) *</label>
                   <input
                     type="number"
                     required

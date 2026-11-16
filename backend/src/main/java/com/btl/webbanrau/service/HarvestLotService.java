@@ -28,6 +28,7 @@ public class HarvestLotService {
 
     private final HarvestLotRepository harvestLotRepository;
     private final com.btl.webbanrau.repository.UserRepository userRepository;
+    private final B2bRealtimeService b2bRealtimeService;
 
     @Transactional(readOnly = true)
     public PageResponse<HarvestLotResponse> getLots(
@@ -140,7 +141,9 @@ public class HarvestLotService {
                 .region(request.getRegion())
                 .build();
 
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_CREATED", response);
+        return response;
     }
 
     @Transactional
@@ -184,7 +187,9 @@ public class HarvestLotService {
         if (request.getWarehouseLocation() != null) lot.setWarehouseLocation(request.getWarehouseLocation());
         if (request.getRegion() != null) lot.setRegion(request.getRegion());
 
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_UPDATED", response);
+        return response;
     }
 
     @Transactional
@@ -204,7 +209,9 @@ public class HarvestLotService {
         }
 
         log.info("Cập nhật trạng thái Lô {} -> {} (Lý do: {})", lot.getLotCode(), newStatus, request.getRejectionReason());
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_STATUS_CHANGED", response);
+        return response;
     }
 
     @Transactional
