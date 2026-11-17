@@ -71,6 +71,20 @@ public class FarmerController {
         return ResponseEntity.ok(ApiResponse.success("Cập nhật lô hàng thành công!", farmerService.updateHarvestLot(id, request)));
     }
 
+    @DeleteMapping("/harvest-lots/{id}")
+    @Operation(summary = "Hủy lô nông sản (Chỉ khi chưa có hợp đồng nào được cọc 30%)")
+    public ResponseEntity<ApiResponse<Void>> cancelHarvestLot(@PathVariable Long id) {
+        farmerService.cancelHarvestLot(id);
+        return ResponseEntity.ok(ApiResponse.success("Hủy lô hàng thành công!", null));
+    }
+
+    @DeleteMapping("/harvest-lots/{id}/permanent")
+    @Operation(summary = "Xóa vĩnh viễn lô nông sản đã hủy để dọn dẹp dữ liệu")
+    public ResponseEntity<ApiResponse<Void>> deleteHarvestLotPermanent(@PathVariable Long id) {
+        farmerService.deleteHarvestLotPermanent(id);
+        return ResponseEntity.ok(ApiResponse.success("Xóa vĩnh viễn lô hàng thành công!", null));
+    }
+
     // 4. RFQ Negotiations
     @GetMapping("/rfq")
     @Operation(summary = "Lấy danh sách các yêu cầu báo giá sỉ (RFQ) từ thương lái")
@@ -103,6 +117,14 @@ public class FarmerController {
     @PostMapping("/contracts/{id}/start-harvest")
     public ResponseEntity<ApiResponse<B2bContractResponse>> startHarvest(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(farmerService.startHarvest(id)));
+    }
+
+    @PostMapping("/contracts/{id}/verify-harvest")
+    @Operation(summary = "Nông dân nghiệm thu sản lượng sau thu hoạch & đóng gói (sản lượng kg thực tế, ảnh cân, thùng, tem QR)")
+    public ResponseEntity<ApiResponse<B2bContractResponse>> verifyHarvest(
+            @PathVariable Long id,
+            @Valid @RequestBody com.btl.webbanrau.dto.request.VerifyHarvestRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Nghiệm thu thu hoạch và đóng gói thành công!", farmerService.verifyHarvest(id, request)));
     }
 
     @PatchMapping("/contracts/{id}/fulfillment-status")

@@ -29,10 +29,26 @@ import {
   Scale,
   ShieldCheck,
   QrCode,
+  Truck,
+  ExternalLink,
 } from 'lucide-react';
 import { FormDialog, Row, Field, cleanVietnamese } from '@/components/admin/AdminConsole';
 import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
-import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import {
+  subscribeB2bSyncEvents,
+  getSyncContracts,
+  updateContractFulfillmentStep,
+  adminDispatchPickup,
+  adminFarmHandover,
+  adminWarehouseInbound,
+  adminOutboundDispatch,
+  adminSettleContract,
+} from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
+import { DispatchFarmPickupModal } from '@/components/admin/DispatchFarmPickupModal';
+import { ColdWarehouseInboundModal } from '@/components/admin/ColdWarehouseInboundModal';
+import { OutboundDispatchManifestModal } from '@/components/admin/OutboundDispatchManifestModal';
+import { SettlementStatementModal } from '@/components/admin/SettlementStatementModal';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
 
@@ -231,6 +247,44 @@ export default function AdminContractsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+  // Quản lý các Modal quy trình chuyên sâu chuẩn Production
+  const [activeCustomModal, setActiveCustomModal] = useState<
+    'NONE' | 'DISPATCH_PICKUP' | 'FARM_HANDOVER' | 'WAREHOUSE_INBOUND' | 'OUTBOUND_DISPATCH' | 'SETTLE'
+  >('NONE');
+  const [activeModalContract, setActiveModalContract] = useState<Row | null>(null);
+  const [settlementQuoteData, setSettlementQuoteData] = useState<Row | null>(null);
+
+  const openDispatchPickupModal = (row: Row) => {
+    setActiveModalContract(row);
+    setActiveCustomModal('DISPATCH_PICKUP');
+  };
+
+  const openFarmHandoverModal = (row: Row) => {
+    setActiveModalContract(row);
+    setActiveCustomModal('FARM_HANDOVER');
+  };
+
+  const openWarehouseInboundModal = (row: Row) => {
+    setActiveModalContract(row);
+    setActiveCustomModal('WAREHOUSE_INBOUND');
+  };
+
+  const openOutboundDispatchModal = (row: Row) => {
+    setActiveModalContract(row);
+    setActiveCustomModal('OUTBOUND_DISPATCH');
+  };
+
+  const openSettlementModal = async (row: Row) => {
+    try {
+      const q = await api<Row>(`admin/contracts/${row.id}/settlement-quote`);
+      setSettlementQuoteData(q);
+    } catch {
+      setSettlementQuoteData(null);
+    }
+    setActiveModalContract(row);
+    setActiveCustomModal('SETTLE');
+  };
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -240,7 +294,90 @@ export default function AdminContractsPage() {
         api<Row[]>('admin/claims').catch(() => []),
         api<Row>('admin/dashboard/stats').catch(() => ({})),
       ]);
-      setContracts(Array.isArray(contractsData) ? contractsData : []);
+
+      const syncList = getSyncContracts();
+      const serverRows = Array.isArray(contractsData) ? contractsData : [];
+      const serverCodes = new Set(serverRows.map((r) => str(r.contract_code).toUpperCase()));
+
+      // Kết hợp thông tin tiến độ thu hoạch và trạng thái cọc từ Sync Channel
+      const enrichedServerRows = serverRows.map((row) => {
+        const sc = syncList.find(
+          (s) =>
+            (s.contractCode && str(row.contract_code).toUpperCase() === s.contractCode.toUpperCase()) ||
+            s.id === Number(row.id)
+        );
+        if (sc) {
+          const isDepositPaid = sc.depositStatus === 'DEPOSIT_PAID' || str(row.status) === 'DEPOSIT_PAID';
+          const isHarvestDone = Boolean(
+            (sc as any).isHarvestDone ||
+            sc.fulfillmentStatusName?.includes('Đã Thu Hoạch') ||
+            sc.fulfillmentStep > 2 ||
+            row.actual_harvest_weight_kg ||
+            str(row.status) === 'HARVESTED'
+          );
+          return {
+            ...row,
+            deposit_received: isDepositPaid ? (row.deposit_received || sc.depositAmount || row.deposit_30_amount) : row.deposit_received,
+            status: isDepositPaid && str(row.status) === 'AGREED' ? 'DEPOSIT_PAID' : (isHarvestDone && str(row.status) === 'DEPOSIT_PAID' ? 'HARVESTED' : row.status),
+            fulfillment_step: sc.fulfillmentStep || row.fulfillment_step,
+            fulfillment_status: sc.fulfillmentStatusName || row.fulfillment_status,
+            actual_harvest_weight_kg: row.actual_harvest_weight_kg || sc.actualHarvestWeightKg,
+            grade1_ratio: row.grade1_ratio || (sc as any).grade1Ratio || 96,
+            package_count: row.package_count || sc.packageCount,
+            package_type: row.package_type || sc.packageType,
+            qr_code_data: row.qr_code_data || sc.qrCodeData,
+            farm_pickup_address: row.farm_pickup_address || sc.farmPickupAddress,
+            harvest_proof_image_url: row.harvest_proof_image_url || sc.harvestProofImageUrl,
+            harvest_notes: row.harvest_notes || (sc as any).notes,
+            is_harvest_done: isHarvestDone,
+          };
+        }
+        return {
+          ...row,
+          is_harvest_done: Boolean(row.is_harvest_done || row.actual_harvest_weight_kg || str(row.status) === 'HARVESTED'),
+        };
+      });
+
+      // Bổ sung các hợp đồng mới tạo từ Sync Channel chưa kịp ghi server
+      const localRows: Row[] = syncList
+        .filter((sc) => sc.contractCode && !serverCodes.has(sc.contractCode.toUpperCase()))
+        .map((sc) => {
+          const isHarvestDone = Boolean(
+            (sc as any).isHarvestDone ||
+            sc.fulfillmentStatusName?.includes('Đã Thu Hoạch') ||
+            sc.fulfillmentStep > 2 ||
+            sc.actualHarvestWeightKg
+          );
+          return {
+            id: sc.id,
+            contract_code: sc.contractCode,
+            rfq_code: sc.rfqCode,
+            lot_code: sc.lotCode,
+            product_name: sc.productName,
+            buyer_name: sc.buyerCompany || sc.buyerName,
+            farmer_name: sc.farmerCompany || sc.farmerName,
+            offered_weight_kg: sc.quantityKg,
+            price_per_kg: sc.agreedPricePerKg,
+            total_goods_amount: sc.totalAmount,
+            deposit_30_amount: sc.depositAmount,
+            deposit_received: sc.depositStatus === 'DEPOSIT_PAID' ? sc.depositAmount : 0,
+            status: isHarvestDone ? 'HARVESTED' : (sc.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'AGREED'),
+            fulfillment_step: sc.fulfillmentStep,
+            fulfillment_status: isHarvestDone ? 'HARVESTED' : sc.fulfillmentStep > 2 ? 'IN_TRANSIT' : 'WAITING_HARVEST',
+            actual_harvest_weight_kg: sc.actualHarvestWeightKg,
+            grade1_ratio: (sc as any).grade1Ratio || 96,
+            package_count: sc.packageCount,
+            package_type: sc.packageType,
+            qr_code_data: sc.qrCodeData,
+            farm_pickup_address: sc.farmPickupAddress,
+            harvest_proof_image_url: sc.harvestProofImageUrl,
+            harvest_notes: (sc as any).notes,
+            is_harvest_done: isHarvestDone,
+            created_at: sc.createdAt,
+          };
+        });
+
+      setContracts([...enrichedServerRows, ...localRows]);
       setClaims(Array.isArray(disputesData) ? disputesData : []);
       setStats(statsData || {});
     } catch (e) {
@@ -252,18 +389,39 @@ export default function AdminContractsPage() {
 
   useEffect(() => {
     void loadData();
+
+    // 1. Đồng bộ sự kiện B2B nội bộ (BroadcastChannel & LocalStorage)
     const unsubscribe = subscribeB2bSyncEvents(() => {
       void loadData();
     });
-    return () => unsubscribe();
+
+    // 2. Đồng bộ thời gian thực qua STOMP WebSocket Server (/topic/contracts và /topic/lots)
+    const unsubWsContracts = b2bWebSocket.subscribeContracts(() => {
+      void loadData();
+    });
+    const unsubWsLots = b2bWebSocket.subscribeLots(() => {
+      void loadData();
+    });
+
+    return () => {
+      unsubscribe();
+      unsubWsContracts();
+      unsubWsLots();
+    };
   }, [loadData]);
 
-  const openDialog = (title: string, endpoint: string, fields: Field[], method = 'POST', fixed: Row = {}) => {
+  const openDialog = (title: string, endpoint: string, fields: Field[], method = 'POST', fixed: Row = {}, contractId?: number | string) => {
     setDialog({
       title,
       fields,
       submit: async (values) => {
         await api(endpoint, method, { ...values, ...fixed });
+        if (fixed.status === 'AT_HUB_QC' && contractId) {
+          try {
+            updateContractFulfillmentStep(contractId as any, 4, { fulfillmentStatusName: 'Đã Nhập Kho HoNa & Kiểm Định QC' });
+            b2bWebSocket.publish('/topic/contracts', { action: 'MOVED_TO_QC_HUB', contractId, status: 'AT_HUB_QC' });
+          } catch {}
+        }
         await loadData();
       },
     });
@@ -297,7 +455,70 @@ export default function AdminContractsPage() {
       `admin/contracts/${row.id}/status`,
       fields,
       'PATCH',
-      { status: next }
+      { status: next },
+      row.id as any
+    );
+  };
+
+  const handleDispatchPickup = (row: Row) => {
+    const defaultAddr = str(row.farm_pickup_address) !== '—' ? str(row.farm_pickup_address) : (str(row.farmer_name) + ' - Vùng trồng VietGAP');
+    openDialog(
+      `🚚 Điều phối xe lạnh lấy hàng tại vườn · ${row.contract_code}`,
+      `admin/contracts/${row.id}/dispatch-pickup`,
+      [
+        f('truckPlate', 'Biển số xe tải lạnh HoNa Fresh', 'text', '49C-198.86 (Xe thùng lạnh 5 tấn)'),
+        f('driverName', 'Tên tài xế phụ trách', 'text', 'Nguyễn Văn Tài (HoNa Cold Express)'),
+        f('driverPhone', 'Số điện thoại tài xế', 'text', '0981.234.567'),
+        f('pickupAddress', 'Địa chỉ vườn đón xe (Farmer khai báo)', 'text', defaultAddr),
+      ],
+      'POST',
+      {},
+      row.id as any
+    );
+  };
+
+  const handleFarmHandover = (row: Row) => {
+    openDialog(
+      `🌿 Biên bản bàn giao & lấy hàng tại vườn · ${row.contract_code}`,
+      `admin/contracts/${row.id}/farm-handover`,
+      [
+        f('handoverTemp', 'Nhiệt độ cuống rau đo tại farm (°C, chuẩn ≤ 15°C)', 'number', 12.5),
+        f('packageCount', 'Số lượng thùng thực nhận tại farm', 'number', Number(row.package_count || 10)),
+      ],
+      'POST',
+      {},
+      row.id as any
+    );
+  };
+
+  const handleWarehouseInbound = (row: Row) => {
+    openDialog(
+      `🏢 Nhập kho lạnh HoNa & Cấp chứng chỉ QC · ${row.contract_code}`,
+      `admin/contracts/${row.id}/warehouse-inbound`,
+      [
+        select('zone', 'Phân khu kho bảo quản HoNa', ['Zone A (Lạnh mát 2-6°C - Rau ăn lá)', 'Zone B (Lạnh sâu -2 đến 2°C - Củ quả)', 'Zone C (Mát 8-12°C - Trái cây)']),
+        f('rackBin', 'Vị trí kệ/ô lưu kho (WMS Slotting)', 'text', 'Kệ R-03 Ô B-12'),
+        f('maxStorageDays', 'Số ngày tối đa lưu kho (Dựa trên ngày nhận Buyer & FEFO)', 'number', 5),
+        f('qcCertUrl', 'Mã phiếu xét nghiệm / Link chứng chỉ test Nitrat/BVTV', 'text', 'https://qc.honafresh.vn/cert-' + String(row.contract_code || '').toLowerCase()),
+      ],
+      'POST',
+      {},
+      row.id as any
+    );
+  };
+
+  const handleOutboundDispatch = (row: Row) => {
+    openDialog(
+      `🚛 Điều phối chuyến xe xuất kho chặng cuối · ${row.contract_code}`,
+      `admin/contracts/${row.id}/outbound-dispatch`,
+      [
+        f('truckPlate', 'Biển số xe giao chặng cuối đến Buyer', 'text', '51D-921.88 (Xe lạnh HoNa Express)'),
+        f('driverName', 'Tài xế giao hàng', 'text', 'Trần Quốc Bảo'),
+        f('deliveryAddress', 'Địa chỉ kho Buyer nhận hàng', 'text', str(row.delivery_address)),
+      ],
+      'POST',
+      {},
+      row.id as any
     );
   };
 
@@ -576,16 +797,139 @@ export default function AdminContractsPage() {
                           )}
 
                           {/* Nút thao tác chuyển trạng thái tiếp theo trong quy trình */}
-                          {nextState[str(row.status)] && (
-                            <button
-                              type="button"
-                              onClick={() => void advanceStatus(row)}
-                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
-                            >
-                              <span>{nextStateLabel[str(row.status)] || nextState[str(row.status)]}</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          )}
+                          {(() => {
+                            if (str(row.status) === 'SETTLED') return null;
+
+                            const isDepositPaid = str(row.status) === 'DEPOSIT_PAID';
+                            const rawFulfill = String(row.fulfillment_status || '').toUpperCase();
+                            const isHarvestDone = Boolean(
+                              row.is_harvest_done ||
+                              rawFulfill.includes('HARVESTED') ||
+                              rawFulfill.includes('PACKAGED') ||
+                              rawFulfill.includes('PICKUP_DISPATCHED') ||
+                              rawFulfill.includes('IN_TRANSIT_HUB') ||
+                              rawFulfill.includes('AT_HUB_QC') ||
+                              String(row.status).toUpperCase().includes('HARVESTED') ||
+                              String(row.status).toUpperCase().includes('AT_HUB_QC') ||
+                              Number(row.fulfillment_step || 0) >= 2
+                            );
+
+                            // 1. Chờ nhà vườn thu hoạch
+                            if (isDepositPaid && !isHarvestDone) {
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 rounded-xl border border-amber-200"
+                                  title="Nhà vườn đang tiến hành thu hoạch nông sản tại vườn. Nút Điều phối xe sẽ xuất hiện ngay khi nhà vườn nộp biên bản nghiệm thu thu hoạch."
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                  <span>Chờ nhà vườn thu hoạch</span>
+                                </span>
+                              );
+                            }
+
+                            // 2. Farmer đã thu hoạch xong -> Admin điều phối xe lấy hàng tại vườn
+                            if (
+                              (isDepositPaid && isHarvestDone && !rawFulfill.includes('PICKUP_DISPATCHED') && !rawFulfill.includes('IN_TRANSIT_HUB') && str(row.status) !== 'AT_HUB_QC' && str(row.status) !== 'IN_TRANSIT' && str(row.status) !== 'DELIVERED') ||
+                              str(row.status) === 'HARVESTED' ||
+                              (rawFulfill === 'HARVESTED' && str(row.status) !== 'AT_HUB_QC' && str(row.status) !== 'IN_TRANSIT')
+                            ) {
+                              return (
+                                <div className="flex flex-col items-start gap-1">
+                                  {Boolean(row.actual_harvest_weight_kg) && (
+                                    <span className="text-[10px] text-emerald-800 bg-emerald-50 font-bold px-2 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      Đã thu: {money(row.actual_harvest_weight_kg)} kg ({str(row.package_count || 10)} thùng)
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => openDispatchPickupModal(row)}
+                                    className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-98"
+                                    title="Điều phối xe tải lạnh HoNa Fresh đến lấy hàng tại vườn của nông dân"
+                                  >
+                                    <Truck className="w-3.5 h-3.5 text-white" />
+                                    <span>Điều phối xe lấy tại farm</span>
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            // 3. Đã điều phối xe đến vườn -> Xác nhận lấy hàng tại vườn
+                            if (rawFulfill === 'PICKUP_DISPATCHED' || str(row.status) === 'PICKUP_DISPATCHED') {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openFarmHandoverModal(row)}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Xác nhận nhiệt độ cuống rau và lấy hàng tại vườn để chở về kho HoNa"
+                                >
+                                  <Sprout className="w-3 h-3" />
+                                  <span>Xác nhận lấy hàng tại farm</span>
+                                </button>
+                              );
+                            }
+
+                            // 4. Đang trên đường về kho HoNa -> Nhập kho HoNa & Kiểm định QC
+                            if (rawFulfill === 'IN_TRANSIT_HUB' || str(row.status) === 'IN_TRANSIT_HUB') {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openWarehouseInboundModal(row)}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Nhập kho HoNa, gán kệ Zone/Rack/Bin và cấp chứng chỉ kiểm định QC"
+                                >
+                                  <Building2 className="w-3 h-3" />
+                                  <span>Nhập kho & Kiểm định QC</span>
+                                </button>
+                              );
+                            }
+
+                            // 5. Đã tại kho HoNa QC -> Điều xe xuất kho giao Buyer
+                            if (str(row.status) === 'AT_HUB_QC' || rawFulfill === 'AT_HUB_QC') {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openOutboundDispatchModal(row)}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Lập chuyến xe lạnh chặng cuối ghép danh sách địa chỉ giao Buyer"
+                                >
+                                  <Truck className="w-3 h-3" />
+                                  <span>Điều xe xuất kho giao Buyer</span>
+                                </button>
+                              );
+                            }
+
+                            // 6. Đã giao hàng -> Quyết toán & Giải ngân cho Farmer
+                            if (str(row.status) === 'DELIVERED') {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => void openSettlementModal(row)}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Đối soát số kg thực nhận, trừ cọc Escrow, phí sàn 3% và giải ngân cho Nông dân"
+                                >
+                                  <Receipt className="w-3 h-3" />
+                                  <span>Quyết toán & Giải ngân</span>
+                                </button>
+                              );
+                            }
+
+                            // 7. Các trạng thái khác (RFQ_SENT, AGREED, IN_TRANSIT)
+                            if (nextState[str(row.status)]) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => void advanceStatus(row)}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>{nextStateLabel[str(row.status)] || nextState[str(row.status)]}</span>
+                                  <ArrowRight className="w-3 h-3" />
+                                </button>
+                              );
+                            }
+
+                            return null;
+                          })()}
 
                           {/* Nút Chi tiết luôn cố định ở vị trí ngoài cùng bên phải, thẳng hàng 100% */}
                           <button
@@ -967,6 +1311,110 @@ export default function AdminContractsPage() {
                 </div>
               </div>
 
+              {/* 2.5 KẾT QUẢ NGHIỆM THU THU HOẠCH TỪ NHÀ VƯỜN (FARMER) */}
+              {Boolean(detail.actual_harvest_weight_kg || detail.is_harvest_done || str(detail.status) === 'HARVESTED') && (
+                <div className="bg-emerald-50/60 border border-emerald-300 rounded-2xl p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
+                    <h3 className="font-heading font-black text-xs uppercase tracking-wider text-[#10542C] flex items-center gap-2">
+                      <Scale className="w-4 h-4 text-[#10542C]" /> Kết Quả Nghiệm Thu Thu Hoạch & Đóng Kiện (Nhà Vườn Đã Gửi)
+                    </h3>
+                    <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded-full">
+                      Tỷ lệ loại 1: {str(detail.grade1_ratio || 96)}%
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block">Sản lượng thực thu</span>
+                      <p className="text-base font-black text-[#10542C] font-mono mt-0.5">
+                        {money(detail.actual_harvest_weight_kg || detail.offered_weight_kg)} kg
+                      </p>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block">Số kiện đã đóng</span>
+                      <p className="text-base font-black text-gray-900 font-mono mt-0.5">
+                        {str(detail.package_count || 10)} thùng
+                      </p>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block">Quy cách kiện</span>
+                      <p className="text-xs font-bold text-gray-800 mt-1 truncate" title={str(detail.package_type || 'Thùng xốp 15kg')}>
+                        {str(detail.package_type || 'Thùng xốp 15kg')}
+                      </p>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block">Mã tem QR PUC</span>
+                      <p className="text-[10px] font-mono font-bold text-emerald-800 mt-1 truncate" title={str(detail.qr_code_data || detail.contract_code)}>
+                        {str(detail.qr_code_data || detail.contract_code)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Địa chỉ đón xe tải rẫy & Ảnh thực tế */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                    <div className="bg-white p-3 rounded-xl border border-emerald-100 space-y-1">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block">Địa chỉ đón xe tải tại rẫy:</span>
+                      <p className="text-xs text-gray-900 font-medium leading-relaxed flex items-start gap-1.5">
+                        <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                        <span>{str(detail.farm_pickup_address || detail.delivery_address || 'Vườn Nông Dân VietGAP, Xã Xuân Thọ, Đà Lạt')}</span>
+                      </p>
+                      {Boolean(detail.harvest_notes) && (
+                        <p className="text-[11px] text-gray-500 italic pt-1">
+                          Ghi chú: {str(detail.harvest_notes)}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="bg-white p-3 rounded-xl border border-emerald-100 flex items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] text-gray-500 uppercase font-bold block">Minh chứng cân rẫy / đóng gói:</span>
+                        {detail.harvest_proof_image_url ? (
+                          <a
+                            href={String(detail.harvest_proof_image_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-[#10542C] hover:underline mt-1"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" /> Xem ảnh gốc
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 mt-1 block">Chưa tải ảnh</span>
+                        )}
+                      </div>
+                      {Boolean(detail.harvest_proof_image_url) && (
+                        <div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={String(detail.harvest_proof_image_url)}
+                            alt="Minh chứng"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Nút hành động nhanh: Điều phối xe lấy hàng */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetContract = detail;
+                        setDetail(null);
+                        openDispatchPickupModal(targetContract);
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-98"
+                    >
+                      <Truck className="w-4 h-4 text-white" />
+                      <span>Điều Phối Xe Tải Lạnh Lấy Hàng Tại Vườn Ngay</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* 3. Dòng tiền Ký quỹ Escrow & Kế toán VAS */}
               <div>
                 <h3 className="font-heading font-black text-xs uppercase tracking-wider text-[#6B7280] mb-3 flex items-center gap-2">
@@ -1047,10 +1495,10 @@ export default function AdminContractsPage() {
                         <span className="text-[#6B7280]">Phương thức vận chuyển:</span>
                         <span className="font-bold text-[#10542C]">
                           {String(detail.shipping_option || '').includes('BUYER') || String(detail.shipping_option || '').includes('pickup')
-                            ? 'PA3 - Buyer tự vận chuyển'
+                            ? 'PA3 - Khách tự vận chuyển (Lấy tại kho HoNa)'
                             : String(detail.shipping_option || '').includes('HUB')
-                            ? 'PA2 - Qua Trạm Hub Đức Trọng'
-                            : 'PA1 - Xe lạnh HoNa Fresh giao thẳng'}
+                            ? 'PA2 - Giao tiêu chuẩn từ Kho HoNa'
+                            : 'PA1 - Xe lạnh HoNa Fresh giao riêng hỏa tốc'}
                         </span>
                       </div>
 
@@ -1058,7 +1506,7 @@ export default function AdminContractsPage() {
                         <span className="text-[#6B7280]">Phí vận chuyển & trạm lạnh:</span>
                         <span className="font-bold text-[#2C3E2E]">
                           {String(detail.shipping_option || '').includes('BUYER') || String(detail.shipping_option || '').includes('pickup')
-                            ? '0 đ (Buyer tự chở, miễn cước xe)'
+                            ? '0 đ (Khách tự chở, miễn cước xe)'
                             : `${money(detail.logistics_fee_amount)} đ`}
                         </span>
                       </div>
@@ -1342,6 +1790,95 @@ export default function AdminContractsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 1. Modal Điều Phối Xe Lạnh Đến Vườn Lấy Hàng / Ký Nhận Tại Vườn */}
+      {activeModalContract && (activeCustomModal === 'DISPATCH_PICKUP' || activeCustomModal === 'FARM_HANDOVER') && (
+        <DispatchFarmPickupModal
+          contract={activeModalContract}
+          isOpen={true}
+          mode={activeCustomModal === 'DISPATCH_PICKUP' ? 'DISPATCH' : 'HANDOVER'}
+          onClose={() => {
+            setActiveCustomModal('NONE');
+            setActiveModalContract(null);
+          }}
+          onConfirmDispatch={async (data) => {
+            await api(`admin/contracts/${activeModalContract.id}/dispatch-pickup`, 'POST', data);
+            adminDispatchPickup(Number(activeModalContract.id), data);
+            b2bWebSocket.publish('/topic/contracts', { action: 'PICKUP_DISPATCHED', contractCode: String(activeModalContract.contract_code) });
+            await loadData();
+          }}
+          onConfirmHandover={async (data) => {
+            await api(`admin/contracts/${activeModalContract.id}/farm-handover`, 'POST', data);
+            adminFarmHandover(Number(activeModalContract.id), data);
+            b2bWebSocket.publish('/topic/contracts', { action: 'IN_TRANSIT_HUB', contractCode: String(activeModalContract.contract_code) });
+            await loadData();
+          }}
+        />
+      )}
+
+      {/* 2. Modal Nhập Kho Lạnh HoNa & Kiểm Định Lab QC */}
+      {activeModalContract && activeCustomModal === 'WAREHOUSE_INBOUND' && (
+        <ColdWarehouseInboundModal
+          contract={activeModalContract}
+          isOpen={true}
+          onClose={() => {
+            setActiveCustomModal('NONE');
+            setActiveModalContract(null);
+          }}
+          onSubmit={async (data) => {
+            await api(`admin/contracts/${activeModalContract.id}/warehouse-inbound`, 'POST', data);
+            adminWarehouseInbound(Number(activeModalContract.id), data);
+            b2bWebSocket.publish('/topic/contracts', { action: 'AT_HUB_QC', contractCode: String(activeModalContract.contract_code) });
+            await loadData();
+          }}
+        />
+      )}
+
+      {/* 3. Modal Lập Chuyến Xe Xuất Kho & Phân Tuyến Giao Hàng */}
+      {activeModalContract && activeCustomModal === 'OUTBOUND_DISPATCH' && (
+        <OutboundDispatchManifestModal
+          contract={activeModalContract}
+          isOpen={true}
+          onClose={() => {
+            setActiveCustomModal('NONE');
+            setActiveModalContract(null);
+          }}
+          onSubmit={async (data) => {
+            await api(`admin/contracts/${activeModalContract.id}/outbound-dispatch`, 'POST', data);
+            adminOutboundDispatch(Number(activeModalContract.id), data);
+            b2bWebSocket.publish('/topic/contracts', { action: 'OUTBOUND_DISPATCHED', contractCode: String(activeModalContract.contract_code) });
+            await loadData();
+          }}
+        />
+      )}
+
+      {/* 4. Modal Quyết Toán Tài Chính & Giải Ngân Cho Farmer */}
+      {activeModalContract && activeCustomModal === 'SETTLE' && (
+        <SettlementStatementModal
+          contract={activeModalContract}
+          quote={settlementQuoteData}
+          isOpen={true}
+          onClose={() => {
+            setActiveCustomModal('NONE');
+            setActiveModalContract(null);
+            setSettlementQuoteData(null);
+          }}
+          onConfirmSettlement={async (data) => {
+            await api(`admin/contracts/${activeModalContract.id}/settle`, 'POST', {
+              status: 'SETTLED',
+              reference: data.reference,
+              amount: data.amount,
+              bankTransferRef: data.bankTransferRef,
+              farmerBankName: data.farmerBankName,
+              farmerBankAccount: data.farmerBankAccount,
+              farmerBankOwner: data.farmerBankOwner,
+            });
+            adminSettleContract(Number(activeModalContract.id), { payoutAmount: data.amount });
+            b2bWebSocket.publish('/topic/contracts', { action: 'SETTLED', contractCode: String(activeModalContract.contract_code) });
+            await loadData();
+          }}
+        />
       )}
 
       {/* Modal Quét Mã VietQR SePay Thu Cọc Hợp Đồng B2B */}

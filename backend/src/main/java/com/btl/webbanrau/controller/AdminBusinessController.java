@@ -19,6 +19,11 @@ public class AdminBusinessController {
     @GetMapping("/contracts") public Object contracts(){return ApiResponse.success(business.contracts());}
     @PostMapping("/contracts") public Object contract(@RequestBody JsonNode n){return ApiResponse.success(business.createContract(n,n.path("buyerId").asLong()));}
     @PatchMapping("/contracts/{id}/status") public Object transition(@PathVariable long id,@RequestBody JsonNode n){business.transition(id,n);return ApiResponse.success("Đã cập nhật hợp đồng",null);}
+    @PostMapping("/contracts/{id}/dispatch-pickup") public Object dispatchPickup(@PathVariable long id,@RequestBody JsonNode n){business.dispatchPickup(id,n);return ApiResponse.success("Đã điều phối xe lấy hàng tại vườn",null);}
+    @PostMapping("/contracts/{id}/farm-handover") public Object farmHandover(@PathVariable long id,@RequestBody JsonNode n){business.farmHandover(id,n);return ApiResponse.success("Đã xác nhận lấy hàng tại vườn",null);}
+    @PostMapping("/contracts/{id}/warehouse-inbound") public Object warehouseInbound(@PathVariable long id,@RequestBody JsonNode n){business.warehouseInbound(id,n);return ApiResponse.success("Đã nhập kho HoNa và kiểm định QC",null);}
+    @PostMapping("/contracts/{id}/outbound-dispatch") public Object outboundDispatch(@PathVariable long id,@RequestBody JsonNode n){business.outboundDispatch(id,n);return ApiResponse.success("Đã điều phối chuyến xe xuất kho",null);}
+    @PostMapping("/contracts/{id}/settle") public Object settle(@PathVariable long id,@RequestBody JsonNode n){business.transition(id,n);return ApiResponse.success("Đã quyết toán và giải ngân hợp đồng",null);}
     @GetMapping("/contracts/{id}/settlement-quote") public Object quote(@PathVariable long id){return ApiResponse.success(business.settlementQuote(id));}
     @PostMapping("/contracts/{id}/resolve-dispute") public Object resolve(@PathVariable long id,@RequestBody JsonNode n){business.resolve(id,n);return ApiResponse.success("Đã xử lý tranh chấp",null);}
     @GetMapping("/claims") public Object claims(){return ApiResponse.success(business.claims());}

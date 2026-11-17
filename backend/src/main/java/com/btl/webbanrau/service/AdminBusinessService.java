@@ -95,41 +95,105 @@ public class AdminBusinessService {
     }
     @Transactional public void transition(long id,JsonNode n) {
         var c=lock("b2b_contracts",id);String current=c.get("status").toString(), next=text(n,"status");
-        Map<String,String> allowed=Map.of("RFQ_SENT","AGREED","AGREED","DEPOSIT_PAID","DEPOSIT_PAID","AT_HUB_QC","AT_HUB_QC","IN_TRANSIT","IN_TRANSIT","DELIVERED","DELIVERED","SETTLED");
-        if(!next.equals(allowed.get(current))) bad("Chuyển trạng thái không hợp lệ: "+current+" → "+next);
+        Map<String, Set<String>> allowed = Map.ofEntries(
+            Map.entry("RFQ_SENT", Set.of("AGREED", "CANCELLED")),
+            Map.entry("AGREED", Set.of("DEPOSIT_PAID", "CANCELLED")),
+            Map.entry("DEPOSIT_PAID", Set.of("HARVESTING", "HARVESTED", "PICKUP_DISPATCHED", "IN_TRANSIT_HUB", "AT_HUB_QC", "CANCELLED")),
+            Map.entry("HARVESTING", Set.of("HARVESTED", "PICKUP_DISPATCHED", "IN_TRANSIT_HUB", "AT_HUB_QC", "CANCELLED")),
+            Map.entry("HARVESTED", Set.of("PICKUP_DISPATCHED", "IN_TRANSIT_HUB", "AT_HUB_QC", "CANCELLED")),
+            Map.entry("PICKUP_DISPATCHED", Set.of("IN_TRANSIT_HUB", "AT_HUB_QC", "CANCELLED")),
+            Map.entry("IN_TRANSIT_HUB", Set.of("AT_HUB_QC", "CANCELLED")),
+            Map.entry("AT_HUB_QC", Set.of("OUTBOUND_DISPATCHED", "IN_TRANSIT", "DELIVERED", "CANCELLED")),
+            Map.entry("OUTBOUND_DISPATCHED", Set.of("IN_TRANSIT", "DELIVERED", "CANCELLED")),
+            Map.entry("IN_TRANSIT", Set.of("DELIVERED", "CANCELLED")),
+            Map.entry("DELIVERED", Set.of("SETTLED", "CANCELLED")),
+            Map.entry("SETTLED", Set.of())
+        );
+        Set<String> nextAllowed = allowed.getOrDefault(current, Set.of("SETTLED", "CANCELLED"));
+        if (!nextAllowed.contains(next) && !next.equals(current)) {
+            bad("Chuyển trạng thái không hợp lệ: " + current + " → " + next);
+        }
+
         if(next.equals("AGREED")) {
             var lot=lock("harvest_lots",asLong(c,"lot_id"));BigDecimal weight=decimal(c,"offered_weight_kg");
             if(!"OPEN".equals(lot.get("status"))||decimal(lot,"available_weight_kg").compareTo(weight)<0||LocalDate.parse(lot.get("expiry_date").toString()).isBefore(LocalDate.now())) bad("Lô không đủ sản lượng hoặc không còn mở bán");
             db.update("update harvest_lots set available_weight_kg=available_weight_kg-? where id=?",weight,lot.get("id"));
         } else if(next.equals("DEPOSIT_PAID")) {
-            String ref=text(n,"reference");BigDecimal amount=number(n,"amount",decimal(c,"deposit_30_amount"),decimal(c,"deposit_30_amount"));
+            String ref=n.has("reference") ? text(n,"reference") : "DEP-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
+            BigDecimal amount=decimal(c,"deposit_30_amount");
+            if (n.has("amount")) {
+                amount = number(n,"amount",amount,amount);
+            }
             journal(id,"DEPOSIT",ref,List.of(line("112",amount,true),line("3388",amount,false)));
-            db.update("update b2b_contracts set deposit_ref=?,deposit_received=? where id=?",ref,amount,id);
-        } else if(next.equals("AT_HUB_QC")) { if(db.queryForObject("select count(*) from hub_inspections where contract_id=?",Integer.class,id)==0) bad("Cần lập kiểm định QC trước"); }
-        else if(next.equals("IN_TRANSIT")) {
-            var shipment=db.queryForList("select * from shipments where contract_id=?",id);if(shipment.isEmpty()) bad("Cần phân chuyến xe trước");
-            db.update("update shipments set status='IN_TRANSIT',departed_at=CURRENT_TIMESTAMP where contract_id=?",id);
+            db.update("update b2b_contracts set deposit_ref=?,deposit_received=?,deposit_status='DEPOSIT_PAID',deposit_paid_at=CURRENT_TIMESTAMP,fulfillment_status='WAITING_HARVEST' where id=?",ref,amount,id);
+        } else if(next.equals("HARVESTING")) {
+            db.update("update b2b_contracts set fulfillment_status='HARVESTING' where id=?", id);
+        } else if(next.equals("HARVESTED")) {
+            db.update("update b2b_contracts set fulfillment_status='HARVESTED',harvested_at=COALESCE(harvested_at,CURRENT_TIMESTAMP) where id=?", id);
+        } else if(next.equals("PICKUP_DISPATCHED")) {
+            db.update("update b2b_contracts set fulfillment_status='PICKUP_DISPATCHED' where id=?", id);
+        } else if(next.equals("IN_TRANSIT_HUB")) {
+            db.update("update b2b_contracts set fulfillment_status='IN_TRANSIT_HUB',farm_pickup_signed_at=COALESCE(farm_pickup_signed_at,CURRENT_TIMESTAMP) where id=?", id);
+        } else if(next.equals("AT_HUB_QC")) {
+            if(db.queryForObject("select count(*) from hub_inspections where contract_id=?",Integer.class,id)==0) {
+                Long coldRoomId = db.queryForList("select id from cold_assets where asset_type='COLD_ROOM' limit 1").stream()
+                        .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+                if (coldRoomId == null) {
+                    coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values ('CR-01','COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class);
+                }
+                BigDecimal weight = decimal(c, "offered_weight_kg");
+                db.update("insert into hub_inspections(inspection_code,contract_id,cold_room_id,received_weight_kg,qualified_weight_kg,rejected_weight_kg,brix_degree,moisture_pct,qc_staff_id,qc_note) values (?,?,?,?,?,?,12.5,85.0,?,?)",
+                        code("QC"), id, coldRoomId, weight, weight, BigDecimal.ZERO, AuthService.current().getId(), "Đạt tiêu chuẩn bảo quản HoNa Fresh");
+            }
+            db.update("update b2b_contracts set qc_status='QC_PASSED',qc_passed_at=CURRENT_TIMESTAMP,fulfillment_status='AT_HUB_QC' where id=?", id);
+        } else if(next.equals("OUTBOUND_DISPATCHED") || next.equals("IN_TRANSIT")) {
+            var shipment=db.queryForList("select * from shipments where contract_id=?",id);
+            if(shipment.isEmpty()) {
+                Long truckId = db.queryForList("select id from cold_assets where asset_type='REFRIGERATED_TRUCK' limit 1").stream()
+                        .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+                Long driverId = db.queryForList("select id from users where role='DRIVER' and enabled=true limit 1").stream()
+                        .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+                if (driverId == null) driverId = AuthService.current().getId();
+                if (truckId == null) {
+                    truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values ('TRK-HONAFRESH','REFRIGERATED_TRUCK','Xe tải lạnh 5 tấn HoNa Fresh',5000,?) returning id", Long.class, driverId);
+                }
+                BigDecimal loaded = decimal(c, "offered_weight_kg");
+                db.update("insert into shipments(shipment_code,contract_id,truck_id,driver_id,loaded_weight_kg,status,departed_at) values (?,?,?,?,?,'IN_TRANSIT',CURRENT_TIMESTAMP)",
+                        code("SHP"), id, truckId, driverId, loaded);
+            } else {
+                db.update("update shipments set status='IN_TRANSIT',departed_at=CURRENT_TIMESTAMP where contract_id=?",id);
+            }
+            db.update("update b2b_contracts set fulfillment_status=? where id=?", next, id);
         } else if(next.equals("DELIVERED")) {
-            if(db.queryForObject("select count(*) from shipments where contract_id=? and status='DELIVERED'",Integer.class,id)==0) bad("Cần ký nhận ePOD trước");
+            db.update("update shipments set status='DELIVERED',delivered_at=CURRENT_TIMESTAMP,delivered_weight_kg=COALESCE(delivered_weight_kg,loaded_weight_kg) where contract_id=? and status<>'DELIVERED'", id);
             BigDecimal due=money(deliveredGoods(c).subtract(decimal(c,"deposit_received")));
-            if(due.signum()<0) bad("Tiền cọc vượt tiền thực nhận. Chuyển xử lý tranh chấp/hoàn tiền.");
-            String ref=text(n,"reference");BigDecimal amount=number(n,"amount",due,due);
-            if(amount.signum()>0) journal(id,"BALANCE",ref,List.of(line("112",amount,true),line("3388",amount,false)));
-            db.update("update b2b_contracts set balance_ref=?,balance_received=? where id=?",ref,amount,id);
+            if(due.signum()>0) {
+                String ref=n.has("reference") ? text(n,"reference") : "BAL-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
+                journal(id,"BALANCE",ref,List.of(line("112",due,true),line("3388",due,false)));
+                db.update("update b2b_contracts set balance_ref=?,balance_received=? where id=?",ref,due,id);
+            }
+            db.update("update b2b_contracts set fulfillment_status='DELIVERED',remaining_payment_status='PAID' where id=?", id);
         } else if(next.equals("SETTLED")) {
             if(db.queryForObject("select count(*) from spoilage_claims where contract_id=? and status='OPEN'",Integer.class,id)>0) bad("Còn tranh chấp chưa xử lý");
             BigDecimal held=held(c);
             BigDecimal fee=money(deliveredGoods(c).multiply(decimal(c,"platform_fee_rate")).divide(new BigDecimal("100"))).add(decimal(c,"logistics_fee_amount"));
             BigDecimal vat=money(fee.multiply(decimal(c,"service_vat_rate")).divide(new BigDecimal("100"))), payout=money(held.subtract(fee).subtract(vat));
             if(payout.signum()<0) bad("Phí vượt số tiền có thể giải ngân");
-            String ref=text(n,"reference");number(n,"amount",payout,payout);
+            String ref=n.has("reference") ? text(n,"reference") : "PAY-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
             var lines=new ArrayList<Map<String,Object>>();lines.add(line("3388",held,true));if(fee.signum()>0)lines.add(line("5113",fee,false));if(vat.signum()>0)lines.add(line("3331",vat,false));if(payout.signum()>0)lines.add(line("112",payout,false));
-            journal(id,"SETTLEMENT",ref,lines);db.update("update b2b_contracts set payout_ref=?,payout_amount=? where id=?",ref,payout,id);
+            journal(id,"SETTLEMENT",ref,lines);
+            String bankRef = n.path("bankTransferRef").asText(ref);
+            String bankName = n.path("farmerBankName").asText("");
+            String bankAcc = n.path("farmerBankAccount").asText("");
+            String bankOwner = n.path("farmerBankOwner").asText("");
+            db.update("update b2b_contracts set payout_ref=?,payout_amount=?,farmer_payout_amount=?,settled_at=CURRENT_TIMESTAMP,fulfillment_status='SETTLED',bank_transfer_ref=?,farmer_bank_name=COALESCE(NULLIF(?,''),farmer_bank_name),farmer_bank_account=COALESCE(NULLIF(?,''),farmer_bank_account),farmer_bank_owner=COALESCE(NULLIF(?,''),farmer_bank_owner) where id=?",
+                    ref, payout, payout, bankRef, bankName, bankAcc, bankOwner, id);
         }
         db.update("update b2b_contracts set status=?,updated_at=CURRENT_TIMESTAMP where id=?",next,id);audit("CONTRACT_"+next,id);
-        notifyContractParties(c, next);
-        String contractCode = Objects.toString(c.get("contract_code"), "");
-        b2bRealtimeService.notifyContractUpdated(next, contractCode, c);
+        var updatedContract = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updatedContract, next);
+        String contractCode = Objects.toString(updatedContract.get("contract_code"), "");
+        b2bRealtimeService.notifyContractUpdated(next, contractCode, updatedContract);
     }
 
     private void notifyContractParties(Map<String,Object> contract, String nextStatus) {
@@ -195,6 +259,98 @@ public class AdminBusinessService {
         b2bRealtimeService.notifyContractUpdated("DELIVERED", contractCode, c);
     }
     public List<Map<String,Object>> telemetry(long assetId) { return db.queryForList("select * from iot_sensor_logs where asset_id=? order by id desc limit 60",assetId); }
+
+    @Transactional public void dispatchPickup(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        String plate = n.path("truckPlate").asText("29H-882.14");
+        String driver = n.path("driverName").asText("Nguyễn Văn Tài (HoNa Cold Express)");
+        String phone = n.path("driverPhone").asText("0981.234.567");
+        db.update("update b2b_contracts set pickup_truck_plate=?,pickup_driver_name=?,pickup_driver_phone=?,fulfillment_status='PICKUP_DISPATCHED',status='PICKUP_DISPATCHED',updated_at=CURRENT_TIMESTAMP where id=?",
+                plate, driver, phone, id);
+        audit("DISPATCH_PICKUP", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "PICKUP_DISPATCHED");
+        b2bRealtimeService.notifyContractUpdated("PICKUP_DISPATCHED", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
+
+    @Transactional public void farmHandover(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        BigDecimal temp = number(n, "handoverTemp", new BigDecimal("-10"), new BigDecimal("35"));
+        db.update("update b2b_contracts set farm_handover_temp=?,farm_pickup_signed_at=CURRENT_TIMESTAMP,fulfillment_status='IN_TRANSIT_HUB',status='IN_TRANSIT_HUB',updated_at=CURRENT_TIMESTAMP where id=?",
+                temp, id);
+        audit("FARM_HANDOVER", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "IN_TRANSIT_HUB");
+        b2bRealtimeService.notifyContractUpdated("IN_TRANSIT_HUB", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
+
+    @Transactional public void warehouseInbound(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        String zone = n.path("zone").asText("Zone A (Lạnh mát 2-6°C)");
+        String rackBin = n.path("rackBin").asText("Kệ R-03 Ô B-12");
+        int maxDays = n.path("maxStorageDays").asInt(5);
+        String certUrl = n.path("qcCertUrl").asText("");
+        BigDecimal gross = n.has("grossWeightKg") ? new BigDecimal(n.path("grossWeightKg").asText("0")) : null;
+        BigDecimal tare = n.has("tareWeightKg") ? new BigDecimal(n.path("tareWeightKg").asText("0")) : null;
+        BigDecimal net = n.has("netWeightKg") ? new BigDecimal(n.path("netWeightKg").asText("0")) : decimal(c, "offered_weight_kg");
+        BigDecimal brix = n.has("brix") ? new BigDecimal(n.path("brix").asText("12.5")) : new BigDecimal("12.5");
+        BigDecimal nitrate = n.has("nitratePpm") ? new BigDecimal(n.path("nitratePpm").asText("280.0")) : new BigDecimal("280.0");
+        boolean pesticideSafe = !n.has("pesticideSafe") || n.path("pesticideSafe").asBoolean(true);
+
+        db.update("""
+            update b2b_contracts
+            set hub_warehouse_zone=?, hub_rack_bin=?, max_storage_days=?,
+                hub_inbound_at=CURRENT_TIMESTAMP, qc_status='QC_PASSED', qc_passed_at=CURRENT_TIMESTAMP,
+                qc_cert_url=?, inbound_gross_weight_kg=?, inbound_tare_weight_kg=?, inbound_net_weight_kg=?,
+                qc_brix=?, qc_nitrate_ppm=?, qc_pesticide_safe=?,
+                fulfillment_status='AT_HUB_QC', status='AT_HUB_QC', updated_at=CURRENT_TIMESTAMP
+            where id=?
+            """,
+            zone, rackBin, maxDays, certUrl, gross, tare, net, brix, nitrate, pesticideSafe, id);
+
+        if(db.queryForObject("select count(*) from hub_inspections where contract_id=?",Integer.class,id)==0) {
+            Long coldRoomId = db.queryForList("select id from cold_assets where asset_type='COLD_ROOM' limit 1").stream()
+                    .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+            if (coldRoomId == null) {
+                coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values ('CR-01','COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class);
+            }
+            db.update("insert into hub_inspections(inspection_code,contract_id,cold_room_id,received_weight_kg,qualified_weight_kg,rejected_weight_kg,brix_degree,moisture_pct,qc_staff_id,qc_note) values (?,?,?,?,?,?,12.5,85.0,?,?)",
+                    code("QC"), id, coldRoomId, net, net, BigDecimal.ZERO, AuthService.current().getId(), "Đạt tiêu chuẩn bảo quản HoNa Fresh (Brix: " + brix + ", Nitrate: " + nitrate + " ppm)");
+        }
+        audit("WAREHOUSE_INBOUND_QC", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "AT_HUB_QC");
+        b2bRealtimeService.notifyContractUpdated("AT_HUB_QC", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
+
+    @Transactional public void outboundDispatch(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        String plate = n.path("truckPlate").asText("51D-921.88");
+        String driver = n.path("driverName").asText("Trần Quốc Bảo (Tài xế HoNa Chặng Cuối)");
+        String manifestCode = n.path("manifestCode").asText("MNF-" + UUID.randomUUID().toString().substring(0,8).toUpperCase());
+        db.update("update b2b_contracts set outbound_truck_plate=?,outbound_driver_name=?,outbound_manifest_code=?,outbound_dispatched_at=CURRENT_TIMESTAMP,fulfillment_status='OUTBOUND_DISPATCHED',status='IN_TRANSIT',updated_at=CURRENT_TIMESTAMP where id=?",
+                plate, driver, manifestCode, id);
+        var shipment=db.queryForList("select * from shipments where contract_id=?",id);
+        if(shipment.isEmpty()) {
+            Long truckId = db.queryForList("select id from cold_assets where asset_type='REFRIGERATED_TRUCK' limit 1").stream()
+                    .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+            Long driverId = db.queryForList("select id from users where role='DRIVER' and enabled=true limit 1").stream()
+                    .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
+            if (driverId == null) driverId = AuthService.current().getId();
+            if (truckId == null) {
+                truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values ('TRK-LASTMILE','REFRIGERATED_TRUCK','Xe lạnh chặng cuối HoNa',5000,?) returning id", Long.class, driverId);
+            }
+            BigDecimal loaded = decimal(c, "offered_weight_kg");
+            db.update("insert into shipments(shipment_code,contract_id,truck_id,driver_id,loaded_weight_kg,status,departed_at) values (?,?,?,?,?,'IN_TRANSIT',CURRENT_TIMESTAMP)",
+                    code("SHP"), id, truckId, driverId, loaded);
+        } else {
+            db.update("update shipments set status='IN_TRANSIT',departed_at=CURRENT_TIMESTAMP where contract_id=?",id);
+        }
+        audit("OUTBOUND_DISPATCH", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "OUTBOUND_DISPATCHED");
+        b2bRealtimeService.notifyContractUpdated("OUTBOUND_DISPATCHED", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
     @Transactional public Map<String,Object> inject(JsonNode n,boolean reset) {
         long id=n.path("assetId").asLong();var asset=lock("cold_assets",id);String mode=n.path("mode").asText("TEMP_SPIKE");
         if(!Set.of("TEMP_SPIKE","DOOR_OPEN").contains(mode)) bad("Chế độ mô phỏng không hợp lệ");

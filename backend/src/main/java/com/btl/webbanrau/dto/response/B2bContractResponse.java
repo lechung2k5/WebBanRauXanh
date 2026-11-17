@@ -44,4 +44,40 @@ public class B2bContractResponse {
     private String farmerPhone;
     private String farmerAddress;
     private Long settlementId;
+
+    // Tiến trình sau cọc (Thu hoạch -> Lấy hàng vườn -> Kho HoNa QC -> Xuất kho -> ePOD -> Quyết toán)
+    private BigDecimal actualHarvestWeightKg;
+    private String harvestProofImageUrl;
+    private Integer packageCount;
+    private String packageType;
+    private String qrCodeData;
+    private LocalDateTime harvestedAt;
+
+    private String farmPickupAddress;
+    private String pickupTruckPlate;
+    private String pickupDriverName;
+    private String pickupDriverPhone;
+    private BigDecimal farmHandoverTemp;
+    private LocalDateTime farmPickupSignedAt;
+
+    private String hubWarehouseZone;
+    private String hubRackBin;
+    private Integer maxStorageDays;
+    private LocalDateTime hubInboundAt;
+    private String qcStatus;
+    private LocalDateTime qcPassedAt;
+    private String qcCertUrl;
+
+    private String outboundTruckPlate;
+    private String outboundDriverName;
+    private LocalDateTime outboundDispatchedAt;
+    private String remainingPaymentStatus;
+    private LocalDateTime remainingPaidAt;
+
+    private BigDecimal epodDeliveredWeightKg;
+    private BigDecimal epodDamagedWeightKg;
+    private String epodSignatureUrl;
+    private LocalDateTime epodDeliveredAt;
+    private BigDecimal farmerPayoutAmount;
+    private LocalDateTime settledAt;
 }

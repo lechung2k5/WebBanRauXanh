@@ -88,6 +88,8 @@ export interface HarvestLot {
   warehouseLocation?: string;
   hubLocation?: string;
   region?: string;
+  shippingMethod?: 'DIRECT_FARM_TO_BUYER' | 'CROSS_DOCKING_HUB' | 'BUYER_SELF_TRANSPORT';
+  estimatedShippingFee?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -114,6 +116,8 @@ export interface HarvestLotRequest {
   auditNote?: string;
   warehouseLocation?: string;
   region?: string;
+  shippingMethod?: 'DIRECT_FARM_TO_BUYER' | 'CROSS_DOCKING_HUB' | 'BUYER_SELF_TRANSPORT';
+  estimatedShippingFee?: number;
 }
 
 export interface HarvestLotStatusUpdateRequest {
@@ -198,6 +202,7 @@ export interface B2BRFQNegotiation {
   deliveryDate: string;
   shippingOption: 'farm_pickup' | 'farm_delivery' | 'cold_storage_truck';
   notes?: string;
+  coldHubAddress?: string;
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
@@ -365,6 +370,9 @@ export interface RfqItem {
   rejectReason?: string;
   deliveryDate: string;
   hubLocation: string;
+  shippingOption?: string;
+  notes?: string;
+  coldHubAddress?: string;
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
@@ -409,6 +417,31 @@ export interface B2BContract {
   farmerPhone?: string;
   farmerAddress?: string;
   settlementId?: number;
+  actualHarvestWeightKg?: number;
+  grade1Ratio?: number;
+  packageCount?: number;
+  packageType?: string;
+  qrCodeData?: string;
+  farmPickupAddress?: string;
+  harvestProofImageUrl?: string;
+  harvestedAt?: string;
+  fulfillmentStep?: number;
+  fulfillmentStatusName?: string;
+  pickupTruckPlate?: string;
+  pickupDriverName?: string;
+  pickupDriverPhone?: string;
+  farmHandoverTemp?: number;
+  hubWarehouseZone?: string;
+  hubRackBin?: string;
+  qcStatus?: string;
+  qcBrix?: number;
+  qcNitratePpm?: number;
+  outboundTruckPlate?: string;
+  outboundDriverName?: string;
+  outboundManifestCode?: string;
+  epodSignedAt?: string;
+  epodDeliveredWeightKg?: number;
+  epodSignatureUrl?: string;
 }
 
 export interface QcInspection {

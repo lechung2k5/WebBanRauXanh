@@ -34,6 +34,7 @@ public class CloudinaryService {
             case CATEGORY -> "hona_fresh/categories";
             case LOT -> "hona_fresh/lots";
             case EPOD -> "hona_fresh/epod";
+            case CHAT -> "hona_fresh/chat";
         };
     }
 

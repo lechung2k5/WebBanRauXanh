@@ -62,6 +62,9 @@
    - **CHỈ KHI VÀ CHỈ KHI** người dùng gửi phản hồi chứa các từ khóa đồng ý: `"Accept"`, `"Chấp nhận"`, `"Ok"`, `"Đồng ý"` hoặc yêu cầu tiến hành, Agent mới được phép bắt đầu can thiệp và chỉnh sửa file theo đúng kế hoạch đã duyệt.
 
 ---
+**NGOẠI LỆ CHO CÁC THAY ĐỔI NHỎ (FAST-TRACK FOR SMALL CHANGES):
+
+Đối với những thay đổi nhỏ, rõ ràng và ít rủi ro (ví dụ: sửa lỗi chính tả typo, đổi tên biến, tinh chỉnh CSS/UI nhanh, fix một dòng code đơn giản đã biết rõ nguyên nhân), Agent được phép bỏ qua quy trình lập kế hoạch và xin phép để thực hiện ngay lập tức nhằm tối ưu hóa thời gian.
 
 ## 5. QUY TRÌNH LÀM VIỆC TINH GỌN (LEAN WORKFLOW)
 
@@ -85,4 +88,6 @@
 2. **KHÔNG** dùng kiểu dữ liệu `any` bừa bãi làm suy giảm tính an toàn kiểu và tăng thời gian biên dịch của TypeScript Compiler.
 3. **KHÔNG** giải thích lý thuyết dông dài, không mở đầu bằng các câu chào hỏi sáo rỗng hoặc lặp lại kiến thức cơ bản.
 4. **KHÔNG** dùng emoji bừa bãi trong code giao diện, tuân thủ nghiêm ngặt quy tắc UI/UX Enterprise (theo `GEMINI.md`).
+
 ## 7. KHÔNG TỰ Ý PUSH CODE LÊN GITHUB
+1. **KHÔNG** tự ý chạy `git push` hoặc các lệnh push code khi chưa có sự đồng ý của người dùng.

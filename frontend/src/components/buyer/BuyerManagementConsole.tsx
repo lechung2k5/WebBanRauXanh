@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { api } from '@/services/auth';
@@ -8,7 +8,6 @@ import {
   getBuyerB2bContractsApi,
   getBuyerRfqsApi,
   respondBuyerRfqApi,
-  updateBuyerRfqApi,
   cancelBuyerRfqApi,
   getStoredUser,
   getProducts,
@@ -26,6 +25,7 @@ import {
   buyerAcceptCounterRfq,
   buyerCounterRfq,
   buyerPayDeposit,
+  buyerPayFinalSettlement,
   removeLocalContractByCode,
 } from '@/services/b2bSyncService';
 import { B2BContract, Product } from '@/types';
@@ -34,6 +34,9 @@ import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import { GoongMapViewer } from '@/components/common/GoongMapViewer';
 import OrderTrackingModal from '@/components/OrderTrackingModal';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
+import B2BChatModal from '@/components/chat/B2BChatModal';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
+import { getShippingMethodLabel } from '@/utils/logisticsCalculator';
 import Pagination from '@/components/Pagination';
 import {
   LayoutDashboard,
@@ -62,8 +65,10 @@ import {
   X,
   Eye,
   Edit3,
+  MessageSquare,
   Filter,
   ArrowUpDown,
+  CreditCard,
 } from 'lucide-react';
 
 type BuyerTab = 'overview' | 'catalog' | 'negotiations' | 'contracts' | 'shipments' | 'profile';
@@ -99,6 +104,7 @@ export default function BuyerManagementConsole() {
   // Modals
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
   const [selectedContractForPayment, setSelectedContractForPayment] = useState<B2BContract | B2bSyncContract | null>(null);
+  const [selectedContractForFinalPayment, setSelectedContractForFinalPayment] = useState<any | null>(null);
   const [trackingContractCode, setTrackingContractCode] = useState('');
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
   const [viewingContract, setViewingContract] = useState<B2bContractModalData | null>(null);
@@ -116,16 +122,42 @@ export default function BuyerManagementConsole() {
 
   // Quản lý Xem / Sửa / Hủy đơn đàm phán RFQ
   const [viewingRfqDetail, setViewingRfqDetail] = useState<B2bSyncRfq | null>(null);
-  const [editingRfqDetail, setEditingRfqDetail] = useState<{
-    id: number;
-    rfqCode: string;
-    productName: string;
-    quantity: number;
-    price: number;
-    deliveryLocation: string;
-    notes: string;
-  } | null>(null);
+  const [editingRfqDetail, setEditingRfqDetail] = useState<B2bSyncRfq | null>(null);
   const [cancellingRfqId, setCancellingRfqId] = useState<number | null>(null);
+  const [activeChatRfq, setActiveChatRfq] = useState<B2bSyncRfq | null>(null);
+
+  // Tìm hoặc tái tạo thông tin Product cho đơn RFQ đang chỉnh sửa để nạp vào B2BNegotiationModal
+  const editingProduct = useMemo<Product | null>(() => {
+    if (!editingRfqDetail) return null;
+    const found = availableProducts.find(
+      (p) =>
+        Number(p.harvestLotId || p.id) === Number(editingRfqDetail.harvestLotId) ||
+        (p.lotCode &&
+          editingRfqDetail.lotCode &&
+          p.lotCode.trim().toUpperCase() === editingRfqDetail.lotCode.trim().toUpperCase())
+    );
+    if (found) return found;
+
+    return {
+      id: Number(editingRfqDetail.harvestLotId) || 1,
+      harvestLotId: Number(editingRfqDetail.harvestLotId) || 1,
+      name: editingRfqDetail.productName || 'Lô nông sản HoNa Fresh',
+      price: editingRfqDetail.counterPricePerKg || editingRfqDetail.targetPricePerKg || 15000,
+      lotCode: editingRfqDetail.lotCode || editingRfqDetail.rfqCode,
+      farmerName: editingRfqDetail.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
+      farmerId: editingRfqDetail.farmerId,
+      stockQuantity: (editingRfqDetail.requestedQuantityKg || 1000) * 3,
+      totalLotVolume: (editingRfqDetail.requestedQuantityKg || 1000) * 3,
+      availableVolume: (editingRfqDetail.requestedQuantityKg || 1000) * 3,
+      moq: 100,
+      categoryName: editingRfqDetail.productName,
+      categorySlug: 'rau-an-la',
+      warehouseLocation: editingRfqDetail.deliveryLocation,
+      hubLocation: editingRfqDetail.deliveryLocation,
+      images: ['/images/products/rau-sach.jpg'],
+      imageUrl: '/images/products/rau-sach.jpg',
+    } as unknown as Product;
+  }, [editingRfqDetail, availableProducts]);
 
   // Quản lý Điều Phối Xe Lạnh HoNa Fresh sau khi Farm đóng gói
   const [dispatchingContract, setDispatchingContract] = useState<any | null>(null);
@@ -358,11 +390,33 @@ export default function BuyerManagementConsole() {
 
       const contractMap = new Map<string, B2BContract>();
       for (const bc of backendContracts) {
-        if (bc.contractCode) contractMap.set(bc.contractCode.trim().toUpperCase(), bc);
+        if (bc.contractCode) {
+          const code = bc.contractCode.trim().toUpperCase();
+          const rawStatus = String((bc as any).status || bc.depositStatus || '').toUpperCase();
+          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || rawStatus === 'HARVESTED' || rawStatus === 'AT_HUB_QC' || rawStatus === 'IN_TRANSIT' || rawStatus === 'DELIVERED' || rawStatus === 'SETTLED' || bc.depositStatus === 'DEPOSIT_PAID';
+          contractMap.set(code, {
+            ...bc,
+            depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : bc.depositStatus,
+            fulfillmentStep: (bc as any).fulfillmentStep || (rawStatus === 'SETTLED' ? 6 : rawStatus === 'DELIVERED' ? 5 : rawStatus === 'AT_HUB_QC' ? 4 : rawStatus === 'HARVESTED' || bc.actualHarvestWeightKg ? 2 : (isDepositPaid ? 2 : 1)),
+          });
+        }
       }
       for (const sc of sharedContracts) {
         const code = (sc.contractCode || `HD-${sc.id}`).trim().toUpperCase();
-        if (!contractMap.has(code)) {
+        if (contractMap.has(code)) {
+          const existing = contractMap.get(code)!;
+          contractMap.set(code, {
+            ...existing,
+            actualHarvestWeightKg: sc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
+            grade1Ratio: sc.grade1Ratio || existing.grade1Ratio,
+            packageCount: sc.packageCount || existing.packageCount,
+            packageType: sc.packageType || existing.packageType,
+            qrCodeData: sc.qrCodeData || existing.qrCodeData,
+            farmPickupAddress: sc.farmPickupAddress || existing.farmPickupAddress,
+            fulfillmentStep: sc.fulfillmentStep || existing.fulfillmentStep,
+            fulfillmentStatusName: sc.fulfillmentStatusName || existing.fulfillmentStatusName,
+          });
+        } else {
           contractMap.set(code, {
             id: Number(sc.id) || Date.now(),
             contractCode: sc.contractCode,
@@ -380,6 +434,14 @@ export default function BuyerManagementConsole() {
             remainingAmount: Number(sc.remainingAmount || 0),
             depositStatus: sc.depositStatus || 'PENDING_DEPOSIT',
             fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : sc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
+            fulfillmentStep: sc.fulfillmentStep || 1,
+            fulfillmentStatusName: sc.fulfillmentStatusName,
+            actualHarvestWeightKg: sc.actualHarvestWeightKg,
+            grade1Ratio: sc.grade1Ratio,
+            packageCount: sc.packageCount,
+            packageType: sc.packageType,
+            qrCodeData: sc.qrCodeData,
+            farmPickupAddress: sc.farmPickupAddress,
             hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
             hubName: sc.deliveryAddress || 'Trạm Trung Chuyển Đức Trọng',
             createdAt: sc.createdAt || new Date().toISOString(),
@@ -392,7 +454,25 @@ export default function BuyerManagementConsole() {
       }
       for (const lc of localContracts) {
         const code = (lc.contractCode || `HD-${lc.id}`).trim().toUpperCase();
-        if (!contractMap.has(code)) {
+        if (contractMap.has(code)) {
+          const existing = contractMap.get(code)!;
+          const isDepPaid = lc.depositStatus === 'DEPOSIT_PAID' || existing.depositStatus === 'DEPOSIT_PAID';
+          contractMap.set(code, {
+            ...existing,
+            depositStatus: isDepPaid ? 'DEPOSIT_PAID' : existing.depositStatus,
+            depositAmount: lc.depositAmount || existing.depositAmount,
+            totalAmount: lc.totalAmount || existing.totalAmount,
+            fulfillmentStep: lc.fulfillmentStep || existing.fulfillmentStep || (isDepPaid ? 2 : 1),
+            fulfillmentStatusName: lc.fulfillmentStatusName || existing.fulfillmentStatusName,
+            actualHarvestWeightKg: lc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
+            grade1Ratio: (lc as any).grade1Ratio || existing.grade1Ratio,
+            packageCount: lc.packageCount || existing.packageCount,
+            packageType: lc.packageType || existing.packageType,
+            qrCodeData: lc.qrCodeData || existing.qrCodeData,
+            farmPickupAddress: lc.farmPickupAddress || existing.farmPickupAddress,
+            harvestProofImageUrl: lc.harvestProofImageUrl || existing.harvestProofImageUrl,
+          });
+        } else {
           contractMap.set(code, {
             id: Number(lc.id),
             contractCode: lc.contractCode,
@@ -410,6 +490,15 @@ export default function BuyerManagementConsole() {
             remainingAmount: lc.remainingAmount,
             depositStatus: lc.depositStatus as any,
             fulfillmentStatus: lc.fulfillmentStep === 6 ? 'COMPLETED' : lc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
+            fulfillmentStep: lc.fulfillmentStep || (lc.depositStatus === 'DEPOSIT_PAID' ? 2 : 1),
+            fulfillmentStatusName: lc.fulfillmentStatusName,
+            actualHarvestWeightKg: lc.actualHarvestWeightKg,
+            grade1Ratio: (lc as any).grade1Ratio,
+            packageCount: lc.packageCount,
+            packageType: lc.packageType,
+            qrCodeData: lc.qrCodeData,
+            farmPickupAddress: lc.farmPickupAddress,
+            harvestProofImageUrl: lc.harvestProofImageUrl,
             hubDeliveryDate: lc.deliveryTimeSlot || (lc.createdAt ? lc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
             hubName: lc.deliveryAddress,
             createdAt: lc.createdAt,
@@ -621,6 +710,24 @@ export default function BuyerManagementConsole() {
     }
   };
 
+  const confirmFinalPayment = async (contract: any) => {
+    try {
+      await api(`buyer/contracts/${contract.id}/final-payment/confirm`, 'POST', {}).catch(() => {});
+      buyerPayFinalSettlement(contract.contractCode || contract.id);
+      b2bWebSocket.publish('/topic/contracts', {
+        action: 'FINAL_PAID',
+        contractCode: contract.contractCode,
+        status: 'DELIVERED',
+      });
+      setSelectedContractForFinalPayment(null);
+      void loadAllData();
+      setNotification('Đã thanh toán 70% quyết toán còn lại thành công!');
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi khi xác nhận thanh toán.');
+    }
+  };
+
   // Xử lý gửi lại mức giá mới
   const handleSendCounter = async (rfqId: number) => {
     if (!counterPriceInput || counterPriceInput.price <= 0) return;
@@ -657,38 +764,6 @@ export default function BuyerManagementConsole() {
       setTimeout(() => setNotification(null), 3000);
     } catch {
       alert('Không thể gửi mức giá đề xuất.');
-    }
-  };
-
-  // Xử lý chỉnh sửa đơn đàm phán RFQ
-  const handleSaveEditRfq = async () => {
-    if (!editingRfqDetail) return;
-    try {
-      await updateBuyerRfqApi(editingRfqDetail.id, {
-        requestedQuantityKg: editingRfqDetail.quantity,
-        targetPricePerKg: editingRfqDetail.price,
-        deliveryLocation: editingRfqDetail.deliveryLocation,
-        notes: editingRfqDetail.notes,
-      });
-      setRfqs((prev) =>
-        prev.map((r) =>
-          r.id === editingRfqDetail.id
-            ? {
-                ...r,
-                requestedQuantityKg: editingRfqDetail.quantity,
-                targetPricePerKg: editingRfqDetail.price,
-                deliveryLocation: editingRfqDetail.deliveryLocation,
-                notes: editingRfqDetail.notes,
-              }
-            : r
-        )
-      );
-      setEditingRfqDetail(null);
-      setNotification('Cập nhật đơn đàm phán thành công!');
-      setTimeout(() => setNotification(null), 3000);
-      void loadAllData();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Lỗi cập nhật đàm phán');
     }
   };
 
@@ -1303,22 +1378,23 @@ export default function BuyerManagementConsole() {
                               <span>Xem chi tiết</span>
                             </button>
 
+                            {/* Nút Nhắn tin đàm phán với Nhà Vườn */}
+                            <button
+                              type="button"
+                              onClick={() => setActiveChatRfq(rfq)}
+                              className="px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title="Mở phòng chat realtime đàm phán với Nhà Vườn"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-sky-700" />
+                              <span>Nhắn tin</span>
+                            </button>
+
                             {/* Nút Chỉnh sửa & Hủy đàm phán */}
                             {['WAITING_FARMER', 'WAITING_BUYER', 'PENDING'].includes(rfq.status) && (
                               <>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setEditingRfqDetail({
-                                      id: rfq.id,
-                                      rfqCode: rfq.rfqCode,
-                                      productName: rfq.productName,
-                                      quantity: rfq.requestedQuantityKg,
-                                      price: rfq.counterPricePerKg || rfq.targetPricePerKg,
-                                      deliveryLocation: rfq.deliveryLocation || '',
-                                      notes: rfq.notes || '',
-                                    })
-                                  }
+                                  onClick={() => setEditingRfqDetail(rfq)}
                                   className="px-3 py-1.5 border border-emerald-300 hover:bg-emerald-50 text-[#10542C] font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
@@ -1649,27 +1725,171 @@ export default function BuyerManagementConsole() {
 
                           <h4 className="font-heading font-bold text-base text-[#2C3E2E]">{c.productName}</h4>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-slate-600">
-                            <div>
-                              <span>Khối lượng chốt: </span>
-                              <strong className="text-slate-900">{(c.quantity || 0).toLocaleString()} kg</strong>
-                            </div>
-                            <div>
-                              <span>Tổng giá trị hợp đồng: </span>
-                              <strong className="text-[#10542C]">{formatVND(c.totalAmount || 0)}</strong>
-                            </div>
-                            <div>
-                              <span>Tiền cọc 30%: </span>
-                              <strong className="text-[#E53935]">{formatVND(c.depositAmount || 0)}</strong>
-                            </div>
-                          </div>
+                          {(() => {
+                            const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
+                            const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
+                            const shippingMeta = getShippingMethodLabel(shippingOpt);
+                            const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
+
+                            let shippingFee = (c as any).shippingFee;
+                            if (shippingFee === undefined || shippingFee === null) {
+                              if (isSelfPickup) {
+                                shippingFee = 0;
+                              } else if (c.totalAmount && c.totalAmount > goodsAmount) {
+                                shippingFee = c.totalAmount - goodsAmount;
+                              } else {
+                                const optUpper = String(shippingOpt).toUpperCase();
+                                shippingFee = optUpper.includes('DIRECT') || optUpper === 'PA1'
+                                  ? Math.round((c.quantity || 0) * 1200 + 450000)
+                                  : Math.round((c.quantity || 0) * 850 + 250000);
+                              }
+                            }
+
+                            const effectiveTotal = goodsAmount + shippingFee;
+                            const depositAmt = c.depositAmount && c.depositAmount > 0
+                              ? (c.depositAmount < goodsAmount && shippingFee > 0 && Math.abs(c.depositAmount - Math.round(goodsAmount * 0.3)) < 1000
+                                  ? Math.round(effectiveTotal * (isSelfPickup ? 1 : 0.3))
+                                  : c.depositAmount)
+                              : Math.round(effectiveTotal * (isSelfPickup ? 1 : 0.3));
+
+                            return (
+                              <div className="space-y-2 pt-1">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-gray-50/80 p-3 rounded-2xl border border-gray-100 text-xs">
+                                  <div>
+                                    <span className="text-[11px] text-gray-500 block">Khối lượng chốt:</span>
+                                    <strong className="text-gray-900 font-bold text-sm">{(c.quantity || 0).toLocaleString()} kg</strong>
+                                    {Boolean(c.unitPrice) && (
+                                      <span className="text-[10px] text-gray-400 block font-mono">{formatVND(c.unitPrice)}/kg</span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <span className="text-[11px] text-gray-500 block">Tiền nông sản:</span>
+                                    <strong className="text-gray-900 font-bold text-sm font-mono">{formatVND(goodsAmount)}</strong>
+                                  </div>
+                                  <div>
+                                    <span className="text-[11px] text-gray-500 block">Cước vận chuyển:</span>
+                                    <strong className="text-[#10542C] font-bold text-sm font-mono">{formatVND(shippingFee)}</strong>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border inline-block mt-0.5 ${shippingMeta.badgeClass}`}>
+                                      {shippingMeta.badge}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[11px] text-gray-500 block">Tổng thanh toán:</span>
+                                    <strong className="text-[#10542C] font-black text-sm sm:text-base font-mono">{formatVND(effectiveTotal)}</strong>
+                                    <div className="text-[11px] text-[#E53935] font-bold mt-0.5">
+                                      Cọc {isSelfPickup ? '100%' : '30%'}: {formatVND(depositAmt)}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Tiến trình quy trình thực hiện hợp đồng 6 mốc */}
+                                <div className="pt-2 pb-1 border-t border-gray-100">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 mb-1.5">
+                                    <span className="flex items-center gap-1 text-[#10542C]">
+                                      <Clock className="w-3.5 h-3.5 text-[#10542C]" />
+                                      Tiến Trình Thực Hiện (Mốc {Number((c as any).fulfillmentStep || (isPaid ? 2 : 1))}/6)
+                                    </span>
+                                    <span className="text-gray-600 font-semibold text-[10px]">
+                                      {(c as any).fulfillmentStatusName ||
+                                        (Boolean((c as any).actualHarvestWeightKg)
+                                          ? 'Đã Nghiệm Thu Thu Hoạch (Chờ Điều Xe)'
+                                          : isPaid
+                                          ? 'Đã Nhận Cọc 30% · Nhà Vườn Đang Thu Hoạch'
+                                          : 'Chờ Nộp Cọc 30% Bảo Chứng')}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-6 gap-1 text-center font-bold text-[10px]">
+                                    {[
+                                      { step: 1, label: '1. Cọc 30%' },
+                                      { step: 2, label: '2. Thu Hoạch' },
+                                      { step: 3, label: '3. Lấy Hàng' },
+                                      { step: 4, label: '4. Kiểm Định' },
+                                      { step: 5, label: '5. Giao Hàng' },
+                                      { step: 6, label: '6. Hoàn Tất' },
+                                    ].map((m) => {
+                                      const currentStep = Number((c as any).fulfillmentStep || (isPaid ? 2 : 1));
+                                      const isDone = currentStep > m.step || (m.step === 1 && isPaid);
+                                      const isCurrent = currentStep === m.step;
+                                      return (
+                                        <div
+                                          key={m.step}
+                                          className={`py-1 px-1 rounded-lg transition-all ${
+                                            isCurrent
+                                              ? 'bg-[#10542C] text-white shadow-2xs font-bold'
+                                              : isDone
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-gray-100 text-gray-400'
+                                          }`}
+                                        >
+                                          {m.label}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Thông tin nghiệm thu từ Nông dân khi đã nộp nghiệm thu */}
+                                {Boolean((c as any).actualHarvestWeightKg || (c as any).isHarvestDone || Number((c as any).fulfillmentStep) >= 2) && (
+                                  <div className="mt-1.5 p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-[#10542C] flex items-center gap-1.5">
+                                        <Scale className="w-3.5 h-3.5 text-[#10542C]" />
+                                        <span>Nhà Vườn Đã Nghiệm Thu Thu Hoạch & Đóng Kiện</span>
+                                      </span>
+                                      <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                                        Loại 1: {(c as any).grade1Ratio || 96}%
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1">
+                                      <div>
+                                        <span className="text-gray-500 block">Sản lượng thực thu:</span>
+                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).actualHarvestWeightKg || c.quantity} kg</strong>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500 block">Số thùng đã đóng:</span>
+                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).packageCount || 10} thùng</strong>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500 block">Quy cách kiện:</span>
+                                        <span className="text-gray-800 font-medium text-[10px] truncate block" title={(c as any).packageType || 'Thùng xốp niêm phong'}>
+                                          {(c as any).packageType || 'Thùng xốp niêm phong'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500 block">Mã tem PUC dán thùng:</span>
+                                        <span className="text-emerald-800 font-mono font-bold text-[10px] truncate block" title={(c as any).qrCodeData || `${c.contractCode}-PUC`}>
+                                          {(c as any).qrCodeData || `${c.contractCode}-PUC`}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           {!isPaid ? (
                             <button
                               type="button"
-                              onClick={() => setSelectedContractForPayment(c)}
+                              onClick={() => {
+                                const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
+                                const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
+                                const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
+                                let shippingFee = (c as any).shippingFee;
+                                if (shippingFee === undefined || shippingFee === null) {
+                                  shippingFee = isSelfPickup ? 0 : ((c.totalAmount && c.totalAmount > goodsAmount) ? c.totalAmount - goodsAmount : 0);
+                                }
+                                const effectiveTotal = goodsAmount + shippingFee;
+                                const depositAmt = isSelfPickup ? effectiveTotal : Math.round(effectiveTotal * 0.3);
+                                setSelectedContractForPayment({
+                                  ...c,
+                                  totalAmount: effectiveTotal,
+                                  depositAmount: depositAmt,
+                                });
+                              }}
                               className="px-5 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl font-bold flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
                             >
                               <QrCode className="w-4 h-4 text-[#8BC34A]" />
@@ -1682,21 +1902,59 @@ export default function BuyerManagementConsole() {
                             </div>
                           )}
 
-                          {isPaid && ((c as any).fulfillmentStep === 2 || String(c.fulfillmentStatus) === 'PACKAGED' || c.fulfillmentStatus === 'WAITING_HARVEST') && (
-                            <button
-                              type="button"
-                              onClick={() => setDispatchingContract(c as any)}
-                              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
-                              title="Điều phối xe lạnh HoNa Fresh đến nhà vườn bốc hàng"
-                            >
-                              <Truck className="w-3.5 h-3.5 text-white" />
-                              <span>Điều Phối Xe Lạnh</span>
-                            </button>
+                          {isPaid && (
+                            (() => {
+                              const opt = String((c as any).shippingOption || (c as any).shipping_option || '').toUpperCase();
+                              const isBuyerSelfPickup = opt === 'PA3' || opt.includes('SELF') || opt.includes('PICKUP') || opt.includes('TỰ VẬN CHUYỂN') || opt.includes('TỰ LẤY');
+                              if (!isBuyerSelfPickup) return null;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setDispatchingContract(c as any)}
+                                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                                  title="Thương lái tự điều phối phương tiện đến nhận hàng theo Phương án 3 (Tự vận chuyển)"
+                                >
+                                  <Truck className="w-3.5 h-3.5 text-white" />
+                                  <span>Điều phối xe</span>
+                                </button>
+                              );
+                            })()
+                          )}
+
+                          {isPaid && (
+                            (() => {
+                              const isFinalPaid = (c as any).finalPaidStatus === 'PAID' || (c as any).fulfillmentStep >= 6 || (c as any).status === 'SETTLED';
+                              const step = Number((c as any).fulfillmentStep || 1);
+                              if (!isFinalPaid && step >= 4) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedContractForFinalPayment(c as any)}
+                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                                    title="Quét mã VietQR thanh toán 70% giá trị hợp đồng còn lại"
+                                  >
+                                    <CreditCard className="w-3.5 h-3.5 text-white" />
+                                    <span>Thanh toán 70%</span>
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()
                           )}
 
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
+                              const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
+                              const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
+                              const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
+                              let shippingFee = (c as any).shippingFee;
+                              if (shippingFee === undefined || shippingFee === null) {
+                                shippingFee = isSelfPickup ? 0 : ((c.totalAmount && c.totalAmount > goodsAmount) ? c.totalAmount - goodsAmount : 0);
+                              }
+                              const effectiveTotal = goodsAmount + shippingFee;
+                              const depositAmt = isSelfPickup ? effectiveTotal : Math.round(effectiveTotal * 0.3);
+
                               setViewingContract({
                                 id: c.id,
                                 contractCode: c.contractCode,
@@ -1710,15 +1968,20 @@ export default function BuyerManagementConsole() {
                                 farmerPhone: c.farmerPhone,
                                 quantityKg: c.quantity,
                                 unitPrice: c.unitPrice,
-                                totalAmount: c.totalAmount,
-                                depositAmount: c.depositAmount,
-                                remainingAmount: c.remainingAmount,
+                                totalAmount: effectiveTotal,
+                                goodsAmount: goodsAmount,
+                                shippingOption: shippingOpt,
+                                shippingFee: shippingFee,
+                                depositAmount: depositAmt,
+                                remainingAmount: Math.max(0, effectiveTotal - depositAmt),
                                 depositStatus: c.depositStatus,
+                                isDepositPaid: Boolean((c as any).isDepositPaid || (c as any).depositStatus === 'DEPOSIT_PAID' || (c as any).depositStatus === 'PAID' || (c as any).status === 'DEPOSIT_PAID' || (c as any).status === 'ACTIVE'),
+                                status: (c as any).status,
                                 deliveryAddress: c.hubName,
                                 deliveryTimeSlot: c.hubDeliveryDate,
                                 createdAt: c.createdAt,
-                              })
-                            }
+                              });
+                            }}
                             className="px-3.5 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer"
                           >
                             <FileText className="w-3.5 h-3.5" />
@@ -1868,18 +2131,20 @@ export default function BuyerManagementConsole() {
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Địa Chỉ Kho Tiếp Nhận Hàng (Xe Tải Lạnh Giao Về):
+                    Địa Chỉ Kho / Điểm Tiếp Nhận Thực Tế (Gợi ý Goong Maps):
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <AddressAutocomplete
                     value={profileWarehouse}
-                    onChange={(e) => setProfileWarehouse(e.target.value)}
-                    placeholder="VD: Cửa số 4, Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM"
+                    onChange={(val) => setProfileWarehouse(val)}
+                    onSelectAddress={(data) => {
+                      if (data.address) setProfileWarehouse(data.address);
+                    }}
+                    placeholder="Nhập số nhà, tên đường, kho bãi thực tế ngoài đời..."
+                    showCurrentLocationBtn={true}
                     className="w-full px-3.5 py-2.5 bg-[#F9FAF8] border border-slate-200 rounded-xl font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
                   />
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Địa chỉ này sẽ dùng để tính toán định tuyến lộ trình xe tải lạnh tự động.
+                    Địa chỉ thực tế ngoài đời thực để hệ thống Goong Maps tự động tính toán lộ trình và chi phí xe tải lạnh chính xác.
                   </span>
                 </div>
 
@@ -1933,6 +2198,23 @@ export default function BuyerManagementConsole() {
         />
       )}
 
+      {/* Modal Quét Mã VietQR SePay Quyết Toán 70% Hợp Đồng */}
+      {selectedContractForFinalPayment && (
+        <SepayPaymentModal
+          isOpen={!!selectedContractForFinalPayment}
+          onClose={() => setSelectedContractForFinalPayment(null)}
+          type="CONTRACT"
+          code={String(selectedContractForFinalPayment.contractCode || `HD-${selectedContractForFinalPayment.id}`)}
+          amount={Number(selectedContractForFinalPayment.remainingAmount || Math.round((selectedContractForFinalPayment.totalAmount || 0) * 0.7))}
+          title="Quét Mã VietQR Thanh Toán 70% Quyết Toán Hợp Đồng"
+          recipientName={currentUser?.fullName || 'Thương Lái'}
+          onManualConfirm={() => confirmFinalPayment(selectedContractForFinalPayment)}
+          onSuccess={() => {
+            confirmFinalPayment(selectedContractForFinalPayment);
+          }}
+        />
+      )}
+
       {/* Modal Xem Toàn Văn Hợp Đồng B2B Điện Tử */}
       <B2bContractViewModal
         isOpen={Boolean(viewingContract)}
@@ -1955,11 +2237,11 @@ export default function BuyerManagementConsole() {
       {/* 4.1. Modal Xem Chi Tiết Đơn Đàm Phán RFQ */}
       {viewingRfqDetail && (
         <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl max-w-xl sm:max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Chi Tiết Báo Giá</span>
-                <h3 className="font-heading font-black text-base text-[#10542C]">{viewingRfqDetail.rfqCode}</h3>
+                <h3 className="font-heading font-black text-lg text-[#10542C]">{viewingRfqDetail.rfqCode}</h3>
               </div>
               <button
                 type="button"
@@ -1970,176 +2252,111 @@ export default function BuyerManagementConsole() {
               </button>
             </div>
 
-            <div className="space-y-2.5 text-xs">
-              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 space-y-1">
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100 space-y-1">
                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Nông Sản Đàm Phán</span>
-                <strong className="text-sm font-bold text-gray-900 block">{viewingRfqDetail.productName}</strong>
-                <p className="text-gray-600">
+                <strong className="text-base font-bold text-gray-900 block">{viewingRfqDetail.productName}</strong>
+                <p className="text-gray-600 text-xs">
                   Mã lô: <span className="font-mono font-bold text-slate-800">{viewingRfqDetail.lotCode}</span> • Nhà vườn: <strong>{viewingRfqDetail.farmerName || 'HTX Nông Nghiệp'}</strong>
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100">
                   <span className="text-[10px] text-gray-500 font-semibold block">Khối lượng mua:</span>
-                  <strong className="text-sm font-black text-gray-900 font-mono">
+                  <strong className="text-base font-black text-gray-900 font-mono">
                     {(viewingRfqDetail.requestedQuantityKg || 0).toLocaleString()} kg
                   </strong>
                 </div>
-                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
+                <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100">
                   <span className="text-[10px] text-gray-500 font-semibold block">Giá bạn đề xuất:</span>
-                  <strong className="text-sm font-black text-[#10542C] font-mono">
+                  <strong className="text-base font-black text-[#10542C] font-mono">
                     {formatVND(viewingRfqDetail.targetPricePerKg)}/kg
                   </strong>
                 </div>
               </div>
 
               {Boolean(viewingRfqDetail.counterPricePerKg) && (
-                <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
+                <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200">
                   <span className="text-[10px] text-amber-800 font-semibold block">Nhà vườn phản hồi mức giá:</span>
-                  <strong className="text-sm font-black text-amber-900 font-mono">
+                  <strong className="text-base font-black text-amber-900 font-mono">
                     {formatVND(viewingRfqDetail.counterPricePerKg!)}/kg
                   </strong>
                 </div>
               )}
 
-              <div className="space-y-1 p-3 bg-gray-50 rounded-2xl border border-gray-100 text-gray-600">
-                <div className="flex justify-between">
+              <div className="space-y-2 p-4 bg-gray-50 rounded-2xl border border-gray-100 text-gray-600 leading-relaxed">
+                <div className="flex justify-between items-center py-0.5 border-b border-gray-100/80 pb-1.5">
                   <span className="text-gray-500">Trạng thái:</span>
                   {(() => {
                     const meta = formatStatusVi(viewingRfqDetail.status);
-                    return <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${meta.badgeClass}`}>{meta.label}</span>;
+                    return <span className={`px-2.5 py-1 rounded-md font-bold text-xs ${meta.badgeClass}`}>{meta.label}</span>;
                   })()}
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Phương thức vận chuyển:</span>
-                  <strong className="text-gray-800">{viewingRfqDetail.shippingOption || 'Xe tải lạnh bảo ôn'}</strong>
+                <div className="flex justify-between items-start gap-3 py-1 border-b border-gray-100/80 pb-1.5">
+                  <span className="text-gray-500 shrink-0">Phương thức vận chuyển:</span>
+                  <span className="text-[#10542C] font-bold text-right text-xs">
+                    {getShippingMethodLabel(viewingRfqDetail.shippingOption).title}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Địa chỉ kho nhận:</span>
-                  <strong className="text-gray-800 text-right max-w-[65%] truncate">{viewingRfqDetail.deliveryLocation}</strong>
+                <div className="flex justify-between items-start gap-3 py-1 border-b border-gray-100/80 pb-1.5">
+                  <span className="text-gray-500 shrink-0">Địa chỉ kho nhận hàng:</span>
+                  <span className="text-gray-900 font-semibold text-right text-xs break-words max-w-[70%]">
+                    {viewingRfqDetail.deliveryLocation}
+                  </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center py-0.5">
                   <span className="text-gray-500">Ngày giao mong muốn:</span>
-                  <strong className="text-gray-800">{formatDateVi(viewingRfqDetail.desiredDeliveryDate)}</strong>
+                  <strong className="text-gray-800 font-mono text-xs">{formatDateVi(viewingRfqDetail.desiredDeliveryDate)}</strong>
                 </div>
                 {viewingRfqDetail.notes && (
-                  <div className="pt-1 border-t border-gray-200 mt-1">
-                    <span className="text-gray-500 block">Ghi chú:</span>
-                    <p className="text-gray-700 italic">{viewingRfqDetail.notes}</p>
+                  <div className="pt-2 border-t border-gray-200 mt-1">
+                    <span className="text-gray-500 block font-semibold mb-0.5">Ghi chú từ bên mua:</span>
+                    <p className="text-gray-700 italic bg-white p-2.5 rounded-xl border border-gray-100">{viewingRfqDetail.notes}</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setViewingRfqDetail(null)}
-              className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition cursor-pointer text-xs"
-            >
-              Đóng
-            </button>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setViewingRfqDetail(null)}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition cursor-pointer text-xs"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = viewingRfqDetail;
+                  setViewingRfqDetail(null);
+                  setActiveChatRfq(target);
+                }}
+                className="flex-1 py-3 bg-[#10542C] hover:bg-[#0c3e20] text-white font-bold rounded-xl transition cursor-pointer text-xs flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-200" />
+                <span>Nhắn Tin Với Nhà Vườn</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* 4.2. Modal Chỉnh Sửa Đơn Đàm Phán RFQ */}
-      {editingRfqDetail && (
-        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Chỉnh Sửa Báo Giá</span>
-                <h3 className="font-heading font-black text-base text-[#10542C]">{editingRfqDetail.rfqCode}</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingRfqDetail(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Nông sản:</label>
-                <div className="px-3 py-2 bg-gray-100 rounded-xl font-bold text-gray-800">
-                  {editingRfqDetail.productName}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Sản lượng (kg) *</label>
-                  <input
-                    type="number"
-                    min={100}
-                    value={editingRfqDetail.quantity}
-                    onChange={(e) =>
-                      setEditingRfqDetail({ ...editingRfqDetail, quantity: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border rounded-xl font-mono font-bold text-gray-900 focus:outline-none focus:border-[#10542C]"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Giá bạn muốn mua (đ/kg) *</label>
-                  <input
-                    type="number"
-                    min={1000}
-                    step={100}
-                    value={editingRfqDetail.price}
-                    onChange={(e) =>
-                      setEditingRfqDetail({ ...editingRfqDetail, price: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border rounded-xl font-mono font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Địa điểm giao nhận kho:</label>
-                <input
-                  type="text"
-                  value={editingRfqDetail.deliveryLocation}
-                  onChange={(e) =>
-                    setEditingRfqDetail({ ...editingRfqDetail, deliveryLocation: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border rounded-xl text-gray-800 focus:outline-none focus:border-[#10542C]"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Ghi chú bổ sung:</label>
-                <textarea
-                  rows={2}
-                  value={editingRfqDetail.notes}
-                  onChange={(e) =>
-                    setEditingRfqDetail({ ...editingRfqDetail, notes: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border rounded-xl text-gray-800 focus:outline-none focus:border-[#10542C]"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEditingRfqDetail(null)}
-                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition cursor-pointer text-xs"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveEditRfq}
-                className="flex-1 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold rounded-xl transition cursor-pointer text-xs shadow-md"
-              >
-                Lưu Thay Đổi
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 4.2. Modal Chỉnh Sửa Đơn Đàm Phán RFQ (Nâng cấp đầy đủ Cố vấn giá sỉ, Goong Maps & Logistics như Modal Đàm Phán) */}
+      {editingRfqDetail && editingProduct && (
+        <B2BNegotiationModal
+          product={editingProduct}
+          editingRfq={editingRfqDetail}
+          isOpen={!!editingRfqDetail}
+          onClose={() => setEditingRfqDetail(null)}
+          onSuccess={() => {
+            setEditingRfqDetail(null);
+            void loadAllData();
+            setNotification('Cập nhật đơn đàm phán thành công!');
+            setTimeout(() => setNotification(null), 3000);
+          }}
+        />
       )}
 
       {/* 4.3. Modal Xác Nhận Hủy Đơn Đàm Phán RFQ */}
@@ -2277,6 +2494,29 @@ export default function BuyerManagementConsole() {
           </div>
         </div>
       )}
+      {/* ================= MODAL: CHAT REALTIME B2B ĐÀM PHÁN ================= */}
+      <B2BChatModal
+        isOpen={Boolean(activeChatRfq)}
+        onClose={() => setActiveChatRfq(null)}
+        rfq={activeChatRfq ? {
+          id: activeChatRfq.id,
+          rfqCode: activeChatRfq.rfqCode,
+          productName: activeChatRfq.productName,
+          harvestLotCode: (activeChatRfq as any).harvestLotCode,
+          targetPrice: (activeChatRfq as any).proposedPricePerKg || (activeChatRfq as any).targetPrice || activeChatRfq.targetPricePerKg,
+          requestedQuantity: activeChatRfq.requestedQuantityKg,
+          buyerName: currentUser?.fullName || 'Thương Lái Mua Sỉ',
+          buyerCompany: currentUser?.companyName || 'Công Ty Thu Mua Sỉ',
+          farmerName: (activeChatRfq as any).farmerName || 'Nhà Vườn VietGAP',
+          farmerCompany: (activeChatRfq as any).farmerCompany || 'HTX Nông Nghiệp',
+          status: activeChatRfq.status,
+        } : null}
+        currentUser={{
+          id: currentUser?.id || 1,
+          name: currentUser?.companyName || currentUser?.fullName || 'Thương Lái Mua Sỉ',
+          role: 'BUYER',
+        }}
+      />
     </div>
   );
 }

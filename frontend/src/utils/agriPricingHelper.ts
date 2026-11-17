@@ -186,6 +186,40 @@ export interface PricingTierItem {
 }
 
 /**
+ * Tự động chia 3 bậc số lượng sỉ (3-Tier Min Kg) theo Sản Lượng Dự Kiến của lô hàng
+ * - Bậc 1: ~10% sản lượng lô (Sỉ nhỏ / Mua tối thiểu)
+ * - Bậc 2: ~30% sản lượng lô (Sỉ vừa)
+ * - Bậc 3: ~60% - 70% sản lượng lô (Sỉ lớn / Khách bao tiêu)
+ */
+export function computeTiersByTotalQuantity(totalVolume: number) {
+  const lotQty = Math.max(50, Number(totalVolume) || 1000);
+
+  let t1 = Math.round(lotQty * 0.1);
+  let t2 = Math.round(lotQty * 0.3);
+  let t3 = Math.round(lotQty * 0.65);
+
+  if (lotQty >= 2000) {
+    t1 = Math.max(50, Math.round(t1 / 50) * 50);
+    t2 = Math.max(t1 + 50, Math.round(t2 / 100) * 100);
+    t3 = Math.max(t2 + 100, Math.round(t3 / 100) * 100);
+  } else if (lotQty >= 500) {
+    t1 = Math.max(20, Math.round(t1 / 10) * 10);
+    t2 = Math.max(t1 + 20, Math.round(t2 / 50) * 50);
+    t3 = Math.max(t2 + 50, Math.round(t3 / 50) * 50);
+  } else {
+    t1 = Math.max(10, Math.round(t1 / 5) * 5);
+    t2 = Math.max(t1 + 10, Math.round(t2 / 10) * 10);
+    t3 = Math.max(t2 + 10, Math.round(t3 / 10) * 10);
+  }
+
+  if (t3 > lotQty) t3 = lotQty;
+  if (t2 >= t3) t2 = Math.max(t1 + 1, Math.round(t3 * 0.5));
+  if (t1 >= t2) t1 = Math.max(1, Math.round(t2 * 0.4));
+
+  return { tier1Min: t1, tier2Min: t2, tier3Min: t3 };
+}
+
+/**
  * Tính toán 3 Mức Giá Sỉ (3-Tier Pricing) theo Giá Cơ Sở và Loại Sản Phẩm
  */
 export function calculate3TierPricing(

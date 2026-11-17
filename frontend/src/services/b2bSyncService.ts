@@ -66,6 +66,9 @@ export interface B2bSyncContract {
   farmerCompany: string;
   quantityKg: number;
   agreedPricePerKg: number;
+  goodsAmount?: number;
+  shippingFee?: number;
+  shippingOption?: string;
   totalAmount: number;
   depositAmount: number; // 30% Escrow
   remainingAmount: number; // 70% Final
@@ -79,6 +82,30 @@ export interface B2bSyncContract {
   truckTempCurrent: number;
   deliveryAddress: string;
   deliveryTimeSlot: string;
+  // Các trường theo dõi quy trình từ Thu hoạch -> Kho HoNa QC -> Xuất kho -> Đối soát
+  actualHarvestWeightKg?: number;
+  harvestProofImageUrl?: string;
+  packageCount?: number;
+  packageType?: string;
+  qrCodeData?: string;
+  harvestedAt?: string;
+  farmPickupAddress?: string;
+  pickupTruckPlate?: string;
+  pickupDriverName?: string;
+  pickupDriverPhone?: string;
+  farmHandoverTemp?: number;
+  farmPickupSignedAt?: string;
+  hubWarehouseZone?: string;
+  hubRackBin?: string;
+  maxStorageDays?: number;
+  hubInboundAt?: string;
+  qcStatus?: string;
+  qcPassedAt?: string;
+  qcCertUrl?: string;
+  outboundTruckPlate?: string;
+  outboundDriverName?: string;
+  outboundDispatchedAt?: string;
+  farmerPayoutAmount?: number;
   epodDeliveredWeightKg?: number;
   epodDamagedWeightKg?: number;
   epodSignatureName?: string;
@@ -891,9 +918,25 @@ function createContractFromRfq(
   },
 ): B2bSyncContract {
   const contracts = getSyncContracts();
-  const total = rfq.requestedQuantityKg * pricePerKg;
-  const deposit = Math.round(total * 0.3);
-  const remaining = total - deposit;
+  const goodsAmount = rfq.requestedQuantityKg * pricePerKg;
+  const shippingOpt = (rfq as any).shippingOption || 'CROSS_DOCKING_HUB';
+  let shippingFee = 0;
+  if ((rfq as any).shippingFee && typeof (rfq as any).shippingFee === 'number') {
+    shippingFee = (rfq as any).shippingFee;
+  } else {
+    const optUpper = String(shippingOpt).toUpperCase();
+    if (optUpper === 'PA3' || optUpper.includes('SELF') || optUpper.includes('PICKUP')) {
+      shippingFee = 0;
+    } else if (optUpper.includes('DIRECT') || optUpper === 'PA1') {
+      shippingFee = Math.round(rfq.requestedQuantityKg * 1200 + 450000);
+    } else {
+      shippingFee = Math.round(rfq.requestedQuantityKg * 850 + 250000);
+    }
+  }
+  const total = goodsAmount + shippingFee;
+  const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
+  const deposit = isSelfPickup ? total : Math.round(total * 0.3);
+  const remaining = Math.max(0, total - deposit);
   const targetFarmName = rfq.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP';
   const newContract: B2bSyncContract = {
     id: Date.now(),
@@ -910,6 +953,9 @@ function createContractFromRfq(
     farmerCompany: targetFarmName,
     quantityKg: rfq.requestedQuantityKg,
     agreedPricePerKg: pricePerKg,
+    goodsAmount,
+    shippingFee,
+    shippingOption: shippingOpt,
     totalAmount: total,
     depositAmount: deposit,
     remainingAmount: remaining,
@@ -978,6 +1024,53 @@ export function buyerPayDeposit(contractId: number | string): B2bSyncContract | 
   localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
   mirrorContractStatus(c);
   notifySyncEvent('DEPOSIT_PAID', c);
+  try {
+    b2bWebSocket.publish('/topic/contracts', { action: 'DEPOSIT_PAID', contract: c });
+    b2bWebSocket.publish('/topic/lots', { action: 'LOT_RESERVED', lotId: c.lotId, lotCode: c.lotCode, contractCode: c.contractCode });
+  } catch {}
+  return c;
+}
+
+export function farmerStartHarvest(contractId: number | string): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.fulfillmentStep = 2;
+  c.fulfillmentStatusName = 'Đang Thu Hoạch & Phân Loại Tại Vườn';
+  (c as any).isHarvesting = true;
+  (c as any).isHarvestDone = false;
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('HARVEST_STARTED', c);
+  try {
+    b2bWebSocket.publish('/topic/contracts', { action: 'HARVEST_STARTED', contract: c });
+  } catch {}
+  return c;
+}
+
+export function farmerCompleteHarvest(contractId: number | string): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.fulfillmentStep = 2;
+  c.fulfillmentStatusName = 'Đã Thu Hoạch & Đóng Thùng Dán Tem';
+  (c as any).isHarvesting = false;
+  (c as any).isHarvestDone = true;
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('HARVEST_COMPLETED', c);
+  try {
+    b2bWebSocket.publish('/topic/contracts', { action: 'HARVEST_COMPLETED', contract: c });
+    b2bWebSocket.publish('/topic/lots', { action: 'LOT_HARVESTED', lotId: c.lotId, lotCode: c.lotCode, contractCode: c.contractCode });
+  } catch {}
   return c;
 }
 
@@ -1074,6 +1167,163 @@ export function buyerPayFinalSettlement(contractId: number | string): B2bSyncCon
   localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
   mirrorContractStatus(c);
   notifySyncEvent('FINAL_PAID', c);
+  return c;
+}
+
+export function farmerVerifyHarvest(
+  contractId: number | string,
+  data: {
+    actualHarvestWeightKg: number;
+    grade1Ratio?: number;
+    harvestProofImageUrl?: string;
+    packageCount?: number;
+    packageType?: string;
+    qrCodeData?: string;
+    farmPickupAddress?: string;
+    notes?: string;
+  }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.actualHarvestWeightKg = data.actualHarvestWeightKg;
+  if (data.grade1Ratio !== undefined) (c as any).grade1Ratio = data.grade1Ratio;
+  if (data.notes !== undefined) (c as any).notes = data.notes;
+  c.harvestProofImageUrl = data.harvestProofImageUrl;
+  c.packageCount = data.packageCount;
+  c.packageType = data.packageType;
+  c.qrCodeData = data.qrCodeData;
+  c.farmPickupAddress = data.farmPickupAddress;
+  (c as any).isHarvestDone = true;
+  c.harvestedAt = new Date().toISOString();
+  c.fulfillmentStep = 2;
+  c.fulfillmentStatusName = 'Đã Thu Hoạch & Đóng Gói (Chờ Điều Phối Lấy Hàng)';
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('FARMER_HARVESTED', c);
+  return c;
+}
+
+export function adminDispatchPickup(
+  contractId: number | string,
+  data: { truckPlate: string; driverName: string; driverPhone?: string }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.pickupTruckPlate = data.truckPlate;
+  c.pickupDriverName = data.driverName;
+  c.pickupDriverPhone = data.driverPhone;
+  c.truckLicensePlate = data.truckPlate;
+  c.truckDriverName = data.driverName;
+  if (data.driverPhone) c.truckDriverPhone = data.driverPhone;
+  c.fulfillmentStep = 3;
+  c.fulfillmentStatusName = 'Đã Điều Phối Xe Lạnh Đến Vườn Lấy Hàng';
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('PICKUP_DISPATCHED', c);
+  return c;
+}
+
+export function adminFarmHandover(
+  contractId: number | string,
+  data: { handoverTemp: number }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.farmHandoverTemp = data.handoverTemp;
+  c.farmPickupSignedAt = new Date().toISOString();
+  c.truckTempCurrent = data.handoverTemp;
+  c.fulfillmentStep = 3;
+  c.fulfillmentStatusName = 'Đang Vận Chuyển Về Kho Lạnh HoNa Fresh';
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('IN_TRANSIT_HUB', c);
+  return c;
+}
+
+export function adminWarehouseInbound(
+  contractId: number | string,
+  data: { zone: string; rackBin: string; maxStorageDays: number; qcCertUrl?: string }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.hubWarehouseZone = data.zone;
+  c.hubRackBin = data.rackBin;
+  c.maxStorageDays = data.maxStorageDays;
+  c.qcStatus = 'QC_PASSED';
+  c.qcPassedAt = new Date().toISOString();
+  c.qcCertUrl = data.qcCertUrl;
+  c.hubInboundAt = new Date().toISOString();
+  c.fulfillmentStep = 4;
+  c.fulfillmentStatusName = 'Đã Nhập Kho HoNa & Kiểm Định QC Đạt Chuẩn';
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('AT_HUB_QC', c);
+  return c;
+}
+
+export function adminOutboundDispatch(
+  contractId: number | string,
+  data: { truckPlate: string; driverName: string }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.outboundTruckPlate = data.truckPlate;
+  c.outboundDriverName = data.driverName;
+  c.truckLicensePlate = data.truckPlate;
+  c.truckDriverName = data.driverName;
+  c.outboundDispatchedAt = new Date().toISOString();
+  c.fulfillmentStep = 4;
+  c.fulfillmentStatusName = 'Đang Giao Chặng Cuối Đến Địa Chỉ Buyer';
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('OUTBOUND_DISPATCHED', c);
+  return c;
+}
+
+export function adminSettleContract(
+  contractId: number | string,
+  data?: { payoutAmount?: number }
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const idx = findSafeContractIndex(contracts, contractId);
+  if (idx === -1) return undefined;
+
+  const c = { ...contracts[idx] };
+  c.finalPaidStatus = 'PAID';
+  c.fulfillmentStep = 6;
+  c.fulfillmentStatusName = 'Hoàn Tất Đơn & Đã Giải Ngân Cho Nông Dân';
+  c.settledToFarmerAt = new Date().toISOString();
+  if (data?.payoutAmount) c.farmerPayoutAmount = data.payoutAmount;
+
+  contracts[idx] = c;
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  mirrorContractStatus(c);
+  notifySyncEvent('CONTRACT_SETTLED', c);
   return c;
 }
 

@@ -15,6 +15,7 @@ import {
   Calendar,
   CheckCircle2,
   ShieldCheck,
+  LockKeyhole,
   Leaf,
   PhoneCall,
   Truck,
@@ -380,14 +381,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </button>
               </div>
 
-              {/* Hotline gọi trực tiếp */}
-              <a
-                href={`tel:${product.farmContactPhone || '0988100222'}`}
-                className="w-full py-2 bg-[#F9F9F5] hover:bg-[#F4F5F1] text-[#2C3E2E] border border-[#EAECE8] rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
-              >
-                <PhoneCall className="w-3.5 h-3.5 text-[#4CAF50]" />
-                <span>Hotline Thương Lái - Nhà Vườn: <strong>{product.farmContactPhone || '0988.100.222'}</strong></span>
-              </a>
+              {/* Bảo mật SĐT Nhà Vườn - Chống giao dịch ngoài luồng */}
+              <div className="w-full py-2 bg-[#F9F9F5] text-[#2C3E2E] border border-[#EAECE8] rounded-xl text-xs flex items-center justify-between px-3">
+                <span className="flex items-center gap-1.5 text-gray-600 font-medium">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>SĐT Nhà Vườn: <strong className="font-mono text-gray-800">098***.***</strong></span>
+                </span>
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <LockKeyhole className="w-2.5 h-2.5 text-amber-700" /> Mở sau khi cọc
+                </span>
+              </div>
             </div>
 
             {/* Tabs chi tiết */}
@@ -503,14 +506,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       </div>
 
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5">
-                        <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Hotline Trực Tiếp Nhà Vườn:</span>
-                        <a
-                          href={`tel:${product.farmContactPhone || '0988100222'}`}
-                          className="font-mono text-emerald-800 font-bold hover:underline flex items-center gap-1"
-                        >
-                          <PhoneCall className="w-3 h-3 text-emerald-600" />
-                          <span>{product.farmContactPhone || '0988.100.222'}</span>
-                        </a>
+                        <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Liên Hệ Nhà Vườn:</span>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-gray-700 font-bold flex items-center gap-1">
+                            <LockKeyhole className="w-3 h-3 text-amber-600" />
+                            098***.*** (Bảo mật giao dịch)
+                          </span>
+                          <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Mở sau khi cọc
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

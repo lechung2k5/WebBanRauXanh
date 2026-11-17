@@ -6,7 +6,8 @@ public enum ImagePurpose {
     AVATAR,
     CATEGORY,
     LOT,
-    EPOD;
+    EPOD,
+    CHAT;
 
     public static ImagePurpose fromString(String value) {
         if (value == null || value.isBlank()) {

@@ -13,8 +13,10 @@ import {
   CheckCircle2,
   Truck,
   Award,
+  LockKeyhole,
 } from 'lucide-react';
 import { getContractPrintUrl } from '@/services/farmerApi';
+import { getShippingMethodLabel } from '@/utils/logisticsCalculator';
 
 export interface B2bContractModalData {
   id: number;
@@ -34,9 +36,14 @@ export interface B2bContractModalData {
   quantityKg: number;
   unitPrice: number;
   totalAmount: number;
+  goodsAmount?: number;
+  shippingFee?: number;
+  shippingOption?: string;
   depositAmount: number;
   remainingAmount?: number;
   depositStatus?: string;
+  isDepositPaid?: boolean;
+  status?: string;
   fulfillmentStatusName?: string;
   deliveryAddress?: string;
   deliveryTimeSlot?: string;
@@ -56,6 +63,34 @@ export default function B2bContractViewModal({
 }: B2bContractViewModalProps) {
   if (!isOpen || !contract) return null;
 
+  const isDepositPaid = Boolean(
+    contract.isDepositPaid ||
+    contract.depositStatus === 'PAID' ||
+    contract.depositStatus === 'DEPOSIT_PAID' ||
+    contract.status === 'DEPOSIT_PAID' ||
+    contract.status === 'ACTIVE' ||
+    contract.status === 'COMPLETED' ||
+    contract.status === 'DELIVERING' ||
+    contract.status === 'DELIVERED'
+  );
+
+  const isSelfPickup =
+    String(contract.shippingOption || '').toUpperCase().includes('BUYER') ||
+    String(contract.shippingOption || '').toUpperCase().includes('PICKUP');
+
+  const goodsAmount = contract.goodsAmount || (contract.quantityKg * contract.unitPrice);
+  const shippingFee =
+    contract.shippingFee !== undefined
+      ? contract.shippingFee
+      : isSelfPickup
+      ? 0
+      : Math.round((contract.quantityKg || 1000) * 2000);
+
+  const grandTotal =
+    contract.totalAmount > goodsAmount ? contract.totalAmount : goodsAmount + shippingFee;
+  const calculatedDeposit = isSelfPickup ? grandTotal : (contract.depositAmount || Math.round(grandTotal * 0.3));
+  const remainingAmount = grandTotal - calculatedDeposit;
+
   const formatVnd = (num?: number) => {
     if (num === undefined || num === null) return '0 đ';
     return num.toLocaleString('vi-VN') + ' đ';
@@ -68,10 +103,6 @@ export default function B2bContractViewModal({
       window.print();
     }
   };
-
-  const isDepositPaid =
-    contract.depositStatus === 'DEPOSIT_PAID' ||
-    contract.depositStatus === 'PAID';
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-3 sm:p-5">
@@ -124,20 +155,20 @@ export default function B2bContractViewModal({
         </div>
 
         {/* Contract Paper Content */}
-        <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 bg-[#FCFDFB] text-slate-800 text-xs">
+        <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 bg-[#FCFDFB] text-slate-800 text-sm">
           {/* Header Quốc hiệu / Mộc sàn */}
           <div className="text-center space-y-1 pb-4 border-b border-gray-200">
-            <h4 className="font-bold uppercase tracking-wider text-slate-700 text-[11px]">
+            <h4 className="font-bold uppercase tracking-wider text-slate-700 text-xs">
               CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
             </h4>
-            <p className="text-[10px] text-slate-500 italic">
+            <p className="text-xs text-slate-500 italic">
               Độc lập - Tự do - Hạnh phúc
             </p>
             <div className="w-20 h-0.5 bg-slate-300 mx-auto my-2" />
-            <h2 className="font-heading font-black text-base sm:text-lg text-[#10542C] uppercase tracking-wide">
+            <h2 className="font-heading font-black text-lg sm:text-xl text-[#10542C] uppercase tracking-wide">
               HỢP ĐỒNG NGUYÊN TẮC THU MUA NÔNG SẢN SỈ B2B
             </h2>
-            <p className="text-[11px] text-slate-600 font-mono">
+            <p className="text-xs sm:text-sm text-slate-600 font-mono">
               Số: <strong>{contract.contractCode}</strong> | Ngày ký:{' '}
               {contract.createdAt
                 ? new Date(contract.createdAt).toLocaleDateString('vi-VN')
@@ -146,14 +177,14 @@ export default function B2bContractViewModal({
           </div>
 
           {/* Banner Trạng thái Ký quỹ Escrow */}
-          <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" />
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="w-6 h-6 text-emerald-700 shrink-0" />
               <div>
-                <span className="font-bold text-emerald-900 text-xs block">
+                <span className="font-bold text-emerald-900 text-sm block">
                   Bảo Chứng Tiền Cọc 30% Tại Sàn Nông Sản HoNa Fresh
                 </span>
-                <span className="text-[11px] text-emerald-700">
+                <span className="text-xs sm:text-sm text-emerald-700">
                   {isDepositPaid
                     ? `✓ Đã ký quỹ an toàn ${formatVnd(contract.depositAmount)} vào tài khoản Escrow`
                     : `Đang chờ thương lái nộp tiền cọc bảo chứng: ${formatVnd(contract.depositAmount)}`}
@@ -161,7 +192,7 @@ export default function B2bContractViewModal({
               </div>
             </div>
             <span
-              className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+              className={`text-xs font-bold px-3 py-1.5 rounded-full ${
                 isDepositPaid
                   ? 'bg-emerald-200 text-emerald-900'
                   : 'bg-amber-100 text-amber-900 animate-pulse'
@@ -196,11 +227,18 @@ export default function B2bContractViewModal({
                     {contract.farmerName || 'Nguyễn Văn Nông Dân'}
                   </strong>
                 </p>
-                <p>
-                  Số điện thoại:{' '}
-                  <strong className="font-mono text-slate-800">
-                    {contract.farmerPhone || '0988.100.222'}
-                  </strong>
+                <p className="flex items-center gap-1.5 flex-wrap">
+                  <span>Số điện thoại:</span>{' '}
+                  {isDepositPaid ? (
+                    <strong className="font-mono text-slate-800">
+                      {contract.farmerPhone || '0988.100.222'}
+                    </strong>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ nhà vườn được mở khóa tự động ngay sau khi đặt cọc">
+                      <LockKeyhole className="w-3 h-3 text-amber-700" />
+                      <span>098***.*** (Mở sau khi cọc)</span>
+                    </span>
+                  )}
                 </p>
                 <p>
                   Mã vùng trồng (PUC):{' '}
@@ -238,11 +276,18 @@ export default function B2bContractViewModal({
                     {contract.buyerName || 'Lê Chung'}
                   </strong>
                 </p>
-                <p>
-                  Số điện thoại:{' '}
-                  <strong className="font-mono text-slate-800">
-                    {contract.buyerPhone || '0901.234.567'}
-                  </strong>
+                <p className="flex items-center gap-1.5 flex-wrap">
+                  <span>Số điện thoại:</span>{' '}
+                  {isDepositPaid ? (
+                    <strong className="font-mono text-slate-800">
+                      {contract.buyerPhone || '0901.234.567'}
+                    </strong>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ thương lái mở sau khi nộp cọc">
+                      <LockKeyhole className="w-3 h-3 text-amber-700" />
+                      <span>•••••••••• (Mở sau khi cọc)</span>
+                    </span>
+                  )}
                 </p>
                 <p className="text-slate-500">
                   Kho nhận hàng:{' '}
@@ -258,68 +303,104 @@ export default function B2bContractViewModal({
             </div>
           </div>
 
-          {/* Bảng Chi Tiết Hàng Hóa & Giá Trị Hợp Đồng */}
-          <div className="space-y-2">
-            <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px] block">
-              CHI TIẾT LÔ NÔNG SẢN & GIÁ TRỊ GIAO DỊCH
+          {/* Bảng Chi Tiết Hàng Hóa & Giá Trị Hợp Đồng (Đã Gồm Cước Vận Chuyển Chuỗi Lạnh) */}
+          <div className="space-y-2.5">
+            <span className="font-bold text-slate-700 uppercase tracking-wider text-xs block">
+              CHI TIẾT LÔ NÔNG SẢN & ĐIỀU PHỐI LOGISTICS LẠNH
             </span>
             <div className="border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-[#F4F6F1] text-slate-700 font-bold border-b border-gray-200">
+                <thead className="bg-[#F4F6F1] text-slate-700 font-bold border-b border-gray-200 text-xs sm:text-sm">
                   <tr>
-                    <th className="py-2.5 px-3">Tên Nông Sản & Mã Lô</th>
-                    <th className="py-2.5 px-3 text-right">Sản Lượng (kg)</th>
-                    <th className="py-2.5 px-3 text-right">Đơn Giá Chốt</th>
-                    <th className="py-2.5 px-3 text-right">Thành Tiền (VNĐ)</th>
+                    <th className="py-3 px-3.5">Hạng Mục Thanh Toán</th>
+                    <th className="py-3 px-3.5 text-right">Khối Lượng / Đơn Vị</th>
+                    <th className="py-3 px-3.5 text-right">Đơn Giá</th>
+                    <th className="py-3 px-3.5 text-right">Thành Tiền (VNĐ)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
+                <tbody className="divide-y divide-gray-100 bg-white text-sm">
+                  {/* Hạng mục 1: Tiền Nông Sản */}
                   <tr>
-                    <td className="py-3 px-3">
-                      <strong className="text-[#10542C] text-sm block">
+                    <td className="py-3.5 px-3.5">
+                      <strong className="text-[#10542C] text-sm sm:text-base block">
                         {contract.productName}
                       </strong>
-                      <span className="font-mono text-[11px] text-slate-500">
-                        Mã lô: {contract.lotCode || 'LOT-2026-DL-001'}
+                      <span className="font-mono text-xs text-slate-500">
+                        Mã lô vụ mùa: {contract.lotCode || 'LOT-2026-DL-001'}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
+                    <td className="py-3.5 px-3.5 text-right font-mono font-bold text-slate-800 text-sm">
                       {(contract.quantityKg ?? 0).toLocaleString('vi-VN')} kg
                     </td>
-                    <td className="py-3 px-3 text-right font-mono font-bold text-[#10542C]">
+                    <td className="py-3.5 px-3.5 text-right font-mono font-bold text-[#10542C] text-sm">
                       {formatVnd(contract.unitPrice)}/kg
                     </td>
-                    <td className="py-3 px-3 text-right font-mono font-bold text-[#10542C] text-sm">
-                      {formatVnd(contract.totalAmount)}
+                    <td className="py-3.5 px-3.5 text-right font-mono font-bold text-[#10542C] text-sm sm:text-base">
+                      {formatVnd(goodsAmount)}
+                    </td>
+                  </tr>
+
+                  {/* Hạng mục 2: Cước Vận Chuyển Chuỗi Lạnh & Lưu Trạm HoNa QC */}
+                  <tr className="bg-sky-50/40">
+                    <td className="py-3 px-3.5">
+                      <strong className="text-sky-950 text-xs sm:text-sm block flex items-center gap-1.5">
+                        <Truck className="w-4 h-4 text-sky-700 shrink-0" />
+                        <span>Logistics Chuỗi Lạnh HoNa ({getShippingMethodLabel(contract.shippingOption).title.split(':')[0] || 'PA2'})</span>
+                      </strong>
+                      <span className="text-xs text-slate-500 block mt-0.5">
+                        {getShippingMethodLabel(contract.shippingOption).title}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3.5 text-right font-mono text-slate-700 text-xs sm:text-sm">
+                      {isSelfPickup ? 'Tự vận chuyển' : `${(contract.quantityKg ?? 0).toLocaleString('vi-VN')} kg`}
+                    </td>
+                    <td className="py-3 px-3.5 text-right font-mono text-slate-700 text-xs sm:text-sm">
+                      {isSelfPickup ? '0 đ' : `~${Math.round(shippingFee / (contract.quantityKg || 1)).toLocaleString('vi-VN')} đ/kg`}
+                    </td>
+                    <td className="py-3 px-3.5 text-right font-mono font-bold text-sky-900 text-sm">
+                      {formatVnd(shippingFee)}
                     </td>
                   </tr>
                 </tbody>
-                <tfoot className="bg-[#FAFBF9] border-t border-gray-200 font-semibold text-xs">
+                <tfoot className="bg-[#FAFBF9] border-t border-gray-200 font-semibold text-xs sm:text-sm">
                   <tr>
-                    <td colSpan={3} className="py-2 px-3 text-right text-slate-600">
-                      Tổng Giá Trị Hợp Đồng:
+                    <td colSpan={3} className="py-2 px-3.5 text-right text-slate-600">
+                      Tiền hàng nông sản:
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-black text-base text-[#10542C]">
-                      {formatVnd(contract.totalAmount)}
+                    <td className="py-2 px-3.5 text-right font-mono font-bold text-slate-800 text-sm">
+                      {formatVnd(goodsAmount)}
                     </td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="py-2 px-3 text-right text-emerald-800">
-                      Tiền Cọc Bảo Chứng 30% (Escrow):
+                    <td colSpan={3} className="py-2 px-3.5 text-right text-sky-900">
+                      Cước vận chuyển chuỗi lạnh & trạm QC:
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                      {formatVnd(contract.depositAmount)}
+                    <td className="py-2 px-3.5 text-right font-mono font-bold text-sky-800 text-sm">
+                      {formatVnd(shippingFee)}
+                    </td>
+                  </tr>
+                  <tr className="bg-emerald-50/70 border-t border-emerald-200">
+                    <td colSpan={3} className="py-2.5 px-3.5 text-right text-slate-900 font-bold">
+                      Tổng Giá Trị Hợp Đồng Thanh Toán (Đã gồm vận chuyển):
+                    </td>
+                    <td className="py-2.5 px-3.5 text-right font-mono font-black text-base sm:text-lg text-[#10542C]">
+                      {formatVnd(grandTotal)}
                     </td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="py-2 px-3 text-right text-slate-600">
-                      Còn Lại Thanh Toán Sau Khi Nghiệm Thu Đạt QC (70%):
+                    <td colSpan={3} className="py-2 px-3.5 text-right text-emerald-800">
+                      Tiền Cọc Bảo Chứng (Escrow {isSelfPickup ? '100%' : '30%'}):
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
-                      {formatVnd(
-                        contract.remainingAmount ||
-                          contract.totalAmount - contract.depositAmount
-                      )}
+                    <td className="py-2 px-3.5 text-right font-mono font-bold text-emerald-700 text-sm sm:text-base">
+                      {formatVnd(calculatedDeposit)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="py-2 px-3.5 text-right text-slate-600">
+                      Còn Lại Thanh Toán Sau Khi Nghiệm Thu Đạt QC:
+                    </td>
+                    <td className="py-2 px-3.5 text-right font-mono font-bold text-slate-800 text-sm sm:text-base">
+                      {formatVnd(remainingAmount)}
                     </td>
                   </tr>
                 </tfoot>
@@ -328,12 +409,12 @@ export default function B2bContractViewModal({
           </div>
 
           {/* Điều khoản vận chuyển và kiểm định QC */}
-          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2 leading-relaxed">
-            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2.5 leading-relaxed text-sm">
+            <span className="font-bold text-slate-800 flex items-center gap-2 text-sm">
               <Truck className="w-4 h-4 text-[#10542C]" />
               <span>ĐIỀU KHOẢN GIAO NHẬN & KIỂM ĐỊNH CHẤT LƯỢNG (QC)</span>
             </span>
-            <ul className="list-disc pl-5 space-y-1 text-slate-600 text-[11px]">
+            <ul className="list-disc pl-5 space-y-1.5 text-slate-600 text-xs sm:text-sm">
               <li>
                 <strong>Điểm bàn giao:</strong> {contract.deliveryAddress || 'Trạm Trung Chuyển Nông Sản Đức Trọng, Lâm Đồng'}
               </li>
@@ -354,9 +435,9 @@ export default function B2bContractViewModal({
           </div>
 
           {/* Dấu Mộc Xác Thực Pháp Lý 3 Bên */}
-          <div className="pt-4 border-t border-gray-200 grid grid-cols-3 gap-3 text-center">
+          <div className="pt-4 border-t border-gray-200 grid grid-cols-3 gap-3 text-center text-xs">
             <div className="space-y-1">
-              <span className="font-bold text-slate-700 uppercase text-[10px] block">
+              <span className="font-bold text-slate-700 uppercase text-xs block">
                 ĐẠI DIỆN BÊN BÁN (BÊN A)
               </span>
               <p className="text-[10px] text-slate-400 italic">(Ký, ghi rõ họ tên)</p>

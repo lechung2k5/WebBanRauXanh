@@ -11,6 +11,7 @@ import {
   subscribeB2bSyncEvents,
   type B2bNotification,
 } from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
 
 export default function B2BNotificationBell({ audience, tone = 'dark' }: { audience: 'BUYER' | 'FARMER' | 'ADMIN'; tone?: 'dark' | 'light' }) {
   const router = useRouter();
@@ -22,9 +23,46 @@ export default function B2BNotificationBell({ audience, tone = 'dark' }: { audie
     refresh();
     const unsubscribeNotification = subscribeB2bNotifications(refresh);
     const unsubscribeSync = subscribeB2bSyncEvents(refresh);
+
+    // Lắng nghe STOMP WebSocket để cập nhật chuông thông báo tức thì giữa các trình duyệt khác nhau
+    const unsubWsLots = b2bWebSocket.subscribeLots((payload: any) => {
+      const action = payload?.action;
+      const lotData = payload?.lot;
+
+      if ((action === 'LOT_CREATED' || action === 'CREATED') && lotData && audience === 'ADMIN') {
+        const title = 'Lô Nông Sản Mới Chờ Duyệt';
+        const message = `Nông dân ${lotData.farmerName || 'đối tác'} vừa đăng lô ${lotData.productName} (${lotData.lotCode}), sản lượng ${lotData.totalQuantity ?? lotData.totalWeightKg ?? 0} kg.`;
+        const newNotif: B2bNotification = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          audience: 'ADMIN',
+          type: 'LOT_CREATED',
+          title,
+          message,
+          lotCode: lotData.lotCode,
+          lotId: lotData.id,
+          read: false,
+          createdAt: new Date().toISOString(),
+        };
+
+        try {
+          const raw = localStorage.getItem('hona_b2b_notifications_v1');
+          const list: B2bNotification[] = raw ? JSON.parse(raw) : [];
+          if (!list.some((n) => n.lotCode === lotData.lotCode && n.type === 'LOT_CREATED')) {
+            list.unshift(newNotif);
+            localStorage.setItem('hona_b2b_notifications_v1', JSON.stringify(list));
+          }
+        } catch {}
+
+        refresh();
+      } else if (action === 'LOT_STATUS_CHANGED' || action === 'LOT_CANCELLED' || action === 'LOT_DELETED') {
+        refresh();
+      }
+    });
+
     return () => {
       unsubscribeNotification();
       unsubscribeSync();
+      unsubWsLots();
     };
   }, [audience]);
 

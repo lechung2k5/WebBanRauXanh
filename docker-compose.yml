@@ -24,6 +24,17 @@ services:
     networks:
       - app_network
 
+  redis:
+    image: redis:alpine
+    container_name: webbanrau_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: security_demo_pgadmin
@@ -40,6 +51,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
   app_network:
