@@ -85,3 +85,4 @@
 2. **KHÔNG** dùng kiểu dữ liệu `any` bừa bãi làm suy giảm tính an toàn kiểu và tăng thời gian biên dịch của TypeScript Compiler.
 3. **KHÔNG** giải thích lý thuyết dông dài, không mở đầu bằng các câu chào hỏi sáo rỗng hoặc lặp lại kiến thức cơ bản.
 4. **KHÔNG** dùng emoji bừa bãi trong code giao diện, tuân thủ nghiêm ngặt quy tắc UI/UX Enterprise (theo `GEMINI.md`).
+## 7. KHÔNG TỰ Ý PUSH CODE LÊN GITHUB
