@@ -26,6 +26,12 @@ Thumbs.db
 scratch/
 tools/
 *.exe
+*.bak
+~$*
+doc/*_UPDATED.docx
+doc/*_FINAL.docx
+__pycache__/
+*.pyc
 
 # Secrets & Environment Configurations
 .gemini_api_key

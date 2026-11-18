@@ -755,15 +755,69 @@ function FarmerPortalContent() {
       if (event.type === 'RFQ_CREATED') {
         setRealtimeNotification('Có thương lái vừa gửi yêu cầu đàm phán giá mới!');
         setTimeout(() => setRealtimeNotification(null), 5000);
+        loadPortalData();
       } else if (event.type === 'DEPOSIT_PAID') {
         setRealtimeNotification('Thương lái đã nộp cọc 30% bảo chứng thành công! Bạn có thể bắt đầu thu hoạch.');
         setTimeout(() => setRealtimeNotification(null), 5000);
+        loadPortalData();
       } else if (event.type === 'EPOD_SIGNED') {
         setRealtimeNotification('Thương lái đã ký nhận hàng! Khoản thanh toán 70% đã được giải ngân về ví.');
         setTimeout(() => setRealtimeNotification(null), 5000);
-      } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER') {
-        setRealtimeNotification('Thương lái đã đồng ý mức giá đàm phán và tạo hợp đồng!');
-        setTimeout(() => setRealtimeNotification(null), 5000);
+        loadPortalData();
+      } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER' || event.type === 'ACCEPTED') {
+        const payload: any = event.payload;
+        const acceptedRfq = payload?.rfq;
+        const newContract = payload?.newContract;
+        const rfqCode = acceptedRfq?.rfqCode || payload?.rfqCode;
+        const rfqId = acceptedRfq?.id || payload?.rfqId;
+        setRealtimeNotification(`✓ Thương lái vừa đồng ý chốt giá cho đơn RFQ ${rfqCode || ''}! Hợp đồng B2B đã được khởi tạo.`);
+        setTimeout(() => setRealtimeNotification(null), 6000);
+
+        // Cập nhật lạc quan danh sách RFQ sang ACCEPTED ngay lập tức
+        setRfqs((prev) =>
+          prev.map((r) => {
+            const isMatch = (rfqId && r.id === rfqId) || (rfqCode && r.rfqCode === rfqCode);
+            if (isMatch) {
+              return {
+                ...r,
+                status: 'ACCEPTED',
+                contractId: newContract?.id || r.contractId,
+                contractCode: newContract?.contractCode || r.contractCode,
+              };
+            }
+            return r;
+          })
+        );
+
+        // Bổ sung hợp đồng mới vào danh sách hợp đồng
+        if (newContract) {
+          setContracts((prev) => {
+            if (prev.some((c) => c.id === newContract.id || c.contractCode === newContract.contractCode)) return prev;
+            return [{
+              id: newContract.id,
+              contractCode: newContract.contractCode,
+              rfqId: newContract.id,
+              rfqCode: newContract.rfqCode,
+              harvestLotId: newContract.lotId,
+              lotCode: newContract.lotCode,
+              productName: newContract.productName,
+              buyerName: newContract.buyerName,
+              buyerPhone: newContract.buyerPhone,
+              quantity: newContract.quantityKg,
+              unitPrice: newContract.agreedPricePerKg,
+              totalAmount: newContract.totalAmount,
+              depositAmount: newContract.depositAmount,
+              depositStatus: newContract.depositStatus,
+              fulfillmentStatus: 'WAITING_HARVEST',
+              hubName: newContract.deliveryAddress,
+              hubDeliveryDate: new Date().toISOString().slice(0, 10),
+              createdAt: new Date().toISOString(),
+              hasQc: true,
+            } as any, ...prev];
+          });
+        }
+
+        loadPortalData();
       } else if (event.type === 'LOT_STATUS_UPDATED') {
         const payload: any = event.payload;
         const status = payload?.status || payload?.lot?.status;
@@ -2383,12 +2437,14 @@ function FarmerPortalContent() {
                                   rfqCode: c.rfqCode,
                                   lotCode: c.lotCode,
                                   productName: c.productName,
-                                  buyerName: c.buyerName,
-                                  buyerCompany: c.buyerName,
-                                  buyerPhone: c.buyerPhone,
-                                  farmerName: profile?.farmName || profile?.fullName || 'HTX Nông Nghiệp',
-                                  farmerCompany: profile?.farmName || profileForm.farmName || 'HTX Nông Nghiệp',
-                                  farmerPhone: profile?.phone || profileForm.contactPhone || '0988.100.222',
+                                  buyerName: c.buyerName || 'Trần Thị Thương',
+                                  buyerCompany: 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
+                                  buyerRepresentative: c.buyerName || 'Trần Thị Thương',
+                                  buyerPhone: c.buyerPhone || '0987.654.321',
+                                  farmerName: profile?.farmName || profile?.fullName || 'HTX Nông Nghiệp Đà Lạt GAP',
+                                  farmerCompany: profile?.farmName || profileForm.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+                                  farmerRepresentative: profile?.fullName || 'Nguyễn Văn Nông',
+                                  farmerPhone: profile?.phone || profileForm.contactPhone || '0912.345.678',
                                   farmerPuc: profile?.pucCode || profileForm.pucCode || 'VN-LDO-PUC-0849',
                                   farmerAddress: profile?.location || profileForm.farmAddress,
                                   quantityKg: c.quantity,
@@ -2401,7 +2457,7 @@ function FarmerPortalContent() {
                                   remainingAmount: c.totalAmount - c.depositAmount,
                                   depositStatus: c.depositStatus,
                                   fulfillmentStatusName: c.fulfillmentStatus,
-                                  deliveryAddress: c.hubName,
+                                  deliveryAddress: c.hubName || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
                                   deliveryTimeSlot: c.hubDeliveryDate,
                                   createdAt: c.createdAt,
                                 })

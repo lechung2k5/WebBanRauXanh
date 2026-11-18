@@ -53,7 +53,10 @@ export const SettlementStatementModal: React.FC<SettlementStatementModalProps> =
 
   if (!isOpen) return null;
 
-  const totalGoods = Number(quote?.goods || contract.total_goods_amount || contract.total_amount || 0);
+  const weight = Number(contract.offered_weight_kg || contract.quantityKg) || 0;
+  const unitPrice = Number(contract.offered_price_per_kg || contract.price_per_kg || contract.agreedPricePerKg) || 0;
+  const calculatedGoods = (weight > 0 && unitPrice > 0) ? (weight * unitPrice) : 0;
+  const totalGoods = Number(quote?.goods || calculatedGoods || contract.total_goods_amount || contract.total_amount || 0);
   const depositPaid = Number(contract.deposit_received || contract.deposit_30_amount || (totalGoods * 0.3));
   const serviceFee = Number(quote?.serviceFee || (totalGoods * 0.03));
   const vat = Number(quote?.vat || (serviceFee * 0.1));

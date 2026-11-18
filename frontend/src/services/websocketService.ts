@@ -215,6 +215,18 @@ class B2bStompService {
     });
   }
 
+  public subscribeProducts(callback: (payload: any) => void): () => void {
+    return this.subscribe('/topic/products', (payload) => {
+      callback(payload);
+    });
+  }
+
+  public subscribeDispatch(callback: (payload: any) => void): () => void {
+    return this.subscribe('/topic/dispatch', (payload) => {
+      callback(payload);
+    });
+  }
+
   public getConnected(): boolean {
     return this.isConnected;
   }

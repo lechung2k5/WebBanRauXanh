@@ -402,6 +402,7 @@ export interface B2BContract {
   totalAmount: number;
   depositAmount: number;
   remainingAmount?: number;
+  status?: string;
   depositStatus: 'PENDING_DEPOSIT' | 'DEPOSIT_PAID';
   fulfillmentStatus: 'WAITING_HARVEST' | 'HARVESTING' | 'HUB_DELIVERED' | 'IN_TRANSIT' | 'COMPLETED';
   depositPaidAt?: string;
@@ -421,6 +422,8 @@ export interface B2BContract {
   grade1Ratio?: number;
   packageCount?: number;
   packageType?: string;
+  packagingApproved?: boolean;
+  packaging_approved?: boolean;
   qrCodeData?: string;
   farmPickupAddress?: string;
   harvestProofImageUrl?: string;
@@ -430,6 +433,10 @@ export interface B2BContract {
   pickupTruckPlate?: string;
   pickupDriverName?: string;
   pickupDriverPhone?: string;
+  truckLicensePlate?: string;
+  truckDriverName?: string;
+  truckDriverPhone?: string;
+  truckTempCurrent?: number;
   farmHandoverTemp?: number;
   hubWarehouseZone?: string;
   hubRackBin?: string;

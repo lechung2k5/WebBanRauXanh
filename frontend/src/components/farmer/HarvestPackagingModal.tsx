@@ -42,8 +42,9 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
   onSubmit,
 }) => {
   const defaultQty = contract.quantityKg || 100;
+  const isEditMode = Boolean(contract.actualHarvestWeightKg || (contract as any).isHarvestDone || contract.fulfillmentStep >= 2);
   const [actualWeight, setActualWeight] = useState<number>(contract.actualHarvestWeightKg || defaultQty);
-  const [grade1Ratio, setGrade1Ratio] = useState<number>(96); // 96%
+  const [grade1Ratio, setGrade1Ratio] = useState<number>((contract as any).grade1Ratio || 96);
   const [packageType, setPackageType] = useState<string>(
     contract.packageType || 'Thùng xốp 15kg (Dán tem niêm phong)'
   );
@@ -54,17 +55,24 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
   const [proofImage, setProofImage] = useState<string>(
     contract.harvestProofImageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600'
   );
-  const [farmPickupAddress, setFarmPickupAddress] = useState<string>(
-    contract.farmPickupAddress || contract.farmerCompany || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng'
-  );
-  const [truckAccessNote, setTruckAccessNote] = useState<string>(
-    'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn'
-  );
-  const [pickupContactPhone, setPickupContactPhone] = useState<string>(
-    contract.farmerPhone || '0912.849.688'
-  );
+  const [farmPickupAddress, setFarmPickupAddress] = useState<string>(() => {
+    const raw = contract.farmPickupAddress || contract.farmerCompany || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng';
+    return raw.replace(/\s*\(\s*(?:s[đd]t|số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe[\s\S]*?\)/giu, '').replace(/\(\s*\)/g, '').trim();
+  });
+  const [truckAccessNote, setTruckAccessNote] = useState<string>(() => {
+    const raw = contract.farmPickupAddress || '';
+    const match = raw.match(/[-–—]\s*([^\)]+)/u);
+    if (match) return match[1].trim();
+    return 'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn';
+  });
+  const [pickupContactPhone, setPickupContactPhone] = useState<string>(() => {
+    const raw = contract.farmPickupAddress || '';
+    const match = raw.match(/(?:s[đd]t|số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe:\s*([0-9\.\s]+)/iu);
+    if (match) return match[1].replace(/[-–—\s]+$/, '').trim();
+    return contract.farmerPhone || '0912.345.678';
+  });
   const [notes, setNotes] = useState<string>(
-    'Rau thu hoạch sáng sớm 5h30 ráo sương, tỷ lệ cuống chuẩn, cuống ráo mủ tự nhiên'
+    (contract as any).notes || (contract as any).harvestNotes || 'Rau thu hoạch sáng sớm 5h30 ráo sương, tỷ lệ cuống chuẩn, cuống ráo mủ tự nhiên'
   );
   const [activeTab, setActiveTab] = useState<'FORM' | 'QR_LABELS'>('FORM');
   const [submitting, setSubmitting] = useState(false);
@@ -323,13 +331,16 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
     setSubmitting(true);
     try {
       const qrData = `HONAFRESH-PUC-${contract.contractCode}-PACK-${boxCount}`;
+      const cleanAddress = farmPickupAddress.replace(/\s*\(\s*(?:s[đd]t|số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe[\s\S]*?\)/giu, '').replace(/\(\s*\)/g, '').trim();
+      const cleanPhone = pickupContactPhone.replace(/[-–—\s]+$/, '').trim();
+      const formattedPickup = `${cleanAddress} (SĐT đón xe: ${cleanPhone} - ${truckAccessNote})`;
       await onSubmit({
         actualHarvestWeightKg: actualWeight,
         grade1Ratio,
         packageType,
         packageCount: boxCount,
         qrCodeData: qrData,
-        farmPickupAddress: `${farmPickupAddress} (SĐT đón xe: ${pickupContactPhone} - ${truckAccessNote})`,
+        farmPickupAddress: formattedPickup,
         harvestProofImageUrl: proofImage,
         notes,
       });
@@ -352,10 +363,15 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">
-                Nghiệm Thu Thu Hoạch & Quy Cách Đóng Gói
+                {isEditMode ? 'Chỉnh Sửa Biên Bản Nghiệm Thu & Đóng Kiện' : 'Nghiệm Thu Thu Hoạch & Quy Cách Đóng Gói'}
               </h2>
               <p className="text-xs text-gray-500 font-mono">
                 Mã HĐ: <strong className="text-[#10542C]">{contract.contractCode}</strong> &bull; {contract.productName}
+                {isEditMode && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    Chỉnh sửa số liệu
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -707,7 +723,7 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
             ) : (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Nộp Nghiệm Thu & Gửi Admin Điều Xe</span>
+                <span>{isEditMode ? 'Lưu Cập Nhật & Bắn Socket Sang Admin' : 'Nộp Nghiệm Thu & Gửi Admin Điều Xe'}</span>
               </>
             )}
           </button>

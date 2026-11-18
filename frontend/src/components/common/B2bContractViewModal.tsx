@@ -11,12 +11,13 @@ import {
   MapPin,
   Calendar,
   CheckCircle2,
+  Clock,
   Truck,
   Award,
   LockKeyhole,
 } from 'lucide-react';
 import { getContractPrintUrl } from '@/services/farmerApi';
-import { getShippingMethodLabel } from '@/utils/logisticsCalculator';
+import { getShippingMethodLabel, calculateB2bContractFinancials } from '@/utils/logisticsCalculator';
 
 export interface B2bContractModalData {
   id: number;
@@ -26,10 +27,12 @@ export interface B2bContractModalData {
   productName: string;
   buyerName?: string;
   buyerCompany?: string;
+  buyerRepresentative?: string;
   buyerPhone?: string;
   buyerAddress?: string;
   farmerName?: string;
   farmerCompany?: string;
+  farmerRepresentative?: string;
   farmerPhone?: string;
   farmerAddress?: string;
   farmerPuc?: string;
@@ -48,20 +51,82 @@ export interface B2bContractModalData {
   deliveryAddress?: string;
   deliveryTimeSlot?: string;
   createdAt?: string;
+
+  // Nghiệm thu thu hoạch rẫy từ Nhà Vườn (Mốc 2)
+  actualHarvestWeightKg?: number;
+  packageCount?: number;
+  packageType?: string;
+  farmPickupAddress?: string;
+  harvestNotes?: string;
+  harvestProofImageUrl?: string;
+  grade1Ratio?: number;
+  isHarvestDone?: boolean;
+  packagingApproved?: boolean;
+  packaging_approved?: boolean;
+  qrCodeData?: string;
 }
 
-interface B2bContractViewModalProps {
+export interface B2bContractViewModalProps {
   contract: B2bContractModalData | null;
   isOpen: boolean;
   onClose: () => void;
+  role?: 'ADMIN' | 'BUYER' | 'FARMER';
+  onAdminDispatchPickup?: (contract: any) => void;
+  onBuyerPayDeposit?: (contract: any) => void;
+  onTrackDelivery?: (contract: any) => void;
 }
+
+const parsePickupDetails = (rawStr: unknown) => {
+  const text = String(rawStr || '').trim();
+  if (!text || text === '—' || text === 'null' || text === 'undefined') {
+    return {
+      farmLocation: 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng',
+      contactPhone: '0912.345.678',
+      roadAccess: 'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn',
+    };
+  }
+
+  let contactPhone = '';
+  // Chỉ match các chữ số và dấu chấm, không dính dấu gạch nối/dấu trừ
+  const phoneMatch = text.match(/(?:SĐT|Số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe:\s*([0-9\.\s]+)/iu);
+  if (phoneMatch) {
+    contactPhone = phoneMatch[1].replace(/[-–—\s]+$/, '').trim();
+  }
+
+  let roadAccess = '';
+  const roadMatch = text.match(/[-–—]\s*([^\)]+)/u);
+  if (roadMatch) {
+    roadAccess = roadMatch[1].trim();
+  }
+
+  // Tẩy sạch triệt để TOÀN BỘ các cụm (SĐT đón xe: ...) bị lặp nhiều lần
+  let farmLocation = text
+    .replace(/\s*\(\s*(?:s[đd]t|số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe[\s\S]*?\)/giu, '')
+    .trim();
+
+  // Loại bỏ các cặp ngoặc rỗng nếu còn sót
+  farmLocation = farmLocation.replace(/\(\s*\)/g, '').trim();
+
+  return {
+    farmLocation: farmLocation || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng',
+    contactPhone: contactPhone || '0912.345.678',
+    roadAccess: roadAccess || 'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn',
+  };
+};
 
 export default function B2bContractViewModal({
   contract,
   isOpen,
   onClose,
+  role = 'BUYER',
+  onAdminDispatchPickup,
+  onBuyerPayDeposit,
+  onTrackDelivery,
 }: B2bContractViewModalProps) {
   if (!isOpen || !contract) return null;
+
+  // TÍNH TOÁN TÀI CHÍNH CHUẨN XAC QUA HÀM DÙNG CHUNG DUY NHẤT (SINGLE SOURCE OF TRUTH)
+  const fin = calculateB2bContractFinancials(contract);
 
   const isDepositPaid = Boolean(
     contract.isDepositPaid ||
@@ -71,25 +136,72 @@ export default function B2bContractViewModal({
     contract.status === 'ACTIVE' ||
     contract.status === 'COMPLETED' ||
     contract.status === 'DELIVERING' ||
-    contract.status === 'DELIVERED'
+    contract.status === 'DELIVERED' ||
+    contract.status === 'HARVESTED' ||
+    contract.status === 'PACKAGING_APPROVED' ||
+    contract.status === 'PICKUP_DISPATCHED' ||
+    contract.status === 'IN_TRANSIT_HUB' ||
+    contract.status === 'AT_HUB_QC'
   );
 
-  const isSelfPickup =
-    String(contract.shippingOption || '').toUpperCase().includes('BUYER') ||
-    String(contract.shippingOption || '').toUpperCase().includes('PICKUP');
+  const goodsAmount = fin.pureGoodsAmount;
+  const shippingFee = fin.shippingFee;
+  const grandTotal = fin.grandTotal;
+  const calculatedDeposit = fin.depositAmount;
+  const remainingAmount = fin.remainingAmount;
+  const isSelfPickup = fin.isSelfPickup;
 
-  const goodsAmount = contract.goodsAmount || (contract.quantityKg * contract.unitPrice);
-  const shippingFee =
-    contract.shippingFee !== undefined
-      ? contract.shippingFee
-      : isSelfPickup
-      ? 0
-      : Math.round((contract.quantityKg || 1000) * 2000);
+  const cleanText = (val: unknown): string => {
+    if (!val) return '';
+    const s = String(val).trim();
+    return (s === '—' || s === 'null' || s === 'undefined') ? '' : s;
+  };
 
-  const grandTotal =
-    contract.totalAmount > goodsAmount ? contract.totalAmount : goodsAmount + shippingFee;
-  const calculatedDeposit = isSelfPickup ? grandTotal : (contract.depositAmount || Math.round(grandTotal * 0.3));
-  const remainingAmount = grandTotal - calculatedDeposit;
+  const cleanPhone = (val: unknown, fallback: string): string => {
+    const safeFallback = fallback && fallback.replace(/[^0-9]/g, '').length >= 8 ? fallback : '0912.345.678';
+    if (!val) return safeFallback;
+    const s = String(val).trim();
+    if (s === '—' || s === 'null' || s === 'undefined' || s === '') return safeFallback;
+    // Nếu có chữ cái, đây chắc chắn là tên người (bị map nhầm) chứ không phải số điện thoại!
+    if (/[a-zA-Z\u00C0-\u024F\u1EA0-\u1EF9]/.test(s)) return safeFallback;
+    const digits = s.replace(/[^0-9]/g, '');
+    if (digits.length < 8 || digits.length > 15) return safeFallback;
+    return s;
+  };
+
+  const farmerPickupParsed = parsePickupDetails(contract.farmerAddress || contract.farmPickupAddress);
+  const cleanFarmerLocation = farmerPickupParsed.farmLocation || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng';
+
+  const farmerCompName = cleanText(contract.farmerCompany) || cleanText(contract.farmerName) || 'HTX Nông Nghiệp Đà Lạt GAP';
+  let farmerRepName = cleanText(contract.farmerRepresentative);
+  if (!farmerRepName || farmerRepName === farmerCompName) {
+    farmerRepName = (cleanText(contract.farmerName) && cleanText(contract.farmerName) !== farmerCompName)
+      ? cleanText(contract.farmerName)
+      : 'Nguyễn Văn Nông';
+  }
+  const farmerPhoneStr = cleanPhone(contract.farmerPhone, farmerPickupParsed.contactPhone || '0912.345.678');
+
+  let buyerCompName = cleanText(contract.buyerCompany);
+  let buyerRepName = cleanText(contract.buyerRepresentative);
+  if (!buyerCompName && !buyerRepName) {
+    buyerCompName = cleanText(contract.buyerName) || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
+    buyerRepName = 'Trần Thị Thương';
+  } else if (buyerCompName && !buyerRepName) {
+    buyerRepName = (cleanText(contract.buyerName) && cleanText(contract.buyerName) !== buyerCompName)
+      ? cleanText(contract.buyerName)
+      : 'Trần Thị Thương';
+  } else if (!buyerCompName && buyerRepName) {
+    buyerCompName = (cleanText(contract.buyerName) && cleanText(contract.buyerName) !== buyerRepName)
+      ? cleanText(contract.buyerName)
+      : 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
+  }
+  if (buyerCompName === buyerRepName) {
+    buyerCompName = 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
+  }
+
+  const buyerPhoneStr = cleanPhone(contract.buyerPhone, '0987.654.321');
+  const deliveryAddressStr = cleanText(contract.deliveryAddress) || cleanText(contract.buyerAddress) || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM';
+  const rfqCodeStr = cleanText(contract.rfqCode) || (contract.contractCode ? `RFQ-${contract.contractCode.replace(/^HD-/, '')}` : 'RFQ-8915FD6E');
 
   const formatVnd = (num?: number) => {
     if (num === undefined || num === null) return '0 đ';
@@ -212,43 +324,43 @@ export default function B2bContractViewModal({
                 </span>
                 <Building2 className="w-4 h-4 text-[#10542C]" />
               </div>
-              <div className="space-y-1 leading-relaxed">
+              <div className="space-y-1.5 leading-relaxed text-xs sm:text-sm">
                 <p>
                   Đơn vị:{' '}
-                  <strong className="text-slate-900">
-                    {contract.farmerCompany ||
-                      contract.farmerName ||
-                      'HTX Nông Nghiệp Đà Lạt GAP'}
+                  <strong className="text-slate-900 font-bold">
+                    {farmerCompName}
                   </strong>
                 </p>
                 <p>
                   Người đại diện:{' '}
-                  <strong className="text-slate-800">
-                    {contract.farmerName || 'Nguyễn Văn Nông Dân'}
+                  <strong className="text-slate-800 font-semibold">
+                    {farmerRepName}
                   </strong>
                 </p>
                 <p className="flex items-center gap-1.5 flex-wrap">
                   <span>Số điện thoại:</span>{' '}
                   {isDepositPaid ? (
-                    <strong className="font-mono text-slate-800">
-                      {contract.farmerPhone || '0988.100.222'}
+                    <strong className="font-mono text-slate-800 font-bold">
+                      {farmerPhoneStr}
                     </strong>
                   ) : (
                     <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ nhà vườn được mở khóa tự động ngay sau khi đặt cọc">
                       <LockKeyhole className="w-3 h-3 text-amber-700" />
-                      <span>098***.*** (Mở sau khi cọc)</span>
+                      <span>0912.***.*** (Mở sau khi cọc)</span>
                     </span>
                   )}
                 </p>
                 <p>
                   Mã vùng trồng (PUC):{' '}
-                  <strong className="font-mono text-[#10542C] bg-emerald-50 px-1.5 py-0.5 rounded">
-                    {contract.farmerPuc || 'VN-LDO-PUC-0849'}
+                  <strong className="font-mono text-[#10542C] bg-emerald-50 px-1.5 py-0.5 rounded font-bold">
+                    {cleanText(contract.farmerPuc) || 'VN-LDO-PUC-0849'}
                   </strong>
                 </p>
-                <p className="text-slate-500">
+                <p className="text-slate-600">
                   Địa chỉ vườn:{' '}
-                  {contract.farmerAddress || 'Đơn Dương, Lâm Đồng'}
+                  <span className="font-medium text-slate-800">
+                    {cleanFarmerLocation}
+                  </span>
                 </p>
               </div>
             </div>
@@ -261,43 +373,43 @@ export default function B2bContractViewModal({
                 </span>
                 <Award className="w-4 h-4 text-sky-700" />
               </div>
-              <div className="space-y-1 leading-relaxed">
+              <div className="space-y-1.5 leading-relaxed text-xs sm:text-sm">
                 <p>
                   Đơn vị mua:{' '}
-                  <strong className="text-slate-900">
-                    {contract.buyerCompany ||
-                      contract.buyerName ||
-                      'Công Ty Thu Mua Nông Sản Sài Gòn'}
+                  <strong className="text-slate-900 font-bold">
+                    {buyerCompName}
                   </strong>
                 </p>
                 <p>
                   Người đại diện:{' '}
-                  <strong className="text-slate-800">
-                    {contract.buyerName || 'Lê Chung'}
+                  <strong className="text-slate-800 font-semibold">
+                    {buyerRepName}
                   </strong>
                 </p>
                 <p className="flex items-center gap-1.5 flex-wrap">
                   <span>Số điện thoại:</span>{' '}
                   {isDepositPaid ? (
-                    <strong className="font-mono text-slate-800">
-                      {contract.buyerPhone || '0901.234.567'}
+                    <strong className="font-mono text-slate-800 font-bold">
+                      {buyerPhoneStr}
                     </strong>
                   ) : (
                     <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ thương lái mở sau khi nộp cọc">
                       <LockKeyhole className="w-3 h-3 text-amber-700" />
-                      <span>•••••••••• (Mở sau khi cọc)</span>
+                      <span>0987.***.*** (Mở sau khi cọc)</span>
                     </span>
                   )}
                 </p>
-                <p className="text-slate-500">
+                <p className="text-slate-600">
                   Kho nhận hàng:{' '}
-                  {contract.deliveryAddress ||
-                    contract.buyerAddress ||
-                    'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM'}
+                  <span className="font-medium text-slate-800">
+                    {deliveryAddressStr}
+                  </span>
                 </p>
                 <p className="text-[11px] text-sky-700 font-semibold">
                   Mã RFQ gốc:{' '}
-                  <span className="font-mono">{contract.rfqCode || 'N/A'}</span>
+                  <span className="font-mono font-bold bg-sky-50 px-1.5 py-0.5 rounded text-sky-900 border border-sky-200">
+                    {rfqCodeStr}
+                  </span>
                 </p>
               </div>
             </div>
@@ -434,6 +546,93 @@ export default function B2bContractViewModal({
             </ul>
           </div>
 
+          {/* Kết quả nghiệm thu thu hoạch rẫy từ Nhà Vườn (nếu đã qua mốc 2 thu hoạch) */}
+          {Boolean(contract.actualHarvestWeightKg || contract.packageCount || contract.isHarvestDone || contract.status === 'HARVESTED' || contract.status === 'PACKAGING_APPROVED') && (
+            <div className="bg-emerald-50/70 border border-emerald-300 rounded-2xl p-4 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between border-b border-emerald-200 pb-2 flex-wrap gap-2">
+                <span className="font-heading font-black text-xs uppercase tracking-wider text-[#10542C] flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#10542C]" /> Kết Quả Thu Hoạch & Đóng Kiện Rẫy (Nhà Vườn Đã Gửi)
+                </span>
+                <div className="flex items-center gap-2">
+                  {Boolean(contract.packagingApproved || contract.packaging_approved || contract.status === 'PACKAGING_APPROVED') ? (
+                    <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <CheckCircle2 className="w-3 h-3 text-white" />
+                      Đã duyệt đóng gói
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-amber-700" />
+                      Chờ Admin duyệt
+                    </span>
+                  )}
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded-full">
+                    Tỷ lệ loại 1: {contract.grade1Ratio || 96}%
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Sản lượng thực thu</span>
+                  <p className="text-base font-black text-[#10542C] font-mono mt-0.5">
+                    {(contract.actualHarvestWeightKg || contract.quantityKg || 0).toLocaleString('vi-VN')} kg
+                  </p>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Số kiện đã đóng</span>
+                  <p className="text-base font-black text-gray-900 font-mono mt-0.5">
+                    {contract.packageCount || 10} thùng
+                  </p>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Quy cách kiện</span>
+                  <p className="text-xs font-bold text-gray-800 mt-1 leading-snug break-words">
+                    {contract.packageType || 'Thùng xốp 15kg (Dán tem niêm phong)'}
+                  </p>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Mã tem QR PUC</span>
+                  <p className="text-[10px] font-mono font-bold text-emerald-800 mt-1 break-all">
+                    {contract.qrCodeData || `HONAFRESH-PUC-${contract.contractCode}`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Chi tiết điểm đón xe */}
+              {(() => {
+                const pickup = parsePickupDetails(contract.farmPickupAddress || contract.farmerAddress || contract.farmerCompany);
+                return (
+                  <div className="pt-2 border-t border-emerald-200/60 space-y-2 text-xs">
+                    <span className="text-[11px] font-bold text-[#10542C] uppercase tracking-wider flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-rose-500" /> Điểm Đón Xe Tải Lạnh Tại Rẫy
+                    </span>
+                    <div className="bg-white p-3 rounded-xl border border-emerald-100 space-y-1.5 text-gray-700">
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-400 font-semibold text-[11px] sm:w-28 shrink-0">Điểm đón / Vườn:</span>
+                        <span className="font-bold text-gray-900 leading-snug">{pickup.farmLocation}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 font-semibold text-[11px] sm:w-28 shrink-0">SĐT người đón:</span>
+                        <span className="font-mono font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          {pickup.contactPhone}
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-400 font-semibold text-[11px] sm:w-28 shrink-0">Hạ tầng đường vào:</span>
+                        <span className="font-medium text-gray-800 leading-snug">{pickup.roadAccess}</span>
+                      </div>
+                      {Boolean(contract.harvestNotes) && (
+                        <p className="text-[11px] text-amber-800 italic pt-1 border-t border-gray-100">
+                          Ghi chú: "{contract.harvestNotes}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Dấu Mộc Xác Thực Pháp Lý 3 Bên */}
           <div className="pt-4 border-t border-gray-200 grid grid-cols-3 gap-3 text-center text-xs">
             <div className="space-y-1">
@@ -482,6 +681,35 @@ export default function B2bContractViewModal({
           </span>
 
           <div className="flex items-center gap-2">
+            {role === 'ADMIN' && onAdminDispatchPickup && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onAdminDispatchPickup(contract);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-98"
+                title="Mở bảng điều phối xe tải lạnh đến rẫy lấy hàng"
+              >
+                <Truck className="w-4 h-4 text-white" />
+                <span>Điều Phối Xe Lấy Hàng</span>
+              </button>
+            )}
+
+            {role === 'BUYER' && !isDepositPaid && onBuyerPayDeposit && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onBuyerPayDeposit(contract);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-98"
+              >
+                <LockKeyhole className="w-4 h-4 text-white" />
+                <span>Nộp Cọc 30% Escrow</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handlePrint}

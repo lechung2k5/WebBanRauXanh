@@ -17,6 +17,11 @@ import { updateContractFulfillmentStatusApi } from '@/services/farmerApi';
 import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 import { b2bWebSocket } from '@/services/websocketService';
 import {
+  fleetDispatchApi,
+  OutboundDeliveryStopDto,
+  BuyerEpodConfirmRequest,
+} from '@/services/fleetDispatchApi';
+import {
   B2bSyncContract,
   B2bSyncRfq,
   getSyncContracts,
@@ -51,6 +56,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  AlertTriangle,
   QrCode,
   MapPin,
   Building2,
@@ -87,6 +93,13 @@ export default function BuyerManagementConsole() {
   const [syncContracts, setSyncContracts] = useState<B2bSyncContract[]>([]);
   const [rfqs, setRfqs] = useState<B2bSyncRfq[]>([]);
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
+  const [outboundStops, setOutboundStops] = useState<OutboundDeliveryStopDto[]>([]);
+  const [activeEpodModalStop, setActiveEpodModalStop] = useState<OutboundDeliveryStopDto | null>(null);
+  const [buyerSignerName, setBuyerSignerName] = useState<string>('');
+  const [buyerSignerPhone, setBuyerSignerPhone] = useState<string>('');
+  const [buyerSignatureData, setBuyerSignatureData] = useState<string>('');
+  const [buyerNotes, setBuyerNotes] = useState<string>('');
+  const [confirmingEpod, setConfirmingEpod] = useState<boolean>(false);
 
   // Bộ lọc & Tìm kiếm & Phân trang nguồn nông sản sỉ
   const [catalogKeywordInput, setCatalogKeywordInput] = useState('');
@@ -281,10 +294,12 @@ export default function BuyerManagementConsole() {
   const loadAllData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [backendContracts, backendRfqs] = await Promise.all([
+      const [backendContracts, backendRfqs, backendStops] = await Promise.all([
         getBuyerB2bContractsApi().catch(() => []),
         getBuyerRfqsApi().catch(() => []),
+        fleetDispatchApi.getBuyerDeliveries().catch(() => []),
       ]);
+      setOutboundStops(Array.isArray(backendStops) ? backendStops : []);
 
       const localContracts = getSyncContracts();
       const localRfqs = getSyncRfqs();
@@ -393,11 +408,19 @@ export default function BuyerManagementConsole() {
         if (bc.contractCode) {
           const code = bc.contractCode.trim().toUpperCase();
           const rawStatus = String((bc as any).status || bc.depositStatus || '').toUpperCase();
-          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || rawStatus === 'HARVESTED' || rawStatus === 'AT_HUB_QC' || rawStatus === 'IN_TRANSIT' || rawStatus === 'DELIVERED' || rawStatus === 'SETTLED' || bc.depositStatus === 'DEPOSIT_PAID';
+          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || rawStatus === 'HARVESTED' || rawStatus === 'PACKAGING_APPROVED' || rawStatus === 'AT_HUB_QC' || rawStatus === 'IN_TRANSIT' || rawStatus === 'DELIVERED' || rawStatus === 'SETTLED' || bc.depositStatus === 'DEPOSIT_PAID';
+          const isApproved = Boolean(
+            (bc as any).packagingApproved ||
+            (bc as any).packaging_approved ||
+            rawStatus === 'PACKAGING_APPROVED' ||
+            (typeof window !== 'undefined' && JSON.parse(localStorage.getItem('hona_packaging_approved_codes') || '[]').includes(code))
+          );
           contractMap.set(code, {
             ...bc,
+            packagingApproved: isApproved,
+            status: isApproved && rawStatus !== 'SETTLED' && rawStatus !== 'DELIVERED' && rawStatus !== 'AT_HUB_QC' && rawStatus !== 'IN_TRANSIT' ? 'PACKAGING_APPROVED' : bc.status,
             depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : bc.depositStatus,
-            fulfillmentStep: (bc as any).fulfillmentStep || (rawStatus === 'SETTLED' ? 6 : rawStatus === 'DELIVERED' ? 5 : rawStatus === 'AT_HUB_QC' ? 4 : rawStatus === 'HARVESTED' || bc.actualHarvestWeightKg ? 2 : (isDepositPaid ? 2 : 1)),
+            fulfillmentStep: (bc as any).fulfillmentStep || (rawStatus === 'SETTLED' ? 6 : rawStatus === 'DELIVERED' ? 5 : rawStatus === 'AT_HUB_QC' ? 4 : (isApproved || rawStatus === 'HARVESTED' || bc.actualHarvestWeightKg ? 2 : (isDepositPaid ? 2 : 1))),
           });
         }
       }
@@ -407,6 +430,7 @@ export default function BuyerManagementConsole() {
           const existing = contractMap.get(code)!;
           contractMap.set(code, {
             ...existing,
+            packagingApproved: Boolean(sc.packagingApproved || existing.packagingApproved),
             actualHarvestWeightKg: sc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
             grade1Ratio: sc.grade1Ratio || existing.grade1Ratio,
             packageCount: sc.packageCount || existing.packageCount,
@@ -415,6 +439,13 @@ export default function BuyerManagementConsole() {
             farmPickupAddress: sc.farmPickupAddress || existing.farmPickupAddress,
             fulfillmentStep: sc.fulfillmentStep || existing.fulfillmentStep,
             fulfillmentStatusName: sc.fulfillmentStatusName || existing.fulfillmentStatusName,
+            pickupTruckPlate: sc.pickupTruckPlate || existing.pickupTruckPlate,
+            truckLicensePlate: sc.truckLicensePlate || sc.pickupTruckPlate || existing.truckLicensePlate,
+            pickupDriverName: sc.pickupDriverName || existing.pickupDriverName,
+            truckDriverName: sc.truckDriverName || sc.pickupDriverName || existing.truckDriverName,
+            pickupDriverPhone: sc.pickupDriverPhone || existing.pickupDriverPhone,
+            truckDriverPhone: sc.truckDriverPhone || sc.pickupDriverPhone || existing.truckDriverPhone,
+            truckTempCurrent: sc.truckTempCurrent || existing.truckTempCurrent,
           });
         } else {
           contractMap.set(code, {
@@ -442,6 +473,13 @@ export default function BuyerManagementConsole() {
             packageType: sc.packageType,
             qrCodeData: sc.qrCodeData,
             farmPickupAddress: sc.farmPickupAddress,
+            pickupTruckPlate: sc.pickupTruckPlate,
+            truckLicensePlate: sc.truckLicensePlate || sc.pickupTruckPlate,
+            pickupDriverName: sc.pickupDriverName,
+            truckDriverName: sc.truckDriverName || sc.pickupDriverName,
+            pickupDriverPhone: sc.pickupDriverPhone,
+            truckDriverPhone: sc.truckDriverPhone || sc.pickupDriverPhone,
+            truckTempCurrent: sc.truckTempCurrent || 4.2,
             hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
             hubName: sc.deliveryAddress || 'Trạm Trung Chuyển Đức Trọng',
             createdAt: sc.createdAt || new Date().toISOString(),
@@ -464,6 +502,7 @@ export default function BuyerManagementConsole() {
             totalAmount: lc.totalAmount || existing.totalAmount,
             fulfillmentStep: lc.fulfillmentStep || existing.fulfillmentStep || (isDepPaid ? 2 : 1),
             fulfillmentStatusName: lc.fulfillmentStatusName || existing.fulfillmentStatusName,
+            packagingApproved: Boolean(lc.packagingApproved || existing.packagingApproved),
             actualHarvestWeightKg: lc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
             grade1Ratio: (lc as any).grade1Ratio || existing.grade1Ratio,
             packageCount: lc.packageCount || existing.packageCount,
@@ -471,6 +510,13 @@ export default function BuyerManagementConsole() {
             qrCodeData: lc.qrCodeData || existing.qrCodeData,
             farmPickupAddress: lc.farmPickupAddress || existing.farmPickupAddress,
             harvestProofImageUrl: lc.harvestProofImageUrl || existing.harvestProofImageUrl,
+            pickupTruckPlate: lc.pickupTruckPlate || existing.pickupTruckPlate,
+            truckLicensePlate: lc.truckLicensePlate || lc.pickupTruckPlate || existing.truckLicensePlate,
+            pickupDriverName: lc.pickupDriverName || existing.pickupDriverName,
+            truckDriverName: lc.truckDriverName || lc.pickupDriverName || existing.truckDriverName,
+            pickupDriverPhone: lc.pickupDriverPhone || existing.pickupDriverPhone,
+            truckDriverPhone: lc.truckDriverPhone || lc.pickupDriverPhone || existing.truckDriverPhone,
+            truckTempCurrent: lc.truckTempCurrent || existing.truckTempCurrent,
           });
         } else {
           contractMap.set(code, {
@@ -499,6 +545,13 @@ export default function BuyerManagementConsole() {
             qrCodeData: lc.qrCodeData,
             farmPickupAddress: lc.farmPickupAddress,
             harvestProofImageUrl: lc.harvestProofImageUrl,
+            pickupTruckPlate: lc.pickupTruckPlate,
+            truckLicensePlate: lc.truckLicensePlate || lc.pickupTruckPlate,
+            pickupDriverName: lc.pickupDriverName,
+            truckDriverName: lc.truckDriverName || lc.pickupDriverName,
+            pickupDriverPhone: lc.pickupDriverPhone,
+            truckDriverPhone: lc.truckDriverPhone || lc.pickupDriverPhone,
+            truckTempCurrent: lc.truckTempCurrent || 4.2,
             hubDeliveryDate: lc.deliveryTimeSlot || (lc.createdAt ? lc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
             hubName: lc.deliveryAddress,
             createdAt: lc.createdAt,
@@ -533,12 +586,12 @@ export default function BuyerManagementConsole() {
         depositAmount: ac.depositAmount,
         remainingAmount: ac.remainingAmount || (ac.totalAmount - ac.depositAmount),
         depositStatus: ac.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
-        fulfillmentStep: ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1,
-        fulfillmentStatusName: ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
-        truckLicensePlate: '49C-198.86 (Xe Thùng Lạnh)',
-        truckDriverName: 'Tài xế Nguyễn Văn Tài',
-        truckDriverPhone: '0944556677',
-        truckTempCurrent: 4.0,
+        fulfillmentStep: (ac as any).fulfillmentStep || (ac.fulfillmentStatus === 'COMPLETED' ? 6 : ac.fulfillmentStatus === 'HUB_DELIVERED' ? 4 : 1),
+        fulfillmentStatusName: (ac as any).fulfillmentStatusName || ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow',
+        truckLicensePlate: (ac as any).truckLicensePlate || (ac as any).pickupTruckPlate || '29H-882.14 (Xe Thùng Lạnh)',
+        truckDriverName: (ac as any).truckDriverName || (ac as any).pickupDriverName || 'Tài xế Nguyễn Văn Tài',
+        truckDriverPhone: (ac as any).truckDriverPhone || (ac as any).pickupDriverPhone || '0944556677',
+        truckTempCurrent: (ac as any).truckTempCurrent || 4.0,
         deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
         deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
         finalPaidStatus: 'UNPAID',
@@ -662,12 +715,32 @@ export default function BuyerManagementConsole() {
       } catch (e) {
         console.warn('Backend API accept notice:', e);
       }
-      const acceptResult = buyerAcceptCounterRfq(localRfqKey, backendRfq ? {
-        contractId: backendRfq.contractId,
-        contractCode: backendRfq.contractCode,
-        depositAmount: backendRfq.depositAmount,
-        depositStatus: backendRfq.depositStatus,
-      } : undefined);
+      const acceptResult = buyerAcceptCounterRfq(
+        localRfqKey,
+        backendRfq
+          ? {
+              contractId: (backendRfq as any).contractId,
+              contractCode: (backendRfq as any).contractCode,
+              depositAmount: (backendRfq as any).depositAmount,
+              depositStatus: (backendRfq as any).depositStatus,
+            }
+          : undefined,
+        selectedRfq
+      );
+
+      // Cập nhật state RFQ ngay lập tức trong component
+      setRfqs((prev) =>
+        prev.map((r) =>
+          r.id === rfqId || (selectedRfq?.rfqCode && r.rfqCode === selectedRfq.rfqCode)
+            ? {
+                ...r,
+                status: 'ACCEPTED',
+                contractId: acceptResult?.newContract?.id || r.contractId,
+                contractCode: acceptResult?.newContract?.contractCode || r.contractCode,
+              }
+            : r
+        )
+      );
 
       if (acceptResult?.newContract) {
         fetch('/api/b2b-shared-sync', {
@@ -690,10 +763,11 @@ export default function BuyerManagementConsole() {
       }
 
       void loadAllData();
-      setNotification('Bạn đã chấp nhận giá và tạo hợp đồng thành công!');
-      setTimeout(() => setNotification(null), 3000);
-    } catch {
-      alert('Không thể hoàn tất chấp thuận đơn đàm phán.');
+      setNotification('Bạn đã chấp nhận mức giá này và tạo hợp đồng B2B thành công!');
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err) {
+      console.error('Lỗi khi chấp nhận RFQ:', err);
+      alert(err instanceof Error ? err.message : 'Không thể hoàn tất chấp thuận đơn đàm phán.');
     }
   };
 
@@ -725,6 +799,37 @@ export default function BuyerManagementConsole() {
       setTimeout(() => setNotification(null), 4000);
     } catch (err: any) {
       alert(err?.message || 'Có lỗi khi xác nhận thanh toán.');
+    }
+  };
+
+  const openConfirmEpodModal = (stop: OutboundDeliveryStopDto) => {
+    setActiveEpodModalStop(stop);
+    setBuyerSignerName(currentUser?.fullName || currentUser?.companyName || 'Đại diện kho nhận hàng');
+    setBuyerSignerPhone(currentUser?.phone || '0901.234.567');
+    setBuyerSignatureData('Xác nhận đã kiểm tra đủ hàng và ký nhận bàn giao');
+    setBuyerNotes('');
+  };
+
+  const handleConfirmEpod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEpodModalStop) return;
+    try {
+      setConfirmingEpod(true);
+      const req: BuyerEpodConfirmRequest = {
+        buyerSignerName: buyerSignerName.trim() || 'Người nhận hàng đại diện Buyer',
+        buyerSignerPhone: buyerSignerPhone.trim() || '0901234567',
+        buyerSignatureData: buyerSignatureData.trim() || 'Chữ ký số xác nhận ePOD',
+        buyerNotes: buyerNotes.trim() || undefined,
+      };
+      await fleetDispatchApi.confirmBuyerEpod(activeEpodModalStop.id, req);
+      setNotification(`Đã ký xác nhận thành công biên bản ePOD cho hợp đồng ${activeEpodModalStop.contractCode || activeEpodModalStop.contractId}!`);
+      setTimeout(() => setNotification(null), 5000);
+      setActiveEpodModalStop(null);
+      await loadAllData();
+    } catch (err) {
+      setNotification(err instanceof Error ? err.message : 'Lỗi xác nhận ePOD');
+    } finally {
+      setConfirmingEpod(false);
     }
   };
 
@@ -1710,7 +1815,7 @@ export default function BuyerManagementConsole() {
                         className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs"
                       >
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono font-bold text-sm text-[#10542C]">{c.contractCode}</span>
                             <span
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1721,6 +1826,18 @@ export default function BuyerManagementConsole() {
                             >
                               {isPaid ? 'Đã nộp cọc 30% bảo chứng' : 'Chờ nộp cọc 30%'}
                             </span>
+                            {Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED') && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                                <span>BQT Đã Duyệt Đóng Gói</span>
+                              </span>
+                            )}
+                            {Number((c as any).fulfillmentStep) >= 3 && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
+                                <Truck className="w-3 h-3 text-blue-700" />
+                                <span>{Number((c as any).fulfillmentStep) === 3 ? 'Xe Lạnh Đang Lấy Hàng' : Number((c as any).fulfillmentStep) === 4 ? 'Đang Lưu Kho Lạnh QC' : Number((c as any).fulfillmentStep) === 5 ? 'Đang Giao Kho Buyer' : 'Đã Hoàn Tất'}</span>
+                              </span>
+                            )}
                           </div>
 
                           <h4 className="font-heading font-bold text-base text-[#2C3E2E]">{c.productName}</h4>
@@ -1837,9 +1954,17 @@ export default function BuyerManagementConsole() {
                                         <Scale className="w-3.5 h-3.5 text-[#10542C]" />
                                         <span>Nhà Vườn Đã Nghiệm Thu Thu Hoạch & Đóng Kiện</span>
                                       </span>
-                                      <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
-                                        Loại 1: {(c as any).grade1Ratio || 96}%
-                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        {Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED') && (
+                                          <span className="text-[10px] font-bold bg-teal-100 text-teal-900 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                            <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                                            <span>BQT Đã Duyệt Đóng Gói</span>
+                                          </span>
+                                        )}
+                                        <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                                          Loại 1: {(c as any).grade1Ratio || 96}%
+                                        </span>
+                                      </div>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1">
                                       <div>
@@ -1862,6 +1987,37 @@ export default function BuyerManagementConsole() {
                                           {(c as any).qrCodeData || `${c.contractCode}-PUC`}
                                         </span>
                                       </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Thông tin Xe Lạnh Lấy Hàng (Mốc 3) */}
+                                {Boolean(Number((c as any).fulfillmentStep) >= 3 || (c as any).pickupTruckPlate || (c as any).truckLicensePlate) && (
+                                  <div className="mt-1.5 p-3 bg-blue-50/80 border border-blue-200 rounded-2xl text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                                        <Truck className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Xe Lạnh HoNa Đang Đến Rẫy Lấy Hàng</span>
+                                      </span>
+                                      <span className="text-[10px] font-bold bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
+                                        Thùng lạnh: {(c as any).truckTempCurrent || 4.2}°C (Chuẩn 2-6°C)
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
+                                      <div>
+                                        <span className="text-gray-500 block">Biển số xe lạnh:</span>
+                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).truckLicensePlate || (c as any).pickupTruckPlate || '29H-882.14'}</strong>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500 block">Tài xế phụ trách:</span>
+                                        <strong className="text-gray-900 text-xs">{(c as any).truckDriverName || (c as any).pickupDriverName || 'Nguyễn Văn Tài'}</strong>
+                                      </div>
+                                      {Boolean((c as any).truckDriverPhone || (c as any).pickupDriverPhone) && (
+                                        <div>
+                                          <span className="text-gray-500 block">SĐT tài xế:</span>
+                                          <strong className="text-[#10542C] font-mono text-xs">{(c as any).truckDriverPhone || (c as any).pickupDriverPhone}</strong>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -1958,14 +2114,17 @@ export default function BuyerManagementConsole() {
                               setViewingContract({
                                 id: c.id,
                                 contractCode: c.contractCode,
-                                rfqCode: c.rfqCode,
+                                rfqCode: c.rfqCode || (c.contractCode ? `RFQ-${c.contractCode.replace(/^HD-/, '')}` : 'RFQ-8915FD6E'),
                                 lotCode: c.lotCode,
                                 productName: c.productName,
-                                buyerName: c.buyerName,
-                                buyerCompany: c.buyerName,
-                                farmerName: c.farmName,
-                                farmerCompany: c.farmName,
-                                farmerPhone: c.farmerPhone,
+                                buyerName: c.buyerName || 'Trần Thị Thương',
+                                buyerCompany: (c as any).buyerCompany || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
+                                buyerRepresentative: c.buyerName || 'Trần Thị Thương',
+                                buyerPhone: (c as any).buyerPhone || '0987.654.321',
+                                farmerName: c.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+                                farmerCompany: (c as any).farmerCompany || c.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+                                farmerRepresentative: 'Nguyễn Văn Nông',
+                                farmerPhone: (c as any).farmerPhone || '0912.345.678',
                                 quantityKg: c.quantity,
                                 unitPrice: c.unitPrice,
                                 totalAmount: effectiveTotal,
@@ -1977,9 +2136,20 @@ export default function BuyerManagementConsole() {
                                 depositStatus: c.depositStatus,
                                 isDepositPaid: Boolean((c as any).isDepositPaid || (c as any).depositStatus === 'DEPOSIT_PAID' || (c as any).depositStatus === 'PAID' || (c as any).status === 'DEPOSIT_PAID' || (c as any).status === 'ACTIVE'),
                                 status: (c as any).status,
-                                deliveryAddress: c.hubName,
+                                deliveryAddress: (c as any).deliveryAddress || c.hubName || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
                                 deliveryTimeSlot: c.hubDeliveryDate,
                                 createdAt: c.createdAt,
+                                actualHarvestWeightKg: (c as any).actualHarvestWeightKg || c.quantity,
+                                packageCount: (c as any).packageCount,
+                                packageType: (c as any).packageType,
+                                farmPickupAddress: (c as any).farmPickupAddress,
+                                harvestNotes: (c as any).notes || (c as any).harvestNotes,
+                                harvestProofImageUrl: (c as any).harvestProofImageUrl,
+                                grade1Ratio: (c as any).grade1Ratio,
+                                isHarvestDone: Boolean((c as any).isHarvestDone || ((c.fulfillmentStep ?? 0) >= 2)),
+                                packagingApproved: Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED'),
+                                packaging_approved: Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED'),
+                                qrCodeData: (c as any).qrCodeData,
                               });
                             }}
                             className="px-3.5 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#10542C] font-bold border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -2037,38 +2207,162 @@ export default function BuyerManagementConsole() {
                 height={340}
               />
 
-              {/* Danh sách các chuyến hàng */}
+              {/* Banner các biên bản ePOD cần Buyer ký xác nhận ngay */}
+              {outboundStops.some((s) => s.status === 'PENDING_BUYER_CONFIRMATION' || s.status === 'ARRIVED') && (
+                <div className="bg-amber-50 rounded-3xl p-5 border-2 border-amber-300 shadow-md space-y-3">
+                  <div className="flex items-center gap-2.5 text-amber-900 font-bold text-sm">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 animate-bounce" />
+                    <span>Có chuyến hàng đã giao đến kho đang chờ bạn kiểm tra & ký xác nhận biên bản ePOD!</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {outboundStops
+                      .filter((s) => s.status === 'PENDING_BUYER_CONFIRMATION' || s.status === 'ARRIVED')
+                      .map((s) => (
+                        <div
+                          key={`pending-epod-${s.id}`}
+                          className="p-4 bg-white rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-blue-700">{s.contractCode || `HĐ #${s.contractId}`}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-amber-100 text-amber-800">
+                                {s.status === 'PENDING_BUYER_CONFIRMATION' ? 'ĐÃ NỘP BIÊN BẢN ePOD' : 'XE ĐÃ ĐẾN KHO'}
+                              </span>
+                            </div>
+                            <p className="text-slate-800 font-medium">{s.deliveryAddressSnapshot}</p>
+                            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 pt-1">
+                              <span>Dự kiến: <strong>{Number(s.expectedWeightKg).toLocaleString()} kg</strong></span>
+                              {s.actualDeliveredWeightKg != null && (
+                                <span>Thực giao (Q4): <strong className="text-emerald-700">{Number(s.actualDeliveredWeightKg).toLocaleString()} kg</strong></span>
+                              )}
+                              {Number(s.rejectedWeightKg || 0) > 0 && (
+                                <span className="text-rose-600 font-bold">
+                                  Hư hao/Từ chối: {Number(s.rejectedWeightKg).toLocaleString()} kg ({s.rejectionReason})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openConfirmEpodModal(s)}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer shrink-0"
+                          >
+                            <FileCheck2 className="w-4 h-4" />
+                            <span>Ký Xác Nhận ePOD (Chốt Q4)</span>
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Danh sách các chuyến giao hàng Outbound thực tế */}
               <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
-                <h4 className="font-heading font-bold text-sm text-[#2C3E2E] flex items-center gap-2 border-b border-[#F0F2ED] pb-3">
-                  <FileCheck2 className="w-4 h-4 text-[#10542C]" />
-                  <span>Phiếu Giao Nhận & Trạng Thái Xe Lạnh</span>
-                </h4>
+                <div className="flex items-center justify-between border-b border-[#F0F2ED] pb-3">
+                  <h4 className="font-heading font-bold text-sm text-[#2C3E2E] flex items-center gap-2">
+                    <FileCheck2 className="w-4 h-4 text-[#10542C]" />
+                    <span>Lịch Sử Giao Hàng & Biên Bản Điện Tử (ePOD)</span>
+                  </h4>
+                  <span className="text-xs font-bold text-slate-500">
+                    {outboundStops.length > 0 ? `${outboundStops.length} chuyến giao` : `${syncContracts.length} đơn hàng`}
+                  </span>
+                </div>
 
                 <div className="space-y-3">
-                  {syncContracts.map((c, idx) => (
-                    <div
-                      key={`sync-contract-${c.contractCode || c.id}-${idx}`}
-                      className="p-4 rounded-2xl bg-[#F9FAF8] border border-[#EAECE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="space-y-1">
-                        <span className="font-mono font-bold text-[#10542C]">{c.contractCode}</span> ·{' '}
-                        <strong className="text-[#2C3E2E]">{c.productName}</strong>
-                        <p className="text-[11px] text-[#6B7280]">
-                          Phương tiện: <strong>{c.truckLicensePlate || '49C-123.45'}</strong> · Tài xế:{' '}
-                          {c.truckDriverName || 'Nguyễn Văn Tài'} ({c.truckDriverPhone || '0909.112.233'})
-                        </p>
-                        <p className="text-[11px] text-emerald-700">
-                          Địa chỉ giao: {c.deliveryAddress || profileWarehouse || 'Kho nông sản bên mua'}
-                        </p>
-                      </div>
+                  {outboundStops.length > 0 ? (
+                    outboundStops.map((s, idx) => {
+                      const isConfirmed = s.status === 'BUYER_CONFIRMED';
+                      const isPending = s.status === 'PENDING_BUYER_CONFIRMATION' || s.status === 'ARRIVED';
 
-                      <div className="shrink-0">
-                        <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg text-[11px]">
-                          {c.fulfillmentStatusName || 'Đang vận chuyển giữ tươi'}
-                        </span>
+                      return (
+                        <div
+                          key={`outbound-stop-${s.id}-${idx}`}
+                          className={`p-4 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                            isConfirmed
+                              ? 'bg-emerald-50/30 border-emerald-200'
+                              : isPending
+                              ? 'bg-amber-50/30 border-amber-200 shadow-xs'
+                              : 'bg-[#F9FAF8] border-[#EAECE8]'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-[#10542C]">{s.contractCode || `HĐ #${s.contractId}`}</span>
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                                  isConfirmed
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : isPending
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {isConfirmed
+                                  ? 'ĐÃ KÝ NHẬN HOÀN TẤT'
+                                  : isPending
+                                  ? 'CHỜ KÝ BIÊN BẢN'
+                                  : s.status}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600">Địa chỉ: {s.deliveryAddressSnapshot}</p>
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 pt-0.5">
+                              <span>Kế hoạch: <strong>{Number(s.expectedWeightKg).toLocaleString()} kg</strong></span>
+                              {s.actualDeliveredWeightKg != null && (
+                                <span>Thực giao (Q4): <strong className="text-emerald-700">{Number(s.actualDeliveredWeightKg).toLocaleString()} kg</strong></span>
+                              )}
+                              {isConfirmed && s.buyerSignerName && (
+                                <span className="text-emerald-800">Người ký nhận: <strong>{s.buyerSignerName}</strong></span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 flex items-center gap-2">
+                            {isPending && (
+                              <button
+                                type="button"
+                                onClick={() => openConfirmEpodModal(s)}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                              >
+                                <FileCheck2 className="w-3.5 h-3.5" />
+                                <span>Ký Nhận ePOD</span>
+                              </button>
+                            )}
+                            {isConfirmed && (
+                              <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg text-[11px] flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Đã Chốt Q4</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    syncContracts.map((c, idx) => (
+                      <div
+                        key={`sync-contract-${c.contractCode || c.id}-${idx}`}
+                        className="p-4 rounded-2xl bg-[#F9FAF8] border border-[#EAECE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-1">
+                          <span className="font-mono font-bold text-[#10542C]">{c.contractCode}</span> ·{' '}
+                          <strong className="text-[#2C3E2E]">{c.productName}</strong>
+                          <p className="text-[11px] text-[#6B7280]">
+                            Phương tiện: <strong>{c.truckLicensePlate || '49C-123.45'}</strong> · Tài xế:{' '}
+                            {c.truckDriverName || 'Nguyễn Văn Tài'} ({c.truckDriverPhone || '0909.112.233'})
+                          </p>
+                          <p className="text-[11px] text-emerald-700">
+                            Địa chỉ giao: {c.deliveryAddress || profileWarehouse || 'Kho nông sản bên mua'}
+                          </p>
+                        </div>
+
+                        <div className="shrink-0">
+                          <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg text-[11px]">
+                            {c.fulfillmentStatusName || 'Đang vận chuyển giữ tươi'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -2215,11 +2509,152 @@ export default function BuyerManagementConsole() {
         />
       )}
 
+      {/* Modal Ký Nhận Bàn Giao Điện Tử (ePOD) dành cho Buyer */}
+      {activeEpodModalStop && (
+        <div className="fixed inset-0 z-[160] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                  <FileCheck2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-sm text-[#10542C]">Ký Nhận Bàn Giao Hàng Hóa (ePOD)</h3>
+                  <p className="text-[11px] font-mono text-slate-500">
+                    Hợp đồng: {activeEpodModalStop.contractCode || `#${activeEpodModalStop.contractId}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveEpodModalStop(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmEpod} className="space-y-3.5 text-xs">
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1.5">
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>Khối lượng kế hoạch tại trạm Hub:</span>
+                  <strong className="text-slate-900">{Number(activeEpodModalStop.expectedWeightKg).toLocaleString()} kg</strong>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>Khối lượng tài xế giao thực tế (Q4):</span>
+                  <strong className="text-emerald-700 text-sm font-black">
+                    {Number(activeEpodModalStop.actualDeliveredWeightKg || activeEpodModalStop.expectedWeightKg).toLocaleString()} kg
+                  </strong>
+                </div>
+                {Number(activeEpodModalStop.rejectedWeightKg || 0) > 0 && (
+                  <div className="flex justify-between items-center text-rose-700 bg-rose-50 p-2 rounded-xl border border-rose-200 font-bold">
+                    <span>Hư hao/Từ chối:</span>
+                    <span>{Number(activeEpodModalStop.rejectedWeightKg).toLocaleString()} kg ({activeEpodModalStop.rejectionReason})</span>
+                  </div>
+                )}
+                {activeEpodModalStop.handoverPhotoUrl && (
+                  <div className="pt-1">
+                    <a
+                      href={activeEpodModalStop.handoverPhotoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline flex items-center gap-1 text-[11px]"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Xem ảnh chụp giao hàng thực tế của tài xế</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Họ tên người nhận hàng tại kho <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={buyerSignerName}
+                  onChange={(e) => setBuyerSignerName(e.target.value)}
+                  placeholder="VD: Nguyễn Văn Thắng (Quản lý kho Thủ Đức)"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 font-bold text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Số điện thoại người nhận <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={buyerSignerPhone}
+                  onChange={(e) => setBuyerSignerPhone(e.target.value)}
+                  placeholder="VD: 0912.345.678"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Chữ ký số / Xác nhận ký nhận của Buyer <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={buyerSignatureData}
+                  onChange={(e) => setBuyerSignatureData(e.target.value)}
+                  placeholder="Xác nhận chữ ký số của người đại diện Buyer"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 font-mono text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Ghi chú nhận hàng (nếu có)</label>
+                <textarea
+                  rows={2}
+                  value={buyerNotes}
+                  onChange={(e) => setBuyerNotes(e.target.value)}
+                  placeholder="Hàng tươi ngon đạt chuẩn, nhiệt độ thùng lạnh đo được lúc dỡ..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 text-xs"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveEpodModalStop(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="submit"
+                  disabled={confirmingEpod}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <FileCheck2 className="w-4 h-4" />
+                  <span>{confirmingEpod ? 'Đang xác nhận...' : 'Ký Xác Nhận Hoàn Tất ePOD'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal Xem Toàn Văn Hợp Đồng B2B Điện Tử */}
       <B2bContractViewModal
         isOpen={Boolean(viewingContract)}
         contract={viewingContract}
+        role="BUYER"
         onClose={() => setViewingContract(null)}
+        onBuyerPayDeposit={(contract) => {
+          setViewingContract(null);
+          const target = contracts.find((item) => item.id === contract.id || item.contractCode === contract.contractCode);
+          if (target) {
+            setSelectedContractForPayment(target);
+          }
+        }}
       />
 
       {/* Chi tiết hợp đồng dùng chung trung tâm tracking hiện tại, không chuyển sang giao diện cũ */}

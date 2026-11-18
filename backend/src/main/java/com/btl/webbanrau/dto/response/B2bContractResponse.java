@@ -52,6 +52,8 @@ public class B2bContractResponse {
     private String packageType;
     private String qrCodeData;
     private LocalDateTime harvestedAt;
+    private Boolean packagingApproved;
+    private LocalDateTime packagingApprovedAt;
 
     private String farmPickupAddress;
     private String pickupTruckPlate;

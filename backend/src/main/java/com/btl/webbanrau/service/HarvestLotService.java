@@ -220,6 +220,7 @@ public class HarvestLotService {
             throw new IllegalArgumentException("Không tìm thấy lô nông sản với ID: " + id);
         }
         harvestLotRepository.deleteById(id);
+        b2bRealtimeService.notifyLotUpdated("LOT_DELETED", Map.of("id", id));
     }
 
     @Transactional(readOnly = true)

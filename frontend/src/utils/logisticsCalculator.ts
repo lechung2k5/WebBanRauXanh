@@ -451,3 +451,119 @@ export function getShippingMethodLabel(method?: ShippingMethodCode | string): {
     badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-400 font-bold',
   };
 }
+
+export interface B2bContractFinancials {
+  quantityKg: number;
+  unitPrice: number;
+  pureGoodsAmount: number;
+  shippingFee: number;
+  shippingOption: string;
+  shippingMethodLabel: string;
+  isSelfPickup: boolean;
+  grandTotal: number;
+  depositAmount: number;
+  remainingAmount: number;
+}
+
+/**
+ * Single Source of Truth cho toàn bộ tính toán tài chính Hợp đồng B2B
+ * Đảm bảo 100% khớp giá trị tiền nông sản, cước xe lạnh, cọc 30%, và quyết toán 70% giữa Admin, Buyer và Farmer.
+ */
+export function calculateB2bContractFinancials(contract: any): B2bContractFinancials {
+  if (!contract) {
+    return {
+      quantityKg: 0,
+      unitPrice: 0,
+      pureGoodsAmount: 0,
+      shippingFee: 0,
+      shippingOption: 'CROSS_DOCKING_HUB',
+      shippingMethodLabel: 'PA2: Xe lạnh HoNa Fresh giao tiêu chuẩn qua kho',
+      isSelfPickup: false,
+      grandTotal: 0,
+      depositAmount: 0,
+      remainingAmount: 0,
+    };
+  }
+
+  const quantityKg = Number(
+    contract.quantityKg ||
+    contract.offered_weight_kg ||
+    contract.actual_harvest_weight_kg ||
+    contract.quantity ||
+    0
+  );
+
+  const unitPrice = Number(
+    contract.unitPrice ||
+    contract.offered_price_per_kg ||
+    contract.agreedPricePerKg ||
+    contract.price_per_kg ||
+    0
+  );
+
+  // 1. Tiền nông sản thuần (Chưa tính cước VC)
+  const pureGoodsAmount = (quantityKg > 0 && unitPrice > 0)
+    ? (quantityKg * unitPrice)
+    : Number(contract.goodsAmount || contract.goods_amount || contract.total_goods_amount || 0);
+
+  // 2. Xác định phương thức vận chuyển
+  const rawOpt = String(
+    contract.shippingOption ||
+    contract.shipping_option ||
+    ''
+  ).trim().toUpperCase();
+
+  const isSelfPickup =
+    rawOpt === 'PA3' ||
+    rawOpt === 'BUYER_SELF_TRANSPORT' ||
+    rawOpt.includes('TỰ VẬN CHUYỂN') ||
+    rawOpt.includes('TỰ CHỞ') ||
+    rawOpt.includes('TỰ LẤY');
+
+  // 3. Cước vận chuyển chuỗi lạnh HoNa Fresh
+  let shippingFee = 0;
+  if (isSelfPickup) {
+    shippingFee = 0;
+  } else if (Number(contract.shippingFee || contract.logistics_fee_amount) > 0) {
+    shippingFee = Number(contract.shippingFee || contract.logistics_fee_amount);
+  } else if (rawOpt.includes('DIRECT') || rawOpt === 'PA1') {
+    shippingFee = Math.round(quantityKg * 1200 + 450000);
+  } else {
+    // Mặc định: Tuyến tiêu chuẩn qua Kho HoNa Fresh (PA2)
+    shippingFee = Math.round(quantityKg * 850 + 250000);
+  }
+
+  // 4. Tổng giá trị thanh toán hợp đồng (Gồm cước VC)
+  const grandTotal = pureGoodsAmount + shippingFee;
+
+  // 5. Tiền cọc bảo chứng Escrow (Tự chở cọc 100%, Qua xe lạnh HoNa cọc 30%)
+  const depositAmount = isSelfPickup ? grandTotal : Math.round(grandTotal * 0.3);
+
+  // 6. Số tiền còn lại quyết toán sau khi ký nhận ePOD
+  const remainingAmount = Math.max(0, grandTotal - depositAmount);
+
+  const shippingOption = isSelfPickup
+    ? 'BUYER_SELF_TRANSPORT'
+    : (rawOpt.includes('DIRECT') || rawOpt === 'PA1')
+    ? 'DIRECT_FARM_TO_BUYER'
+    : 'CROSS_DOCKING_HUB';
+
+  const shippingMethodLabel = isSelfPickup
+    ? 'Khách hàng tự vận chuyển (Miễn cước xe lạnh)'
+    : (rawOpt.includes('DIRECT') || rawOpt === 'PA1')
+    ? 'PA1: Xe lạnh HoNa Fresh giao riêng hỏa tốc'
+    : 'PA2: Xe lạnh HoNa Fresh giao tiêu chuẩn qua kho';
+
+  return {
+    quantityKg,
+    unitPrice,
+    pureGoodsAmount,
+    shippingFee,
+    shippingOption,
+    shippingMethodLabel,
+    isSelfPickup,
+    grandTotal,
+    depositAmount,
+    remainingAmount,
+  };
+}

@@ -123,8 +123,13 @@ export default function HomePage() {
     const unsubscribe = subscribeB2bSyncEvents((event) => {
       if (
         event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_STATUS_CHANGED' ||
         event.type === 'LOT_CREATED' ||
-        event.type === 'LOT_UPDATED'
+        event.type === 'LOT_UPDATED' ||
+        event.type === 'LOT_DELETED' ||
+        event.type === 'PRODUCT_CREATED' ||
+        event.type === 'PRODUCT_UPDATED' ||
+        event.type === 'PRODUCT_DELETED'
       ) {
         void fetchData();
       }

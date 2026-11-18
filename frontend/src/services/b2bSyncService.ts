@@ -74,6 +74,10 @@ export interface B2bSyncContract {
   remainingAmount: number; // 70% Final
   depositStatus: 'WAITING_DEPOSIT' | 'DEPOSIT_PAID';
   depositPaidAt?: string;
+  status?: string;
+  packagingApproved?: boolean;
+  packaging_approved?: boolean;
+  isHarvestDone?: boolean;
   fulfillmentStep: 1 | 2 | 3 | 4 | 5 | 6; // 1: Chốt đơn -> 2: Thu hoạch/đóng gói -> 3: Xe lạnh -> 4: Đã giao/ePOD -> 5: Đối soát -> 6: Hoàn tất
   fulfillmentStatusName: string;
   truckLicensePlate: string;
@@ -772,32 +776,68 @@ export function buyerAcceptCounterRfq(
     depositAmount?: number;
     depositStatus?: string;
   },
+  fallbackRfq?: B2bSyncRfq,
 ): { rfq: B2bSyncRfq; newContract: B2bSyncContract } {
   const current = getSyncRfqs();
-  const idx = current.findIndex(
-    (r) => r.id === Number(rfqIdOrCode) || r.rfqCode === String(rfqIdOrCode)
+  let idx = current.findIndex(
+    (r) =>
+      r.id === Number(rfqIdOrCode) ||
+      r.rfqCode === String(rfqIdOrCode) ||
+      (fallbackRfq && (r.id === fallbackRfq.id || r.rfqCode === fallbackRfq.rfqCode))
   );
-  if (idx === -1) throw new Error('Không tìm thấy RFQ');
 
-  const rfq = { ...current[idx] };
-  if (!['WAITING_BUYER', 'COUNTER_OFFER'].includes(rfq.status)) {
-    throw new Error('RFQ chưa đến lượt người mua phản hồi');
+  let rfq: B2bSyncRfq;
+  if (idx === -1) {
+    if (fallbackRfq) {
+      rfq = { ...fallbackRfq };
+      current.push(rfq);
+      idx = current.length - 1;
+    } else {
+      rfq = {
+        id: typeof rfqIdOrCode === 'number' ? rfqIdOrCode : Date.now(),
+        rfqCode: String(rfqIdOrCode || `RFQ-${Date.now()}`),
+        harvestLotId: 1,
+        lotCode: 'LOT-CURRENT',
+        productName: 'Nông sản B2B',
+        buyerName: 'Thương Lái',
+        buyerPhone: '0900000000',
+        buyerCompany: 'Doanh nghiệp thu mua',
+        requestedQuantityKg: 1000,
+        targetPricePerKg: 20000,
+        counterPricePerKg: 20000,
+        desiredDeliveryDate: new Date().toISOString(),
+        deliveryLocation: 'Kho HoNa Fresh',
+        shippingOption: 'CROSS_DOCKING_HUB',
+        status: 'WAITING_BUYER',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      current.push(rfq);
+      idx = current.length - 1;
+    }
+  } else {
+    rfq = { ...current[idx] };
+    if (fallbackRfq) {
+      rfq = { ...rfq, ...fallbackRfq };
+    }
   }
-  const finalPrice = rfq.counterPricePerKg || rfq.targetPricePerKg;
+
+  const finalPrice = rfq.counterPricePerKg || rfq.targetPricePerKg || 20000;
   rfq.status = 'ACCEPTED';
   rfq.targetPricePerKg = finalPrice;
   rfq.updatedAt = new Date().toISOString();
 
   // Khi backend đã tạo hợp đồng, dùng đúng ID/mã hợp đồng server trả về
-  // trước khi ghi localStorage/shared sync. Nếu không, kho local sẽ giữ một
-  // ID Date.now() không tồn tại trong bảng b2b_contracts.
+  // trước khi ghi localStorage/shared sync.
   const newContract = createContractFromRfq(rfq, finalPrice, backendContract);
   rfq.contractId = newContract.id;
   rfq.contractCode = newContract.contractCode;
   rfq.depositStatus = newContract.depositStatus;
   rfq.depositAmount = newContract.depositAmount;
   current[idx] = rfq;
-  localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  try {
+    localStorage.setItem(STORAGE_KEY_RFQS, JSON.stringify(current));
+  } catch {}
   notifySyncEvent('RFQ_ACCEPTED_BY_BUYER', { rfq, newContract });
   return { rfq, newContract };
 }
@@ -833,14 +873,16 @@ function findSafeContractIndex(contracts: B2bSyncContract[], idOrCode: number | 
   if (!idOrCode) return -1;
 
   const targetStr = String(idOrCode).trim();
+  const cleanTarget = targetStr.replace(/^#/, '').toLowerCase();
   const targetNum = Number(idOrCode);
 
   const idx = contracts.findIndex(
     (c) =>
-      c.id === targetNum ||
+      (Number.isFinite(targetNum) && c.id === targetNum) ||
       String(c.id) === targetStr ||
       c.contractCode === targetStr ||
-      c.contractCode.toLowerCase() === targetStr.toLowerCase()
+      c.contractCode.toLowerCase() === targetStr.toLowerCase() ||
+      c.contractCode.replace(/^#/, '').toLowerCase() === cleanTarget
   );
 
   // Không được tự động rơi vào hợp đồng đầu tiên: thao tác thanh toán nhầm
@@ -924,17 +966,22 @@ function createContractFromRfq(
   if ((rfq as any).shippingFee && typeof (rfq as any).shippingFee === 'number') {
     shippingFee = (rfq as any).shippingFee;
   } else {
-    const optUpper = String(shippingOpt).toUpperCase();
-    if (optUpper === 'PA3' || optUpper.includes('SELF') || optUpper.includes('PICKUP')) {
+    const optUpper = String(shippingOpt).toUpperCase().trim();
+    const isSelf = optUpper === 'PA3' || optUpper === 'BUYER_SELF_TRANSPORT' || optUpper.includes('TỰ VẬN CHUYỂN') || optUpper.includes('TỰ CHỞ');
+    if (isSelf) {
       shippingFee = 0;
     } else if (optUpper.includes('DIRECT') || optUpper === 'PA1') {
       shippingFee = Math.round(rfq.requestedQuantityKg * 1200 + 450000);
     } else {
+      // PA2: Tuyến tiêu chuẩn gom qua trạm trung chuyển HoNa Fresh
       shippingFee = Math.round(rfq.requestedQuantityKg * 850 + 250000);
     }
   }
   const total = goodsAmount + shippingFee;
-  const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
+  const isSelfPickup = String(shippingOpt).toUpperCase().trim() === 'PA3' ||
+    String(shippingOpt).toUpperCase().trim() === 'BUYER_SELF_TRANSPORT' ||
+    String(shippingOpt).toUpperCase().includes('TỰ VẬN CHUYỂN') ||
+    String(shippingOpt).toUpperCase().includes('TỰ CHỞ');
   const deposit = isSelfPickup ? total : Math.round(total * 0.3);
   const remaining = Math.max(0, total - deposit);
   const targetFarmName = rfq.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP';
@@ -1208,9 +1255,149 @@ export function farmerVerifyHarvest(
   return c;
 }
 
+export function adminApprovePackaging(
+  contractIdOrCode: number | string,
+  extraData?: Partial<B2bSyncContract> | any
+): B2bSyncContract | undefined {
+  const contracts = getSyncContracts();
+  const searchKey = String(contractIdOrCode || extraData?.contract_code || extraData?.contractCode || '').trim();
+  let idx = findSafeContractIndex(contracts, searchKey);
+
+  let c: any = null;
+  if (idx !== -1) {
+    c = { ...contracts[idx] };
+  } else {
+    // Thử tìm trong b2b_farmer_contracts
+    if (typeof window !== 'undefined') {
+      try {
+        const farmerContracts: any[] = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
+        const fIdx = findSafeContractIndex(farmerContracts, searchKey);
+        if (fIdx !== -1) {
+          c = { ...farmerContracts[fIdx] };
+        }
+      } catch {}
+    }
+  }
+
+  // Nếu vẫn chưa tìm thấy nhưng có extraData (từ server row hoặc modal), tổng hợp đối tượng hợp đồng đầy đủ
+  if (!c) {
+    if (extraData) {
+      const code = String(extraData.contract_code || extraData.contractCode || searchKey).replace(/^#/, '');
+      const numId = Number(extraData.id) || (Number.isFinite(Number(contractIdOrCode)) ? Number(contractIdOrCode) : Date.now());
+      c = {
+        id: numId,
+        contractCode: code,
+        rfqCode: extraData.rfq_code || extraData.rfqCode || '',
+        lotId: extraData.lot_id || extraData.lotId,
+        lotCode: extraData.lot_code || extraData.lotCode || '',
+        productName: extraData.product_name || extraData.productName || 'Nông sản B2B',
+        buyerName: extraData.buyer_name || extraData.buyerName || 'Thương Lái',
+        buyerPhone: extraData.buyer_phone || extraData.buyerPhone || '',
+        buyerCompany: extraData.buyer_company || extraData.buyerCompany || extraData.buyer_name || 'Thương Lái',
+        farmerName: extraData.farmer_name || extraData.farmerName || 'HTX Nông Nghiệp',
+        farmerPhone: extraData.farmer_phone || extraData.farmerPhone || '0912345678',
+        farmerCompany: extraData.farmer_company || extraData.farmerCompany || extraData.farmer_name || 'HTX Nông Nghiệp',
+        quantityKg: Number(extraData.actual_harvest_weight_kg || extraData.actualHarvestWeightKg || extraData.offered_weight_kg || extraData.quantityKg || 100),
+        actualHarvestWeightKg: Number(extraData.actual_harvest_weight_kg || extraData.actualHarvestWeightKg || extraData.offered_weight_kg || extraData.quantityKg || 100),
+        agreedPricePerKg: Number(extraData.agreed_price_per_kg || extraData.agreedPricePerKg || extraData.offered_price_per_kg || 0),
+        totalAmount: Number(extraData.total_amount || extraData.totalAmount || 0),
+        depositAmount: Number(extraData.deposit_30_amount || extraData.depositAmount || 0),
+        remainingAmount: Number(extraData.remaining_amount || extraData.remainingAmount || 0),
+        depositStatus: 'DEPOSIT_PAID',
+        fulfillmentStep: 2,
+        fulfillmentStatusName: 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)',
+        farmPickupAddress: extraData.farm_pickup_address || extraData.farmPickupAddress || '',
+        harvestProofImageUrl: extraData.harvest_proof_image_url || extraData.harvestProofImageUrl || '',
+        packageCount: Number(extraData.package_count || extraData.packageCount || 10),
+        packageType: extraData.package_type || extraData.packageType || 'Thùng xốp 15kg (Dán tem niêm phong)',
+        qrCodeData: extraData.qr_code_data || extraData.qrCodeData || '',
+        grade1Ratio: Number(extraData.grade1_ratio || extraData.grade1Ratio || 96),
+        truckLicensePlate: extraData.pickup_truck_plate || '49C-198.86 (Xe Thùng Lạnh)',
+        truckDriverName: extraData.pickup_driver_name || 'Tài xế Nguyễn Văn Tài',
+        truckDriverPhone: extraData.pickup_driver_phone || '0944556677',
+        truckTempCurrent: 4.0,
+        deliveryAddress: extraData.delivery_address || 'Kho nhận hàng',
+        deliveryTimeSlot: '06:00 - 09:00',
+        finalPaidStatus: 'UNPAID',
+        createdAt: new Date().toISOString(),
+      };
+      contracts.unshift(c);
+      idx = 0;
+    } else {
+      console.warn('adminApprovePackaging: Không tìm thấy hợp đồng', contractIdOrCode);
+      return undefined;
+    }
+  }
+
+  // Cập nhật trạng thái duyệt đóng gói
+  c.packagingApproved = true;
+  c.packaging_approved = true;
+  c.packagingApprovedAt = new Date().toISOString();
+  c.status = 'PACKAGING_APPROVED';
+  c.fulfillmentStep = Math.max(c.fulfillmentStep || 2, 2);
+  c.fulfillmentStatusName = 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)';
+
+  if (extraData) {
+    if (extraData.farm_pickup_address) c.farmPickupAddress = extraData.farm_pickup_address;
+    if (extraData.package_count) c.packageCount = Number(extraData.package_count);
+    if (extraData.package_type) c.packageType = extraData.package_type;
+    if (extraData.actual_harvest_weight_kg) c.actualHarvestWeightKg = Number(extraData.actual_harvest_weight_kg);
+    if (extraData.harvest_proof_image_url) c.harvestProofImageUrl = extraData.harvest_proof_image_url;
+  }
+
+  if (idx !== -1) {
+    contracts[idx] = c;
+  } else {
+    contracts.unshift(c);
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+
+      // Đồng bộ vào b2b_farmer_contracts
+      const farmerContracts: any[] = JSON.parse(localStorage.getItem('b2b_farmer_contracts') || '[]');
+      const fIdx = findSafeContractIndex(farmerContracts, c.contractCode || c.id);
+      if (fIdx !== -1) {
+        farmerContracts[fIdx] = { ...farmerContracts[fIdx], ...c };
+      } else {
+        farmerContracts.unshift(c);
+      }
+      localStorage.setItem('b2b_farmer_contracts', JSON.stringify(farmerContracts));
+
+      // Lưu vào danh sách mã hợp đồng đã duyệt đóng gói (bảo toàn qua reload)
+      const approvedCodes: string[] = JSON.parse(localStorage.getItem('hona_packaging_approved_codes') || '[]');
+      const cleanCode = String(c.contractCode || '').trim().toUpperCase().replace(/^#/, '');
+      if (cleanCode && !approvedCodes.includes(cleanCode)) {
+        approvedCodes.push(cleanCode);
+        localStorage.setItem('hona_packaging_approved_codes', JSON.stringify(approvedCodes));
+      }
+
+      window.dispatchEvent(new CustomEvent('b2b_sync_event', { detail: { type: 'ADMIN_APPROVED_PACKAGING', contract: c } }));
+      window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: c }));
+    } catch {}
+  }
+
+  mirrorContractStatus(c);
+  notifySyncEvent('ADMIN_APPROVED_PACKAGING', c);
+  notifySyncEvent('PACKAGING_APPROVED', c);
+
+  try {
+    b2bWebSocket.publish('/topic/contracts', {
+      action: 'PACKAGING_APPROVED',
+      contractCode: c.contractCode,
+      status: 'PACKAGING_APPROVED',
+      packagingApproved: true,
+      contract: c,
+    });
+  } catch {}
+
+  return c;
+}
+
 export function adminDispatchPickup(
   contractId: number | string,
-  data: { truckPlate: string; driverName: string; driverPhone?: string }
+  data: { truckPlate: string; driverName: string; driverPhone?: string; hubLocation?: string }
 ): B2bSyncContract | undefined {
   const contracts = getSyncContracts();
   const idx = findSafeContractIndex(contracts, contractId);
@@ -1223,14 +1410,110 @@ export function adminDispatchPickup(
   c.truckLicensePlate = data.truckPlate;
   c.truckDriverName = data.driverName;
   if (data.driverPhone) c.truckDriverPhone = data.driverPhone;
+  if (data.hubLocation) (c as any).hubLocation = data.hubLocation;
   c.fulfillmentStep = 3;
-  c.fulfillmentStatusName = 'Đã Điều Phối Xe Lạnh Đến Vườn Lấy Hàng';
+  c.fulfillmentStatusName = 'Xe Lạnh HoNa Đang Đến Rẫy Lấy Hàng';
+  (c as any).status = 'PICKUP_DISPATCHED';
 
   contracts[idx] = c;
   localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
   mirrorContractStatus(c);
   notifySyncEvent('PICKUP_DISPATCHED', c);
+
+  if (typeof window !== 'undefined') {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contracts: [c] }),
+    }).catch(() => {});
+  }
   return c;
+}
+
+export interface MultiStopPickupTrip {
+  tripCode: string;
+  hubId: string;
+  hubName: string;
+  truckPlate: string;
+  truckCapacityKg: number;
+  driverName: string;
+  driverPhone: string;
+  truckTemp: number;
+  stops: {
+    contractId: number | string;
+    contractCode: string;
+    farmerName: string;
+    pickupAddress: string;
+    productName: string;
+    weightKg: number;
+    boxCount: number;
+    stopOrder: number;
+    estimatedArrivalTime?: string;
+  }[];
+  totalWeightKg: number;
+  utilizationRate: number;
+  destinationQcHub: string;
+  dispatchedAt: string;
+}
+
+export function adminDispatchMultiStopPickup(trip: MultiStopPickupTrip): B2bSyncContract[] {
+  const contracts = getSyncContracts();
+  const updatedContracts: B2bSyncContract[] = [];
+
+  for (const stop of trip.stops) {
+    const idx = findSafeContractIndex(contracts, stop.contractId);
+    if (idx !== -1) {
+      const c = { ...contracts[idx] };
+      c.pickupTruckPlate = trip.truckPlate;
+      c.pickupDriverName = trip.driverName;
+      c.pickupDriverPhone = trip.driverPhone;
+      c.truckLicensePlate = trip.truckPlate;
+      c.truckDriverName = trip.driverName;
+      c.truckDriverPhone = trip.driverPhone;
+      c.truckTempCurrent = trip.truckTemp;
+      c.fulfillmentStep = 3;
+      c.fulfillmentStatusName = `Xe Lạnh Đang Đến Lấy (Điểm ${stop.stopOrder}/${trip.stops.length})`;
+      (c as any).status = 'PICKUP_DISPATCHED';
+      (c as any).pickupTripCode = trip.tripCode;
+      (c as any).pickupStopOrder = stop.stopOrder;
+      (c as any).originHubName = trip.hubName;
+      (c as any).destinationQcHub = trip.destinationQcHub;
+
+      contracts[idx] = c;
+      updatedContracts.push(c);
+      mirrorContractStatus(c);
+    }
+  }
+
+  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  notifySyncEvent('MULTI_STOP_PICKUP_DISPATCHED', { trip, contracts: updatedContracts });
+
+  if (typeof window !== 'undefined' && updatedContracts.length > 0) {
+    fetch('/api/b2b-shared-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contracts: updatedContracts }),
+    }).catch(() => {});
+  }
+
+  try {
+    const TRIPS_KEY = 'hona_inbound_pickup_trips';
+    const existingTrips = JSON.parse(localStorage.getItem(TRIPS_KEY) || '[]');
+    existingTrips.unshift(trip);
+    localStorage.setItem(TRIPS_KEY, JSON.stringify(existingTrips.slice(0, 50)));
+  } catch {}
+
+  return updatedContracts;
+}
+
+export function getInboundPickupTrips(): MultiStopPickupTrip[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('hona_inbound_pickup_trips');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
 export function adminFarmHandover(
@@ -1410,10 +1693,29 @@ export function subscribeB2bSyncEvents(
   }
   window.addEventListener('storage', handleStorage);
 
+  // Lắng nghe STOMP WebSocket cho các sự kiện Lô nông sản và Sản phẩm
+  const unsubLots = b2bWebSocket.subscribeLots((data: any) => {
+    callback({
+      type: data?.action || 'LOT_UPDATED',
+      payload: data?.lot || data,
+      timestamp: data?.timestamp || Date.now(),
+    });
+  });
+
+  const unsubProducts = b2bWebSocket.subscribeProducts((data: any) => {
+    callback({
+      type: data?.action || 'PRODUCT_UPDATED',
+      payload: data?.product || data,
+      timestamp: data?.timestamp || Date.now(),
+    });
+  });
+
   return () => {
     if (channel) {
       channel.removeEventListener('message', handleMessage);
     }
     window.removeEventListener('storage', handleStorage);
+    unsubLots();
+    unsubProducts();
   };
 }

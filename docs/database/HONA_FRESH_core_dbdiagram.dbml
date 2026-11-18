@@ -1,0 +1,227 @@
+// ==============================================================================
+// HONA FRESH B2B - SƠ ĐỒ CƠ SỞ DỮ LIỆU RÚT GỌN (CORE COMPACT SCHEMA)
+// Dán toàn bộ nội dung file này vào dbdiagram.io để xem sơ đồ trực quan, gọn đẹp
+// ==============================================================================
+
+Project HONA_FRESH_CORE {
+  database_type: "PostgreSQL"
+  Note: "Hệ thống HONA FRESH B2B - Kiến trúc dữ liệu tinh gọn"
+}
+
+// 1. TÀI KHOẢN & PHÂN QUYỀN
+Table users {
+  id bigint [pk, increment]
+  email varchar(100) [not null]
+  full_name varchar(150) [not null]
+  phone varchar(20)
+  role varchar(30) [not null]
+  status varchar(30) [not null]
+}
+
+Table farmer_profiles {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  farm_name varchar(200) [not null]
+  farm_address varchar(255) [not null]
+  province varchar(100)
+  vietgap_cert_number varchar(100)
+}
+
+Table buyer_profiles {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  company_name varchar(200) [not null]
+  business_license varchar(100)
+  rating_avg numeric(3,2)
+}
+
+Table buyer_warehouses {
+  id bigint [pk, increment]
+  buyer_profile_id bigint [not null]
+  name varchar(150) [not null]
+  address varchar(255) [not null]
+  phone varchar(20)
+}
+
+// 2. SẢN PHẨM & LÔ NÔNG SẢN
+Table categories {
+  id bigint [pk, increment]
+  name varchar(100) [not null]
+}
+
+Table products {
+  id bigint [pk, increment]
+  category_id bigint
+  name varchar(150) [not null]
+  unit varchar(20)
+}
+
+Table harvest_lots {
+  id bigint [pk, increment]
+  farmer_id bigint [not null]
+  title varchar(200) [not null]
+  expected_weight_kg numeric(12,2) [not null]
+  available_weight_kg numeric(12,2) [not null]
+  unit_price numeric(15,2) [not null]
+  status varchar(30) [not null]
+}
+
+// 3. ĐÀM PHÁN GIÁ (RFQ) & HỢP ĐỒNG B2B
+Table rfq_negotiations {
+  id bigint [pk, increment]
+  rfq_code varchar(50) [not null]
+  harvest_lot_id bigint [not null]
+  buyer_id bigint [not null]
+  target_price numeric(12,2) [not null]
+  target_quantity numeric(12,2) [not null]
+  counter_price numeric(12,2)
+  counter_quantity numeric(12,2)
+  status varchar(30) [not null]
+}
+
+Table b2b_contracts {
+  id bigint [pk, increment]
+  contract_code varchar(50) [not null]
+  rfq_id bigint
+  harvest_lot_id bigint
+  farmer_id bigint [not null]
+  buyer_id bigint [not null]
+  unit_price numeric(15,2) [not null]
+  total_amount numeric(15,2) [not null]
+  deposit_amount numeric(15,2) [not null]
+  deposit_status varchar(30) [not null]
+  fulfillment_status varchar(30) [not null]
+  status varchar(30) [not null]
+}
+
+// 4. THANH TOÁN & QUYẾT TOÁN ESCROW
+Table payment_transactions {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  amount numeric(15,2) [not null]
+  payment_type varchar(30) [not null]
+  status varchar(30) [not null]
+}
+
+Table settlements {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  farmer_id bigint [not null]
+  gross_amount numeric(15,2) [not null]
+  platform_fee numeric(15,2) [not null]
+  net_payout numeric(15,2) [not null]
+  is_paid boolean [not null]
+}
+
+// 5. TRẠM HUB & ĐỘI XE LẠNH
+Table warehouse_hubs {
+  id bigint [pk, increment]
+  hub_code varchar(50) [not null]
+  hub_name varchar(150) [not null]
+  address varchar(255) [not null]
+  region varchar(50)
+}
+
+Table fleet_vehicles {
+  id bigint [pk, increment]
+  warehouse_id bigint
+  plate_number varchar(20) [not null]
+  max_payload_kg numeric(10,2) [not null]
+}
+
+Table fleet_drivers {
+  id bigint [pk, increment]
+  warehouse_id bigint
+  full_name varchar(150) [not null]
+  phone varchar(20) [not null]
+}
+
+// 6. ĐIỀU PHỐI GOM VƯỜN (INBOUND LOGISTICS)
+Table pickup_trips {
+  id bigint [pk, increment]
+  trip_code varchar(50) [not null]
+  warehouse_id bigint [not null]
+  vehicle_id bigint [not null]
+  driver_id bigint [not null]
+  status varchar(30) [not null]
+}
+
+Table pickup_trip_stops {
+  id bigint [pk, increment]
+  trip_id bigint [not null]
+  contract_id bigint [not null]
+  stop_sequence int [not null]
+  status varchar(30) [not null]
+}
+
+// 7. KIỂM ĐỊNH QC TẠI TRẠM
+Table qc_inspections {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  qc_brix numeric(5,2)
+  qc_nitrate_ppm numeric(7,2)
+  qc_pesticide_safe boolean
+  status varchar(30) [not null]
+}
+
+// 8. ĐIỀU PHỐI GIAO BUYER & EPOD (OUTBOUND LOGISTICS)
+Table outbound_delivery_trips {
+  id bigint [pk, increment]
+  trip_code varchar(50) [not null]
+  hub_id bigint [not null]
+  vehicle_id bigint [not null]
+  driver_id bigint [not null]
+  status varchar(30) [not null]
+}
+
+Table outbound_delivery_stops {
+  id bigint [pk, increment]
+  trip_id bigint [not null]
+  contract_id bigint [not null]
+  buyer_warehouse_id bigint
+  expected_weight_kg numeric(10,2) [not null]
+  actual_delivered_weight_kg numeric(10,2)
+  buyer_signature_data text
+  status varchar(30) [not null]
+}
+
+// ==============================================================================
+// QUAN HỆ KHÓA NGOẠI (RELATIONSHIPS)
+// ==============================================================================
+
+Ref: farmer_profiles.user_id - users.id
+Ref: buyer_profiles.user_id - users.id
+Ref: buyer_warehouses.buyer_profile_id > buyer_profiles.id
+
+Ref: products.category_id > categories.id
+Ref: harvest_lots.farmer_id > users.id
+
+Ref: rfq_negotiations.harvest_lot_id > harvest_lots.id
+Ref: rfq_negotiations.buyer_id > users.id
+
+Ref: b2b_contracts.rfq_id - rfq_negotiations.id
+Ref: b2b_contracts.harvest_lot_id > harvest_lots.id
+Ref: b2b_contracts.farmer_id > users.id
+Ref: b2b_contracts.buyer_id > users.id
+
+Ref: payment_transactions.contract_id > b2b_contracts.id
+Ref: settlements.contract_id - b2b_contracts.id
+Ref: settlements.farmer_id > users.id
+
+Ref: fleet_vehicles.warehouse_id > warehouse_hubs.id
+Ref: fleet_drivers.warehouse_id > warehouse_hubs.id
+
+Ref: pickup_trips.warehouse_id > warehouse_hubs.id
+Ref: pickup_trips.vehicle_id > fleet_vehicles.id
+Ref: pickup_trips.driver_id > fleet_drivers.id
+Ref: pickup_trip_stops.trip_id > pickup_trips.id
+Ref: pickup_trip_stops.contract_id > b2b_contracts.id
+
+Ref: qc_inspections.contract_id > b2b_contracts.id
+
+Ref: outbound_delivery_trips.hub_id > warehouse_hubs.id
+Ref: outbound_delivery_trips.vehicle_id > fleet_vehicles.id
+Ref: outbound_delivery_trips.driver_id > fleet_drivers.id
+Ref: outbound_delivery_stops.trip_id > outbound_delivery_trips.id
+Ref: outbound_delivery_stops.contract_id > b2b_contracts.id
+Ref: outbound_delivery_stops.buyer_warehouse_id > buyer_warehouses.id

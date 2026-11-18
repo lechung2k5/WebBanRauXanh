@@ -28,6 +28,19 @@ public class B2bRealtimeService {
         }
     }
 
+    public void notifyProductUpdated(String action, Object productData) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("action", action);
+            payload.put("product", productData);
+            payload.put("timestamp", System.currentTimeMillis());
+            messagingTemplate.convertAndSend("/topic/products", payload);
+            log.info("B2B Realtime: Sent product update [{}] to /topic/products", action);
+        } catch (Exception e) {
+            log.warn("Failed to send WebSocket product notification", e);
+        }
+    }
+
     public void notifyRfqUpdated(String action, String rfqCode, Object rfqData) {
         try {
             Map<String, Object> payload = new HashMap<>();
@@ -61,6 +74,24 @@ public class B2bRealtimeService {
             log.info("B2B Realtime: Sent Contract [{}] for code [{}]", action, contractCode);
         } catch (Exception e) {
             log.warn("Failed to send WebSocket Contract notification", e);
+        }
+    }
+
+    public void notifyDispatchTripUpdated(String action, Long tripId, Object tripData) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("action", action);
+            payload.put("tripId", tripId);
+            payload.put("trip", tripData);
+            payload.put("timestamp", System.currentTimeMillis());
+
+            messagingTemplate.convertAndSend("/topic/dispatch", payload);
+            if (tripId != null) {
+                messagingTemplate.convertAndSend("/topic/dispatch/trips/" + tripId, payload);
+            }
+            log.info("B2B Realtime: Sent Dispatch Trip [{}] for tripId [{}]", action, tripId);
+        } catch (Exception e) {
+            log.warn("Failed to send WebSocket Dispatch Trip notification", e);
         }
     }
 }

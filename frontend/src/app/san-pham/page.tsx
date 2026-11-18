@@ -13,6 +13,7 @@ import { Product } from '@/types';
 import { getProducts } from '@/services/api';
 import { trackProductView } from '@/services/recommendationService';
 import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
 import { REAL_FARMS_CATALOG, RealFarm } from '@/utils/realFarmDirectory';
 import {
   Filter,
@@ -63,6 +64,9 @@ function ProductListContent() {
   const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc' | 'discount'>('default');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [isWsConnected, setIsWsConnected] = useState(false);
+  const [realtimeNotice, setRealtimeNotice] = useState<string | null>(null);
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -103,37 +107,94 @@ function ProductListContent() {
     void fetchList();
   }, [fetchList]);
 
-  // Lắng nghe sự kiện duyệt lô từ Admin để cập nhật ngay lập tức lên sàn
+  const debouncedFetchList = React.useCallback((noticeMsg?: string) => {
+    if (noticeMsg) {
+      setRealtimeNotice(noticeMsg);
+      setTimeout(() => setRealtimeNotice(null), 5000);
+    }
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      void fetchList();
+    }, 300);
+  }, [fetchList]);
+
+  // Lắng nghe STOMP WebSocket và sự kiện đồng bộ B2B để cập nhật tức thì (KHÔNG POLLING)
   useEffect(() => {
-    const unsubscribe = subscribeB2bSyncEvents((event) => {
+    setIsWsConnected(b2bWebSocket.getConnected());
+    const unsubConn = b2bWebSocket.onConnectionChange((connected) => {
+      setIsWsConnected(connected);
+    });
+
+    // Lắng nghe sự kiện Lô nông sản qua STOMP /topic/lots
+    const unsubLots = b2bWebSocket.subscribeLots((data: any) => {
+      const action = data?.action;
+      const lot = data?.lot;
+      const lotName = lot?.productName || lot?.lotCode || 'lô hàng';
+      let msg = '';
+      if (action === 'LOT_STATUS_CHANGED' && lot?.status === 'OPEN') {
+        msg = `Lô nông sản mới "${lotName}" vừa được duyệt mở bán!`;
+      } else if (action === 'LOT_CREATED') {
+        msg = `Vừa có lô nông sản "${lotName}" được đưa lên sàn!`;
+      } else if (action === 'LOT_UPDATED') {
+        msg = `Lô "${lotName}" vừa cập nhật thông tin sản lượng/giá bán.`;
+      } else if (action === 'LOT_DELETED') {
+        msg = `Một lô hàng vừa được gỡ khỏi sàn.`;
+      }
+      debouncedFetchList(msg || undefined);
+    });
+
+    // Lắng nghe sự kiện Sản phẩm qua STOMP /topic/products
+    const unsubProducts = b2bWebSocket.subscribeProducts((data: any) => {
+      const action = data?.action;
+      const p = data?.product;
+      const pName = p?.name || 'sản phẩm';
+      let msg = '';
+      if (action === 'PRODUCT_CREATED') {
+        msg = `Sản phẩm mới "${pName}" vừa được thêm vào danh mục!`;
+      } else if (action === 'PRODUCT_UPDATED') {
+        msg = `Sản phẩm "${pName}" vừa được cập nhật giá/tồn kho.`;
+      } else if (action === 'PRODUCT_DELETED') {
+        msg = `Một sản phẩm vừa được gỡ khỏi danh mục.`;
+      }
+      debouncedFetchList(msg || undefined);
+    });
+
+    // Lắng nghe sự kiện đồng bộ đa tab/storage
+    const unsubSync = subscribeB2bSyncEvents((event) => {
       if (
         event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_STATUS_CHANGED' ||
         event.type === 'LOT_CREATED' ||
-        event.type === 'LOT_UPDATED'
+        event.type === 'LOT_UPDATED' ||
+        event.type === 'LOT_DELETED' ||
+        event.type === 'PRODUCT_CREATED' ||
+        event.type === 'PRODUCT_UPDATED' ||
+        event.type === 'PRODUCT_DELETED'
       ) {
-        void fetchList();
+        debouncedFetchList();
       }
     });
-    const handleStorage = () => void fetchList();
+
+    const handleStorage = () => debouncedFetchList();
     window.addEventListener('storage', handleStorage);
     window.addEventListener('b2b_sync_event', handleStorage);
     window.addEventListener('b2b_lot_updated', handleStorage);
-    window.addEventListener('focus', handleStorage);
-
-    // Tự động kiểm tra làm mới danh mục nếu có cập nhật từ Nông dân / Admin
-    const pollInterval = setInterval(() => {
-      void fetchList();
-    }, 4000);
 
     return () => {
-      unsubscribe();
-      clearInterval(pollInterval);
+      unsubConn();
+      unsubLots();
+      unsubProducts();
+      unsubSync();
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('b2b_sync_event', handleStorage);
       window.removeEventListener('b2b_lot_updated', handleStorage);
-      window.removeEventListener('focus', handleStorage);
     };
-  }, [fetchList]);
+  }, [debouncedFetchList]);
 
   // Apply sorting and farm filter
   const filteredProducts = products.filter((p) => {
@@ -206,12 +267,25 @@ function ProductListContent() {
         </div>
 
         {/* Header Title & Sắp Xếp */}
-        <div className="bg-white rounded-2xl p-6 border border-[#EAECE8] mb-8 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-white rounded-2xl p-6 border border-[#EAECE8] mb-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="font-heading text-2xl font-black text-[#10542C] flex items-center gap-2.5">
-              <Leaf className="w-6 h-6 text-[#8BC34A]" />
-              Sàn Giao Dịch Lô Nông Sản Số Lượng Lớn
-            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-heading text-2xl font-black text-[#10542C] flex items-center gap-2.5">
+                <Leaf className="w-6 h-6 text-[#8BC34A]" />
+                Sàn Giao Dịch Lô Nông Sản Số Lượng Lớn
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors ${
+                  isWsConnected
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+                title={isWsConnected ? 'Đã kết nối trực tiếp qua WebSocket STOMP (/topic/lots)' : 'Đang kết nối lại WebSocket...'}
+              >
+                <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+                {isWsConnected ? 'WebSocket Live' : 'Đang kết nối...'}
+              </span>
+            </div>
             <p className="text-xs text-[#6B7280] mt-1">
               {appliedKeyword && products.length === 0 ? (
                 <>Không có lô nông sản nào khớp với từ khóa: <strong className="text-[#E53935]">&ldquo;{appliedKeyword}&rdquo;</strong></>
@@ -237,6 +311,19 @@ function ProductListContent() {
             </select>
           </div>
         </div>
+
+        {/* Banner thông báo thay đổi thời gian thực qua WebSocket */}
+        {realtimeNotice && (
+          <div className="mb-6 px-4 py-3 bg-emerald-50/90 border border-emerald-300 rounded-xl text-xs text-emerald-900 font-bold flex items-center justify-between shadow-xs transition-all">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 animate-spin" />
+              <span>{realtimeNotice}</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-semibold">
+              Đồng bộ tức thì qua WebSocket
+            </span>
+          </div>
+        )}
 
         {/* Layout 2 cột: Sidebar Bộ Lọc (280px) & Grid Sản phẩm */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">

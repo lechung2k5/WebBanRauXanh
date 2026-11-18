@@ -1129,9 +1129,28 @@ export const getFarmerRfqsApi = async (): Promise<RfqItem[]> => {
     }
   }
 
-  // Áp dụng overrides từ b2b_rfq_status_overrides cho các RFQ
+  // Áp dụng overrides từ b2b_rfq_status_overrides và shared sync cho các RFQ
   const overrides = getLocalRfqOverrides();
+  const syncList = getLocalSubmittedRfqs();
+  const syncAccepted = new Map<string, any>();
+  for (const s of syncList) {
+    if (s.status === 'ACCEPTED') {
+      if (s.rfqCode) syncAccepted.set(s.rfqCode.trim().toUpperCase(), s);
+      if (s.id) syncAccepted.set(String(s.id), s);
+    }
+  }
+
   const list = Array.from(map.values()).map((rfq) => {
+    const key = (rfq.rfqCode || String(rfq.id)).trim().toUpperCase();
+    const syncItem = syncAccepted.get(key) || syncAccepted.get(String(rfq.id));
+    if (syncItem && rfq.status !== 'ACCEPTED') {
+      return {
+        ...rfq,
+        status: 'ACCEPTED' as const,
+        contractId: syncItem.contractId || rfq.contractId,
+        contractCode: syncItem.contractCode || rfq.contractCode,
+      };
+    }
     if (serverRfqs.some((item) => item.id === rfq.id)) return rfq;
     const override =
       overrides[String(rfq.id)] ||

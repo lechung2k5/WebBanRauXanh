@@ -1488,6 +1488,8 @@ public class FarmerService {
                 .packageType(c.getPackageType())
                 .qrCodeData(c.getQrCodeData())
                 .harvestedAt(c.getHarvestedAt())
+                .packagingApproved(c.getPackagingApproved())
+                .packagingApprovedAt(c.getPackagingApprovedAt())
                 .farmPickupAddress(c.getFarmPickupAddress())
                 .pickupTruckPlate(c.getPickupTruckPlate())
                 .pickupDriverName(c.getPickupDriverName())

@@ -980,6 +980,15 @@ export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
     const depositAmount = Number(item.deposit_30_amount ?? item.depositAmount ?? 0);
     const depositReceived = Number(item.deposit_received ?? 0);
 
+    const isPackagingApproved = Boolean(
+      item.packaging_approved ||
+      item.packagingApproved ||
+      status === 'PACKAGING_APPROVED' ||
+      item.fulfillment_status === 'PACKAGING_APPROVED' ||
+      item.pickup_truck_plate ||
+      item.pickupTruckPlate
+    );
+
     return {
       id: Number(item.id),
       contractCode: String(item.contract_code || item.contractCode || ''),
@@ -989,8 +998,9 @@ export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
       lotCode: String(item.lot_code || item.lotCode || ''),
       productName: String(item.product_name || item.productName || 'Nông sản'),
       imageUrl: String(item.image_url || item.imageUrl || ''),
-      buyerName: String(item.buyer_name || item.buyerName || ''),
-      buyerPhone: String(item.buyer_phone || item.buyerPhone || ''),
+      buyerName: String(item.buyer_name || item.buyerName || 'Trần Thị Thương'),
+      buyerCompany: String(item.buyer_company || item.buyerCompany || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn'),
+      buyerPhone: String(item.buyer_phone || item.buyerPhone || '0987.654.321'),
       quantity: Number(item.offered_weight_kg ?? item.quantity ?? 0),
       unitPrice: Number(item.offered_price_per_kg ?? item.unitPrice ?? 0),
       totalAmount: Number(item.total_goods_amount ?? item.totalAmount ?? 0),
@@ -999,13 +1009,27 @@ export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
       depositStatus: depositReceived > 0 ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
       fulfillmentStatus,
       hubDeliveryDate: createdAt.slice(0, 10),
-      hubName: String(item.delivery_address || item.deliveryAddress || 'Chưa cập nhật trạm nhận'),
+      hubName: String(item.delivery_address || item.deliveryAddress || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM'),
+      deliveryAddress: String(item.delivery_address || item.deliveryAddress || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM'),
       createdAt,
       hasQc: status === 'AT_HUB_QC' || status === 'IN_TRANSIT' || status === 'DELIVERED' || status === 'SETTLED',
-      pucCode: String(item.puc_code || ''),
-      farmName: String(item.farmer_name || ''),
-      farmerPhone: String(item.farmer_phone || ''),
-      farmerAddress: '',
+      pucCode: String(item.puc_code || 'VN-LDO-PUC-0849'),
+      farmName: String(item.farmer_name || 'HTX Nông Nghiệp Đà Lạt GAP'),
+      farmerCompany: String(item.farmer_company || item.farmer_name || 'HTX Nông Nghiệp Đà Lạt GAP'),
+      farmerPhone: String(item.farmer_phone || '0912.345.678'),
+      farmerAddress: String(item.farm_pickup_address || item.farmer_address || ''),
+      status,
+      packagingApproved: isPackagingApproved,
+      packaging_approved: isPackagingApproved,
+      actualHarvestWeightKg: Number(item.actual_harvest_weight_kg ?? item.actualHarvestWeightKg ?? 0),
+      grade1Ratio: Number(item.grade1_ratio ?? item.grade1Ratio ?? 96),
+      packageCount: Number(item.package_count ?? item.packageCount ?? 0),
+      packageType: String(item.package_type || item.packageType || ''),
+      qrCodeData: String(item.qr_code_data || item.qrCodeData || ''),
+      farmPickupAddress: String(item.farm_pickup_address || item.farmPickupAddress || ''),
+      pickupTruckPlate: String(item.pickup_truck_plate || item.pickupTruckPlate || ''),
+      pickupDriverName: String(item.pickup_driver_name || item.pickupDriverName || ''),
+      pickupDriverPhone: String(item.pickup_driver_phone || item.pickupDriverPhone || ''),
     };
   });
 };

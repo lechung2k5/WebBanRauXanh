@@ -19,6 +19,7 @@ public class AdminBusinessController {
     @GetMapping("/contracts") public Object contracts(){return ApiResponse.success(business.contracts());}
     @PostMapping("/contracts") public Object contract(@RequestBody JsonNode n){return ApiResponse.success(business.createContract(n,n.path("buyerId").asLong()));}
     @PatchMapping("/contracts/{id}/status") public Object transition(@PathVariable long id,@RequestBody JsonNode n){business.transition(id,n);return ApiResponse.success("Đã cập nhật hợp đồng",null);}
+    @PostMapping("/contracts/{id}/approve-packaging") public Object approvePackaging(@PathVariable long id,@RequestBody(required = false) JsonNode n){business.approvePackaging(id,n);return ApiResponse.success("Đã duyệt quy cách đóng gói và sẵn sàng điều xe",null);}
     @PostMapping("/contracts/{id}/dispatch-pickup") public Object dispatchPickup(@PathVariable long id,@RequestBody JsonNode n){business.dispatchPickup(id,n);return ApiResponse.success("Đã điều phối xe lấy hàng tại vườn",null);}
     @PostMapping("/contracts/{id}/farm-handover") public Object farmHandover(@PathVariable long id,@RequestBody JsonNode n){business.farmHandover(id,n);return ApiResponse.success("Đã xác nhận lấy hàng tại vườn",null);}
     @PostMapping("/contracts/{id}/warehouse-inbound") public Object warehouseInbound(@PathVariable long id,@RequestBody JsonNode n){business.warehouseInbound(id,n);return ApiResponse.success("Đã nhập kho HoNa và kiểm định QC",null);}
@@ -42,6 +43,7 @@ public class AdminBusinessController {
     @GetMapping("/settings") public Object settings(){return ApiResponse.success(business.settings());}
     @PutMapping("/settings") public Object settings(@RequestBody JsonNode n){business.updateSettings(n);return ApiResponse.success("Đã lưu cấu hình",null);}
     @GetMapping("/accounting/vas-reports") public Object reports(){return ApiResponse.success(business.reports());}
+    @GetMapping("/accounting/cashflow-summary") public Object cashflowSummary(){return ApiResponse.success(business.cashflowSummary());}
 
     // Cookie-authenticated BFF forwards this stream; no token in URL or JavaScript.
     @GetMapping(value="/iot/events",produces="text/event-stream") public SseEmitter events(){

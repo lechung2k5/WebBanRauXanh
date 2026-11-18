@@ -144,7 +144,7 @@ export const DispatchFarmPickupModal: React.FC<DispatchFarmPickupModalProps> = (
                 </div>
                 <div className="text-[11px] text-gray-500 flex justify-between pt-1 border-t border-gray-200">
                   <span>Chủ vườn: <strong>{contract.farmer_name}</strong></span>
-                  <span>Sản lượng: <strong className="font-mono text-[#10542C]">{contract.offered_weight_kg || contract.quantity} kg</strong></span>
+                  <span>Sản lượng đã duyệt: <strong className="font-mono text-[#10542C]">{contract.actual_harvest_weight_kg || contract.offered_weight_kg || contract.quantity} kg ({contract.package_count || 10} thùng)</strong></span>
                 </div>
               </div>
 

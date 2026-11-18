@@ -1,5 +1,6 @@
 package com.btl.webbanrau.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -25,18 +26,22 @@ public class B2bContract extends BaseEntity {
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "rfq_id", nullable = false)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "contract"})
     private RfqNegotiation rfq;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "harvest_lot_id", nullable = false)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "farmer"})
     private HarvestLot harvestLot;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "farmer_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "password", "roles"})
     private User farmer;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "buyer_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "password", "roles"})
     private User buyer;
 
     @Column(nullable = false, length = 150)
@@ -128,6 +133,12 @@ public class B2bContract extends BaseEntity {
 
     @Column(name = "harvested_at")
     private LocalDateTime harvestedAt;
+
+    @Column(name = "packaging_approved")
+    private Boolean packagingApproved;
+
+    @Column(name = "packaging_approved_at")
+    private LocalDateTime packagingApprovedAt;
 
     @Column(name = "farm_pickup_address", columnDefinition = "TEXT")
     private String farmPickupAddress;

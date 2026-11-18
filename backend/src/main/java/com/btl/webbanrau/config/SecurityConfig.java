@@ -76,11 +76,11 @@ public class SecurityConfig {
                         .requestMatchers("/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
                         .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
 
-                        // 3. Portal Thương Lái: Chỉ dành cho BUYER
-                        .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasRole("BUYER")
+                        // 3. Portal Thương Lái: BUYER hoặc ADMIN
+                        .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasAnyRole("BUYER", "ADMIN")
 
                         // 4. Portal Trạm Trung Chuyển & QC: WAREHOUSE_QC hoặc ADMIN
-                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**").hasAnyRole("WAREHOUSE_QC", "ADMIN")
+                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**", "/warehouse/**").hasAnyRole("WAREHOUSE_QC", "ADMIN")
 
                         // 5. Portal Tài Xế Lạnh: DRIVER hoặc ADMIN
                         .requestMatchers("/driver/**", "/shipments/epod/**").hasAnyRole("DRIVER", "ADMIN")
