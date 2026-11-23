@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sơ Đồ Use Case Tổng Quát - Nền Tảng B2B HONA FRESH</title>
+  <style>
+    :root {
+      --primary: #059669;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      background-color: #d1fae5;
+      color: #065f46;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 6px;
+    }
+    p.subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    .toolbar {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background-color: #ffffff;
+      color: #334155;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+    .btn:hover {
+      background-color: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover {
+      background-color: #047857;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .viewer-container {
+      position: relative;
+      overflow: auto;
+      background: #fdfdfd;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      min-height: 700px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .viewer-img {
+      max-width: 100%;
+      height: auto;
+      transition: transform 0.2s ease;
+      transform-origin: center center;
+    }
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .legend-item {
+      padding: 16px;
+      border-radius: 8px;
+      border-left: 4px solid;
+      background-color: #f8fafc;
+    }
+    .legend-guest { border-color: #2e7d32; }
+    .legend-buyer { border-color: #1565c0; }
+    .legend-farmer { border-color: #00695c; }
+    .legend-admin { border-color: #e65100; }
+    .legend-ext { border-color: #c2185b; }
+    .legend-item h3 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .legend-item p {
+      font-size: 13px;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="badge">UML 2.5 Specification • HONA FRESH B2B</span>
+      <h1>SƠ ĐỒ USE CASE TỔNG QUÁT HỆ THỐNG</h1>
+      <p class="subtitle">Nền tảng B2B kết nối Thương lái và Nhà vườn — Quản lý chuỗi cung ứng nông sản trực tuyến</p>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn" onclick="zoomIn()">🔍 Phóng to</button>
+      <button class="btn" onclick="zoomOut()">🔍 Thu nhỏ</button>
+      <button class="btn" onclick="resetZoom()">↺ Mặc định</button>
+      <a class="btn btn-primary" href="use_case_diagram_b2b.png" download="HONA_FRESH_Use_Case_Tong_Quat.png">📥 Tải ảnh PNG (300 DPI)</a>
+      <a class="btn" href="use_case_diagram_b2b.svg" download="HONA_FRESH_Use_Case_Tong_Quat.svg">📥 Tải file SVG Vector</a>
+      <button class="btn" onclick="window.print()">🖨️ In / Xuất PDF</button>
+    </div>
+
+    <div class="card">
+      <div class="viewer-container" id="viewer">
+        <img src="use_case_diagram_b2b.png" alt="Sơ đồ Use Case Tổng Quát HONA FRESH" class="viewer-img" id="diagramImg">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size: 18px; margin-bottom: 12px; color: #1e293b;">Bảng phân loại Tác nhân & Ý nghĩa màu sắc chuẩn hóa</h2>
+      <div class="legend-grid">
+        <div class="legend-item legend-guest">
+          <h3 style="color: #2e7d32;">1. Guest (Khách vãng lai)</h3>
+          <p><strong>Màu xanh lá cây:</strong> Người dùng truy cập nền tảng chưa đăng nhập. Xem giới thiệu, chính sách bảo chứng Escrow, tra cứu bảng giá nông sản tham khảo và thực hiện đăng ký tài khoản B2B.</p>
+        </div>
+        <div class="legend-item legend-buyer">
+          <h3 style="color: #1565c0;">2. Buyer (Thương lái thu mua sỉ)</h3>
+          <p><strong>Màu xanh dương:</strong> Doanh nghiệp thu mua, đại lý sỉ. Tìm kiếm nguồn hàng, tạo yêu cầu báo giá (RFQ), đàm phán counter-offer, ký kết hợp đồng, nạp ký quỹ Escrow 30/70, giám sát xe lạnh và ký nhận hàng điện tử (ePOD).</p>
+        </div>
+        <div class="legend-item legend-farmer">
+          <h3 style="color: #00695c;">3. Farmer (Nhà vườn / Hợp tác xã)</h3>
+          <p><strong>Màu xanh ngọc:</strong> Bên cung ứng nông sản. Quản lý nông trại & chứng nhận VietGAP, đăng bán lô nông sản sỉ, thương lượng RFQ với thương lái, chuẩn bị hàng hóa có mã QR truy xuất và nhận giải ngân Escrow về ngân hàng.</p>
+        </div>
+        <div class="legend-item legend-admin">
+          <h3 style="color: #e65100;">4. Admin (Quản trị viên & Kế toán)</h3>
+          <p><strong>Màu vàng cam:</strong> Bộ phận vận hành sàn. Thẩm định hồ sơ đối tác, kiểm duyệt bài đăng, giám sát hợp đồng & giải quyết tranh chấp, điều phối xe lạnh & trạm Hub, quản trị dòng tiền Escrow và dự báo cung cầu bằng AI.</p>
+        </div>
+        <div class="legend-item legend-ext">
+          <h3 style="color: #c2185b;">5. External Services (Dịch vụ ngoại vi)</h3>
+          <p><strong>Màu hồng tím:</strong> Bao gồm Cổng thanh toán (Payment Gateway) thực hiện chuyển tiền ký quỹ và giải ngân; và Hệ thống cảm biến IoT (IoT Sensor Hub) giám sát nhiệt độ xe lạnh và kho trạm Hub theo thời gian thực.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let scale = 1.0;
+    const img = document.getElementById('diagramImg');
+
+    function zoomIn() {
+      scale = Math.min(scale + 0.2, 2.5);
+      img.style.transform = `scale(${scale})`;
+    }
+    function zoomOut() {
+      scale = Math.max(scale - 0.2, 0.4);
+      img.style.transform = `scale(${scale})`;
+    }
+    function resetZoom() {
+      scale = 1.0;
+      img.style.transform = `scale(1)`;
+    }
+  </script>
+</body>
+</html>

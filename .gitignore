@@ -1,0 +1,42 @@
+# Backend build & cache
+backend/.gradle/
+backend/build/
+backend/bin/
+bin/
+backend/target/
+.gradle/
+*.class
+
+# Frontend build & dependencies
+frontend/.next/
+frontend/node_modules/
+node_modules/
+frontend/out/
+*.tsbuildinfo
+
+# IDE & Editor
+.idea/
+.vscode/
+*.iml
+*.log
+
+# Temp / OS
+.DS_Store
+Thumbs.db
+scratch/
+tools/
+*.exe
+*.bak
+~$*
+doc/*_UPDATED.docx
+doc/*_FINAL.docx
+__pycache__/
+*.pyc
+
+# Secrets & Environment Configurations
+.gemini_api_key
+**/.gemini_api_key
+.env
+.env*.local
+*.key
+*.pem

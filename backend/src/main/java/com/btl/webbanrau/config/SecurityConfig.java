@@ -1,0 +1,114 @@
+package com.btl.webbanrau.config;
+
+import com.btl.webbanrau.service.CustomUserDetailsService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final CustomUserDetailsService userDetailsService;
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder(10);
+    }
+
+    @Bean
+    public AuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter, AuthRateLimitFilter rateLimit) throws Exception {
+        http
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth
+                        // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục, Webhook SePay, WebSocket B2B, Chat B2B
+                        .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error", "/sepay/**", "/ws-b2b/**", "/chat/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
+                        .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/cold-assets/public-status").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/orders").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/ai/search", "/ai/hybrid-search", "/ai/similar-products/**", "/ai/status").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/config-key", "/ai/sync-embeddings").permitAll()
+
+                        // 2. Chức năng Nông dân & Hợp tác xã (Công khai endpoint gửi RFQ/cọc, tra cứu HĐ B2B, xem QC, chứng từ và phân hệ farmer)
+                        // 2. Chức năng Nông dân & Hợp tác xã (Chuẩn hóa bảo mật Zero-Trust theo master plan v2.0)
+                        .requestMatchers(
+                                "/farmer/ai-chat",
+                                "/farmer/rfq/public-submit",
+                                "/farmer/contracts/track/**",
+                                "/farmer/trace/**",
+                                "/farmer/contracts/*/print",
+                                "/farmer/settlements/*/pdf-01-tndn",
+                                "/farmer/settlements/*/invoice-kct",
+                                "/ai/**"
+                        ).permitAll()
+                        .requestMatchers("/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
+                        .requestMatchers("/harvest-lots/my-lots/**", "/contracts/farmer/**").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
+
+                        // 3. Portal Thương Lái: BUYER hoặc ADMIN
+                        .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasAnyRole("BUYER", "ADMIN")
+
+                        // 4. Portal Trạm Trung Chuyển & QC: WAREHOUSE_QC hoặc ADMIN
+                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**", "/warehouse/**").hasAnyRole("WAREHOUSE_QC", "ADMIN")
+
+                        // 5. Portal Tài Xế Lạnh: DRIVER hoặc ADMIN
+                        .requestMatchers("/driver/**", "/shipments/epod/**").hasAnyRole("DRIVER", "ADMIN")
+
+                        // 6. Portal Kế Toán & Thuế VAS: ACCOUNTANT hoặc ADMIN
+                        .requestMatchers("/accounting/**", "/escrow/settlement/**", "/invoices/**").hasAnyRole("ACCOUNTANT", "ADMIN")
+
+                        // Hợp đồng dùng chung giữa 2 bên
+                        .requestMatchers("/portal/contracts").hasAnyRole("FARMER", "BUYER", "ADMIN")
+
+                        // Quản lý Đơn hàng & Quản trị viên
+                        .requestMatchers("/orders/**").hasRole("ADMIN")
+                        .requestMatchers("/admin/**", "/users/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/products/**", "/categories/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/products/**", "/categories/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/products/**", "/categories/**").hasRole("ADMIN")
+
+                        // 7. Mọi request khác
+                        .anyRequest().authenticated())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(errors -> errors
+                    .authenticationEntryPoint((req,res,ex)->{res.setStatus(401);res.setContentType("application/json;charset=UTF-8");res.getWriter().write("{\"code\":401,\"message\":\"Vui lòng đăng nhập\"}");})
+                    .accessDeniedHandler((req,res,ex)->{res.setStatus(403);res.setContentType("application/json;charset=UTF-8");res.getWriter().write("{\"code\":403,\"message\":\"Bạn không có quyền truy cập\"}");}))
+                .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimit, JwtAuthenticationFilter.class)
+                .authenticationProvider(authenticationProvider())
+                .formLogin(form -> form.disable());
+
+        return http.build();
+    }
+}

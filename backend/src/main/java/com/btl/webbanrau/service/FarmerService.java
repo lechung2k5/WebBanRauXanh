@@ -1,0 +1,1812 @@
+package com.btl.webbanrau.service;
+
+import com.btl.webbanrau.dto.request.DeliveryScheduleRequest;
+import com.btl.webbanrau.dto.request.FarmerProfileRequest;
+import com.btl.webbanrau.dto.request.HarvestLotRequest;
+import com.btl.webbanrau.dto.request.PublicRfqDepositRequest;
+import com.btl.webbanrau.dto.request.RfqRespondRequest;
+import com.btl.webbanrau.dto.response.*;
+import com.btl.webbanrau.model.*;
+import com.btl.webbanrau.repository.*;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Objects;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class FarmerService {
+
+    private final UserRepository userRepository;
+    private final FarmerProfileRepository farmerProfileRepository;
+    private final HarvestLotRepository harvestLotRepository;
+    private final RfqNegotiationRepository rfqNegotiationRepository;
+    private final B2bContractRepository b2bContractRepository;
+    private final QcInspectionRepository qcInspectionRepository;
+    private final SettlementRepository settlementRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final B2bRealtimeService b2bRealtimeService;
+
+    private boolean isAdmin(User user) {
+        return user != null && user.getRoles() != null &&
+                user.getRoles().stream().anyMatch(r -> "ROLE_ADMIN".equals(r.getName()) || "ADMIN".equals(r.getName()));
+    }
+
+    public User getCurrentFarmer() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
+            if (auth.getPrincipal() instanceof User user) {
+                return user;
+            }
+            if (auth.getPrincipal() instanceof org.springframework.security.core.userdetails.UserDetails userDetails) {
+                var userOpt = userRepository.findByUsername(userDetails.getUsername());
+                if (userOpt.isPresent()) return userOpt.get();
+            }
+            var userOpt = userRepository.findByUsername(auth.getName());
+            if (userOpt.isPresent()) return userOpt.get();
+        }
+        return userRepository.findByUsername("farmer_dalat")
+                .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Yêu cầu đăng nhập tài khoản Nông Dân để thực hiện thao tác này!"));
+    }
+
+    // 1. Dashboard Stats
+    @Transactional(readOnly = true)
+    public FarmerStatsResponse getDashboardStats() {
+        User farmer = getCurrentFarmer();
+        BigDecimal totalRevenue = settlementRepository.sumTotalPayoutByFarmer(farmer);
+        BigDecimal escrowHolding = b2bContractRepository.sumEscrowDepositHolding(farmer);
+        long openLotsCount = harvestLotRepository.countByFarmerAndStatus(farmer, "OPEN");
+        long runningContracts = b2bContractRepository.countActiveContractsByFarmer(farmer);
+        long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, RfqStatus.WAITING_FARMER);
+
+        return FarmerStatsResponse.builder()
+                .totalRevenue(totalRevenue != null ? totalRevenue : BigDecimal.ZERO)
+                .escrowHolding(escrowHolding != null ? escrowHolding : BigDecimal.ZERO)
+                .openLotsCount(openLotsCount)
+                .runningContractsCount(runningContracts)
+                .pendingRfqCount(pendingRfq)
+                .build();
+    }
+
+    // 2. Profile
+    @Transactional
+    public FarmerProfileResponse getProfile() {
+        User farmer = getCurrentFarmer();
+        FarmerProfile profile = farmerProfileRepository.findByUser(farmer)
+                .orElseGet(() -> farmerProfileRepository.save(FarmerProfile.builder()
+                        .user(farmer)
+                        .farmName(farmer.getFullName())
+                        .farmerType("COOPERATIVE")
+                        .pucCode("VN-LDO-PUC-0849")
+                        .certifications("VietGAP, GlobalGAP, Organic")
+                        .taxCode("5801456789")
+                        .idCardNumber("068095001234")
+                        .bankAccount("5400205219999")
+                        .bankAccountName("HTX RAU SACH DA LAT GAP")
+                        .bankName("Agribank")
+                        .location(farmer.getAddress() != null ? farmer.getAddress() : "Đà Lạt, Lâm Đồng")
+                        .cultivatedArea("45 Hecta")
+                        .build()));
+
+        return mapToProfileResponse(profile, farmer);
+    }
+
+    @Transactional
+    public FarmerProfileResponse updateProfile(FarmerProfileRequest request) {
+        User farmer = getCurrentFarmer();
+        FarmerProfile profile = farmerProfileRepository.findByUser(farmer)
+                .orElseGet(() -> FarmerProfile.builder().user(farmer).build());
+
+        profile.setFarmName(request.getFarmName());
+        if (request.getFarmerType() != null) profile.setFarmerType(request.getFarmerType());
+        if (request.getPucCode() != null) profile.setPucCode(request.getPucCode());
+        if (request.getCertifications() != null) profile.setCertifications(request.getCertifications());
+        if (request.getCertExpiryDate() != null) profile.setCertExpiryDate(request.getCertExpiryDate());
+        if (request.getCertImageUrl() != null) profile.setCertImageUrl(request.getCertImageUrl());
+        if (request.getTaxCode() != null) profile.setTaxCode(request.getTaxCode());
+        if (request.getIdCardNumber() != null) profile.setIdCardNumber(request.getIdCardNumber());
+        if (request.getBankAccount() != null) profile.setBankAccount(request.getBankAccount());
+        if (request.getBankAccountName() != null) profile.setBankAccountName(request.getBankAccountName());
+        if (request.getBankName() != null) profile.setBankName(request.getBankName());
+        if (request.getLocation() != null) profile.setLocation(request.getLocation());
+        if (request.getCultivatedArea() != null) profile.setCultivatedArea(request.getCultivatedArea());
+
+        FarmerProfile saved = farmerProfileRepository.save(profile);
+        return mapToProfileResponse(saved, farmer);
+    }
+
+    // 3. Harvest Lots
+    @Transactional(readOnly = true)
+    public List<HarvestLotResponse> getHarvestLots() {
+        User farmer = getCurrentFarmer();
+        List<HarvestLot> lots = harvestLotRepository.findByFarmerIdOrderByCreatedAtDesc(farmer.getId());
+        return lots.stream()
+                .map(this::mapToLotResponse)
+                .toList();
+    }
+
+    @Transactional
+    public HarvestLotResponse createHarvestLot(HarvestLotRequest request) {
+        User farmer = getCurrentFarmer();
+        String lotCode = request.getLotCode();
+        if (lotCode == null || lotCode.isBlank()) {
+            lotCode = "LOT-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 5).toUpperCase();
+        }
+
+        BigDecimal totalWeight = request.getTotalWeightKg() != null
+                ? request.getTotalWeightKg()
+                : (request.getTotalQuantity() != null ? BigDecimal.valueOf(request.getTotalQuantity()) : new BigDecimal("5000.00"));
+        BigDecimal availableWeight = request.getAvailableWeightKg() != null
+                ? request.getAvailableWeightKg()
+                : totalWeight;
+        BigDecimal basePrice = request.getBasePricePerKg();
+        if (basePrice == null && request.getTierPricingJson() != null && !request.getTierPricingJson().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(request.getTierPricingJson());
+                if (root.isArray() && root.size() > 0) {
+                    com.fasterxml.jackson.databind.JsonNode first = root.get(0);
+                    if (first.has("price")) {
+                        basePrice = new BigDecimal(first.get("price").asText());
+                    } else if (first.has("pricePerKg")) {
+                        basePrice = new BigDecimal(first.get("pricePerKg").asText());
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (basePrice == null) {
+            basePrice = BigDecimal.ZERO;
+        }
+
+        Double minTemp = request.getMinTemp() != null ? request.getMinTemp() : (request.getReqTempMin() != null ? request.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = request.getMaxTemp() != null ? request.getMaxTemp() : (request.getReqTempMax() != null ? request.getReqTempMax().doubleValue() : 6.0);
+        String category = request.getCategory() != null && !request.getCategory().isBlank()
+                ? request.getCategory().toUpperCase()
+                : (request.getCategorySlug() != null ? request.getCategorySlug().replace("-", "_").toUpperCase() : "RAU_AN_LA");
+
+        HarvestLot lot = HarvestLot.builder()
+                .lotCode(lotCode.trim().toUpperCase())
+                .farmerId(farmer.getId())
+                .farmerName(farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName())
+                .productName(request.getProductName().trim())
+                .category(category)
+                .categorySlug(request.getCategorySlug() != null ? request.getCategorySlug() : "rau-sach")
+                .categoryId(request.getCategoryId())
+                .imageUrl(request.getImageUrl() != null && !request.getImageUrl().isBlank()
+                        ? request.getImageUrl()
+                        : "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80")
+                .pucCode(request.getPucCode() != null ? request.getPucCode().trim().toUpperCase() : "VN-LDO-08-001")
+                .certification(request.getCertification() != null ? request.getCertification().trim() : "VietGAP")
+                .harvestDate(request.getHarvestDate())
+                .expiryDate(request.getExpiryDate())
+                .totalWeightKg(totalWeight)
+                .availableWeightKg(availableWeight)
+                .totalQuantity(totalWeight.doubleValue())
+                .remainingQuantity(availableWeight.doubleValue())
+                .basePricePerKg(basePrice)
+                .unit(request.getUnit() != null ? request.getUnit() : "kg")
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(BigDecimal.valueOf(minTemp))
+                .reqTempMax(BigDecimal.valueOf(maxTemp))
+                .tierPricingJson(request.getTierPricingJson() != null ? request.getTierPricingJson() : "[]")
+                .status("PENDING_APPROVAL")
+                .warehouseLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                .region("Tây Nguyên & Lâm Đồng")
+                .auditNote("Lô nông sản " + request.getProductName() + " do nhà vườn " + (farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank() ? farmer.getCompanyName() : farmer.getFullName()) + " đăng ký, đang chờ Quản trị viên xét duyệt & bổ sung thông số.")
+                .build();
+
+        HarvestLot saved = harvestLotRepository.save(lot);
+        log.info("Lô thu hoạch mới {} đã được nông dân {} đăng ký ở trạng thái PENDING_APPROVAL", saved.getLotCode(), farmer.getUsername());
+        HarvestLotResponse response = mapToLotResponse(saved);
+        b2bRealtimeService.notifyLotUpdated("LOT_CREATED", response);
+        return response;
+    }
+
+    @Transactional
+    public HarvestLotResponse updateHarvestLot(Long id, HarvestLotRequest request) {
+        User farmer = getCurrentFarmer();
+        HarvestLot lot = harvestLotRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô hàng ID: " + id));
+
+        // IDOR Check: Nông dân chỉ được sửa lô hàng của chính mình
+        if (!Objects.equals(lot.getFarmerId(), farmer.getId()) && (lot.getFarmer() == null || !Objects.equals(lot.getFarmer().getId(), farmer.getId())) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền chỉnh sửa lô hàng của nông dân khác!");
+        }
+
+        lot.setProductName(request.getProductName());
+        if (request.getCategorySlug() != null) lot.setCategorySlug(request.getCategorySlug());
+        if (request.getImageUrl() != null) lot.setImageUrl(request.getImageUrl());
+        if (request.getPucCode() != null) lot.setPucCode(request.getPucCode());
+        if (request.getHarvestDate() != null) lot.setHarvestDate(request.getHarvestDate());
+        if (request.getExpiryDate() != null) lot.setExpiryDate(request.getExpiryDate());
+        if (request.getTotalQuantity() != null) {
+            lot.setTotalQuantity(request.getTotalQuantity());
+            if (lot.getRemainingQuantity() > request.getTotalQuantity()) {
+                lot.setRemainingQuantity(request.getTotalQuantity());
+            }
+        }
+        if (request.getMinTemp() != null) lot.setMinTemp(request.getMinTemp());
+        if (request.getMaxTemp() != null) lot.setMaxTemp(request.getMaxTemp());
+        if (request.getTierPricingJson() != null) lot.setTierPricingJson(request.getTierPricingJson());
+        if (request.getHubLocation() != null) lot.setHubLocation(request.getHubLocation());
+
+        HarvestLot updated = harvestLotRepository.save(lot);
+        HarvestLotResponse response = mapToLotResponse(updated);
+        b2bRealtimeService.notifyLotUpdated("LOT_UPDATED", response);
+        return response;
+    }
+
+    @Transactional
+    public void cancelHarvestLot(Long id) {
+        User farmer = getCurrentFarmer();
+        HarvestLot lot = harvestLotRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô hàng ID: " + id));
+
+        // IDOR Check: Nông dân chỉ được hủy lô hàng của chính mình
+        if (!Objects.equals(lot.getFarmerId(), farmer.getId()) && (lot.getFarmer() == null || !Objects.equals(lot.getFarmer().getId(), farmer.getId())) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền thao tác trên lô hàng của nông dân khác!");
+        }
+
+        // Kiểm tra xem lô đã có hợp đồng nào được cọc chưa
+        List<B2bContract> contracts = b2bContractRepository.findByHarvestLotIdOrderByCreatedAtDesc(id);
+        boolean hasDeposited = contracts.stream().anyMatch(c -> "DEPOSIT_PAID".equalsIgnoreCase(c.getDepositStatus()));
+        if (hasDeposited) {
+            throw new IllegalStateException("Lô hàng đã có hợp đồng chốt cọc 30% bảo chứng, không được phép hủy để bảo vệ quyền lợi thương lái.");
+        }
+
+        // Hủy lô hàng
+        lot.setStatus("CANCELLED");
+        harvestLotRepository.save(lot);
+
+        // Hủy các hợp đồng nháp chưa cọc liên quan (nếu có)
+        for (B2bContract c : contracts) {
+            if (!"DEPOSIT_PAID".equalsIgnoreCase(c.getDepositStatus())) {
+                c.setStatus("CANCELLED");
+                b2bContractRepository.save(c);
+            }
+        }
+
+        log.info("Lô hàng {} đã được hủy bởi nông dân {}", lot.getLotCode(), farmer.getUsername());
+        b2bRealtimeService.notifyLotUpdated("LOT_CANCELLED", mapToLotResponse(lot));
+    }
+
+    @Transactional
+    public void deleteHarvestLotPermanent(Long id) {
+        User farmer = getCurrentFarmer();
+        HarvestLot lot = harvestLotRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô hàng ID: " + id));
+
+        // IDOR Check: Nông dân chỉ được xóa lô hàng của chính mình
+        if (!Objects.equals(lot.getFarmerId(), farmer.getId()) && (lot.getFarmer() == null || !Objects.equals(lot.getFarmer().getId(), farmer.getId())) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền thao tác trên lô hàng của nông dân khác!");
+        }
+
+        // Chỉ cho phép xóa nếu lô đã ở trạng thái CANCELLED
+        if (!"CANCELLED".equalsIgnoreCase(lot.getStatus())) {
+            throw new IllegalStateException("Chỉ có thể xóa vĩnh viễn các lô nông sản đã ở trạng thái ĐÃ HỦY (CANCELLED). Vui lòng hủy lô trước khi xóa.");
+        }
+
+        // Kiểm tra xem lô đã có hợp đồng nào được cọc chưa
+        List<B2bContract> contracts = b2bContractRepository.findByHarvestLotIdOrderByCreatedAtDesc(id);
+        boolean hasDeposited = contracts.stream().anyMatch(c -> "DEPOSIT_PAID".equalsIgnoreCase(c.getDepositStatus()));
+        if (hasDeposited) {
+            throw new IllegalStateException("Lô hàng đã có hợp đồng chốt cọc 30% bảo chứng, không được phép xóa.");
+        }
+
+        // Xóa các hợp đồng nháp liên quan
+        if (!contracts.isEmpty()) {
+            b2bContractRepository.deleteAll(contracts);
+        }
+
+        // Xóa sự kiện đàm phán RFQ và các RFQ liên quan
+        List<RfqNegotiation> rfqs = rfqNegotiationRepository.findByHarvestLot(lot);
+        if (!rfqs.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM rfq_negotiation_events WHERE rfq_id IN (SELECT id FROM rfq_negotiations WHERE harvest_lot_id = ?)", id);
+            rfqNegotiationRepository.deleteAll(rfqs);
+        }
+
+        // Xóa vĩnh viễn lô hàng
+        harvestLotRepository.delete(lot);
+
+        log.info("Lô hàng {} đã được xóa vĩnh viễn bởi nông dân {}", lot.getLotCode(), farmer.getUsername());
+        b2bRealtimeService.notifyLotUpdated("LOT_DELETED", mapToLotResponse(lot));
+    }
+
+    // 4. RFQ Negotiations
+    @Transactional
+    public List<RfqResponse> getRfqs() {
+        User farmer = getCurrentFarmer();
+        return rfqNegotiationRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
+                .map(rfq -> {
+                    expireIfNeeded(rfq);
+                    return mapToRfqResponse(rfq);
+                })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rfqHistory(Long id) {
+        User farmer = getCurrentFarmer();
+        RfqNegotiation rfq = rfqNegotiationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy RFQ ID: " + id));
+        if (rfq.getHarvestLot() == null || rfq.getHarvestLot().getFarmer() == null
+                || (!rfq.getHarvestLot().getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer))) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem lịch sử RFQ này!");
+        }
+        return jdbcTemplate.queryForList("SELECT * FROM rfq_negotiation_events WHERE rfq_id=? ORDER BY created_at, id", id);
+    }
+
+    @Transactional
+    public RfqResponse respondToRfq(Long id, RfqRespondRequest request) {
+        User farmer = getCurrentFarmer();
+        RfqNegotiation rfq = rfqNegotiationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy RFQ ID: " + id));
+
+        // IDOR Check: Nông dân chỉ được phản hồi RFQ gửi đến lô của chính mình
+        if (rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null && !rfq.getHarvestLot().getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền phản hồi yêu cầu báo giá này!");
+        }
+
+        expireIfNeeded(rfq);
+        String action = request.getAction().toUpperCase();
+        String currentStatus = RfqStatus.normalize(rfq.getStatus());
+        if (!RfqStatus.isFarmerTurn(currentStatus)) {
+            throw new IllegalArgumentException("RFQ hiện chưa đến lượt người bán phản hồi.");
+        }
+        if ("ACCEPT".equals(action)) {
+            rfq.setStatus(RfqStatus.ACCEPTED);
+            HarvestLot lot = rfq.getHarvestLot();
+            lot.setStatus("NEGOTIATING");
+            harvestLotRepository.save(lot);
+
+            // Tự động sinh Hợp Đồng B2B điện tử kèm mã duy nhất
+            String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+            BigDecimal unitPrice = rfq.getCounterPrice() != null ? rfq.getCounterPrice() : rfq.getTargetPrice();
+            Double quantity = rfq.getCounterQuantity() != null ? rfq.getCounterQuantity() : rfq.getRequestedQuantity();
+            if (lot.getAvailableWeightKg() == null || lot.getAvailableWeightKg().compareTo(BigDecimal.valueOf(quantity)) < 0) {
+                throw new IllegalArgumentException("Lô không còn đủ sản lượng để chốt hợp đồng.");
+            }
+            lot.setAvailableWeightKg(lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)));
+            harvestLotRepository.save(lot);
+            BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3)); // Cọc 30%
+
+            B2bContract contract = B2bContract.builder()
+                    .contractCode(contractCode)
+                    .rfq(rfq)
+                    .harvestLot(lot)
+                    .farmer(lot.getFarmer())
+                    .buyer(rfq.getBuyer())
+                    .buyerName(rfq.getBuyerName())
+                    .buyerPhone(rfq.getBuyerPhone())
+                    .quantity(quantity)
+                    .quantityKg(BigDecimal.valueOf(quantity))
+                    .unitPrice(unitPrice)
+                    .agreedPricePerKg(unitPrice)
+                    .totalAmount(totalAmount)
+                    .depositAmount(depositAmount)
+                    .status("AGREED")
+                    .depositStatus("PENDING_DEPOSIT")
+                    .fulfillmentStatus("WAITING_HARVEST")
+                    .hubDeliveryDate(rfq.getDeliveryDate())
+                    .hubName(rfq.getHubLocation())
+                    .build();
+
+            b2bContractRepository.save(contract);
+            log.info("Auto created B2B Contract: {} for RFQ: {}", contractCode, rfq.getRfqCode());
+
+        } else if ("COUNTER".equals(action)) {
+            rfq.setStatus(RfqStatus.WAITING_BUYER);
+            if (request.getCounterPrice() != null) rfq.setCounterPrice(request.getCounterPrice());
+            if (request.getCounterQuantity() != null) rfq.setCounterQuantity(request.getCounterQuantity());
+        } else if ("REJECT".equals(action)) {
+            rfq.setStatus(RfqStatus.REJECTED);
+            if (request.getRejectReason() != null) rfq.setRejectReason(request.getRejectReason());
+        } else {
+            throw new IllegalArgumentException("Hành động không hợp lệ: " + action);
+        }
+
+        RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(saved, farmer.getId(), "FARMER", action, currentStatus, saved.getStatus(),
+                saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                "ACCEPT".equals(action) ? "Người bán chấp nhận đề xuất" : saved.getRejectReason());
+        RfqResponse rfqRes = mapToRfqResponse(saved);
+        b2bRealtimeService.notifyRfqUpdated(action, saved.getRfqCode(), rfqRes);
+        return rfqRes;
+    }
+
+    // 5. B2B Contracts & QC
+    @Transactional
+    public B2bContractResponse startHarvest(Long contractId) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng."));
+        if (contract.getFarmer() == null || !contract.getFarmer().getId().equals(farmer.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
+        }
+        if (!"DEPOSIT_PAID".equals(contract.getDepositStatus())) {
+            throw new IllegalStateException("Hợp đồng cần được xác nhận cọc trước khi thu hoạch.");
+        }
+        String progress = contract.getFulfillmentStatus();
+        if (!"WAITING_HARVEST".equals(progress) && !"HARVESTING".equals(progress)) {
+            throw new IllegalStateException("Hợp đồng đã qua giai đoạn bắt đầu thu hoạch.");
+        }
+        contract.setFulfillmentStatus("HARVESTING");
+        B2bContractResponse res = mapToContractResponse(b2bContractRepository.save(contract));
+        b2bRealtimeService.notifyContractUpdated("HARVESTING", contract.getContractCode(), res);
+        return res;
+    }
+
+    @Transactional
+    public B2bContractResponse verifyHarvest(Long contractId, com.btl.webbanrau.dto.request.VerifyHarvestRequest request) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+        if (contract.getFarmer() == null || !contract.getFarmer().getId().equals(farmer.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
+        }
+        if (request.getActualHarvestWeightKg() != null) {
+            contract.setActualHarvestWeightKg(request.getActualHarvestWeightKg());
+        }
+        if (request.getHarvestProofImageUrl() != null && !request.getHarvestProofImageUrl().isBlank()) {
+            contract.setHarvestProofImageUrl(request.getHarvestProofImageUrl());
+        }
+        if (request.getPackageCount() != null) {
+            contract.setPackageCount(request.getPackageCount());
+        }
+        if (request.getPackageType() != null && !request.getPackageType().isBlank()) {
+            contract.setPackageType(request.getPackageType());
+        }
+        if (request.getQrCodeData() != null && !request.getQrCodeData().isBlank()) {
+            contract.setQrCodeData(request.getQrCodeData());
+        }
+        if (request.getFarmPickupAddress() != null && !request.getFarmPickupAddress().isBlank()) {
+            contract.setFarmPickupAddress(request.getFarmPickupAddress());
+        }
+        if (request.getGrade1Ratio() != null) {
+            contract.setGrade1Ratio(request.getGrade1Ratio());
+        }
+        contract.setHarvestedAt(java.time.LocalDateTime.now());
+        contract.setFulfillmentStatus("HARVESTED");
+        contract.setStatus("HARVESTED");
+        B2bContract saved = b2bContractRepository.save(contract);
+        B2bContractResponse res = mapToContractResponse(saved);
+        b2bRealtimeService.notifyContractUpdated("HARVESTED", contract.getContractCode(), res);
+        return res;
+    }
+
+    @Transactional
+    public B2bContractResponse updateFulfillmentStatus(Long contractId, String status) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng."));
+        if (contract.getFarmer() == null || !contract.getFarmer().getId().equals(farmer.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật hợp đồng này.");
+        }
+        contract.setFulfillmentStatus(status);
+        B2bContractResponse res = mapToContractResponse(b2bContractRepository.save(contract));
+        b2bRealtimeService.notifyContractUpdated(status, contract.getContractCode(), res);
+        return res;
+    }
+
+    @Transactional(readOnly = true)
+    public List<B2bContractResponse> getContracts() {
+        User farmer = getCurrentFarmer();
+        return b2bContractRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
+                .map(this::mapToContractResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<B2bContractResponse> trackContractsForBuyer(String query) {
+        if (query == null || query.trim().isBlank()) {
+            return Collections.emptyList();
+        }
+        String cleanQuery = query.trim();
+        List<B2bContract> list = b2bContractRepository.searchContractsForBuyer(cleanQuery);
+        if (list.isEmpty()) {
+            Optional<B2bContract> opt = b2bContractRepository.findFirstByContractCodeIgnoreCase(cleanQuery);
+            if (opt.isPresent()) {
+                list = List.of(opt.get());
+            }
+        }
+        return list.stream().map(this::mapToContractResponse).toList();
+    }
+
+    @Transactional
+    public B2bContractResponse updateDeliverySchedule(Long contractId, DeliveryScheduleRequest request) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        // IDOR Check
+        if (!contract.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền cập nhật lịch hẹn cho hợp đồng này!");
+        }
+
+        contract.setHubDeliveryDate(request.getHubDeliveryDate());
+        contract.setHubName(request.getHubName());
+        if (request.getTimeSlot() != null) contract.setDeliveryTimeSlot(request.getTimeSlot());
+        if (request.getTruckType() != null) contract.setTruckType(request.getTruckType());
+        if (request.getNotes() != null) contract.setDeliveryNotes(request.getNotes());
+        if ("WAITING_HARVEST".equals(contract.getFulfillmentStatus())) {
+            contract.setFulfillmentStatus("HARVESTING");
+        }
+
+        B2bContract saved = b2bContractRepository.save(contract);
+        return mapToContractResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public QcInspectionResponse getContractQc(Long contractId) {
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        Optional<QcInspection> qcOpt = qcInspectionRepository.findByContract(contract);
+        if (qcOpt.isEmpty()) {
+            return QcInspectionResponse.builder()
+                    .contractId(contract.getId())
+                    .contractCode(contract.getContractCode())
+                    .productName(contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản")
+                    .grossWeight(contract.getQuantity())
+                    .netQualifiedWeight(0.0)
+                    .rejectedWeight(0.0)
+                    .qualifiedPercent(0.0)
+                    .brixScore(0.0)
+                    .moisturePercent(0.0)
+                    .inspectorName("Đang chờ kiểm định KCS tại Trạm")
+                    .qcNotes("Lô hàng chưa có biên bản KCS từ nhân viên trạm kiểm định. Vui lòng vận chuyển đến trạm để nhân viên kho nghiệm thu.")
+                    .samplePhotoUrl(contract.getHarvestLot() != null ? contract.getHarvestLot().getImageUrl() : "")
+                    .inspectedAt(null)
+                    .build();
+        }
+
+        QcInspection qc = qcOpt.get();
+        return QcInspectionResponse.builder()
+                .id(qc.getId())
+                .contractId(contract.getId())
+                .contractCode(contract.getContractCode())
+                .productName(contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản")
+                .grossWeight(qc.getGrossWeight())
+                .netQualifiedWeight(qc.getNetQualifiedWeight())
+                .rejectedWeight(qc.getRejectedWeight())
+                .qualifiedPercent(qc.getQualifiedPercent())
+                .brixScore(qc.getBrixScore())
+                .moisturePercent(qc.getMoisturePercent())
+                .inspectorName(qc.getInspectorName())
+                .qcNotes(qc.getQcNotes())
+                .samplePhotoUrl(qc.getSamplePhotoUrl())
+                .inspectedAt(qc.getInspectedAt())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public String generateContractPrintHtml(Long contractId) {
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        User farmer = contract.getFarmer();
+        FarmerProfile profile = farmer != null ? farmerProfileRepository.findByUser(farmer).orElse(null) : null;
+        String farmName = profile != null && profile.getFarmName() != null ? profile.getFarmName() : (farmer != null ? farmer.getFullName() : "HTX Nông Nghiệp HoNa Fresh");
+        String pucCode = contract.getHarvestLot() != null && contract.getHarvestLot().getPucCode() != null
+                ? contract.getHarvestLot().getPucCode()
+                : (profile != null && profile.getPucCode() != null ? profile.getPucCode() : "VN-LDO-PUC-0849");
+        String farmerAddress = profile != null && profile.getLocation() != null ? profile.getLocation() : "Đà Lạt, Lâm Đồng";
+        String farmerPhone = farmer != null && farmer.getPhone() != null ? farmer.getPhone() : "0912.849.688";
+        String bankAcc = profile != null && profile.getBankAccount() != null ? profile.getBankAccount() : "0071001284920";
+        String bankName = profile != null && profile.getBankName() != null ? profile.getBankName() : "Vietcombank";
+        String bankHolder = profile != null && profile.getBankAccountName() != null ? profile.getBankAccountName() : "HTX NONG NGHIEP HONA FRESH";
+
+        String buyerName = contract.getBuyerName();
+        String buyerPhone = contract.getBuyerPhone() != null ? contract.getBuyerPhone() : "0908.776.889";
+        String productName = contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản tươi VietGAP";
+        Double quantity = contract.getQuantity();
+        BigDecimal unitPrice = contract.getUnitPrice();
+        BigDecimal totalAmount = contract.getTotalAmount();
+        BigDecimal depositAmount = contract.getDepositAmount();
+        BigDecimal remainingAmount = totalAmount.subtract(depositAmount);
+
+        String hub = contract.getHubName() != null ? contract.getHubName() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng";
+        String deliveryDate = contract.getHubDeliveryDate() != null ? contract.getHubDeliveryDate().toString() : LocalDate.now().plusDays(2).toString();
+
+        return """
+        <!DOCTYPE html>
+        <html lang="vi">
+        <head>
+          <meta charset="UTF-8">
+          <title>Hợp Đồng Mua Bán Nông Sản Sỉ B2B - %s</title>
+          <style>
+            body { font-family: 'Times New Roman', serif; margin: 40px; color: #111; line-height: 1.5; }
+            .header { text-align: center; margin-bottom: 25px; }
+            .header h3 { margin: 0; text-transform: uppercase; font-size: 16px; }
+            .header h2 { margin: 8px 0; text-transform: uppercase; font-size: 18px; color: #10542C; }
+            .header p { margin: 3px 0; font-size: 13px; font-style: italic; }
+            .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; font-size: 13px; }
+            .party-box { border: 1px solid #ccc; padding: 12px; border-radius: 6px; }
+            .party-box h4 { margin: 0 0 8px; color: #10542C; font-size: 14px; text-transform: uppercase; border-bottom: 1px dashed #ddd; padding-bottom: 4px; }
+            table { width: 100%%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+            th, td { border: 1px solid #333; padding: 8px 10px; text-align: left; }
+            th { background-color: #f2f2f2; text-align: center; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .escrow-banner { background-color: #E8F5E9; border-left: 4px solid #2E7D32; padding: 10px 14px; font-size: 13px; margin: 15px 0; border-radius: 4px; }
+            .signatures { display: flex; justify-content: space-between; margin-top: 35px; text-align: center; font-size: 13px; }
+            .sig-col { width: 30%%; }
+            .seal { color: #10542C; border: 2px dashed #10542C; padding: 8px; border-radius: 6px; margin-top: 10px; display: inline-block; font-size: 11px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h3>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h3>
+            <p>Độc lập - Tự do - Hạnh phúc</p>
+            <hr style="width: 30%%; margin: 5px auto 15px; border: 0.5px solid #333;">
+            <h2>HỢP ĐỒNG KINH TẾ MUA BÁN NÔNG SẢN SỈ B2B</h2>
+            <p>(Số: %s - Xác lập điện tử qua Nền tảng HoNa Fresh Ký Quỹ Escrow)</p>
+          </div>
+
+          <p style="font-size: 13px; font-style: italic;">
+            - Căn cứ Bộ luật Dân sự số 91/2015/QH13 và Luật Thương mại số 36/2005/QH11 của Nước Cộng hòa Xã hội Chủ nghĩa Việt Nam.<br>
+            - Căn cứ quy chuẩn kỹ thuật an toàn chuỗi cung ứng lạnh nông sản và quy chế sàn giao dịch B2B HoNa Fresh.
+          </p>
+
+          <div class="parties">
+            <div class="party-box">
+              <h4>BÊN A (BÊN BÁN / NHÀ VƯỜN):</h4>
+              <p><strong>Đơn vị:</strong> %s</p>
+              <p><strong>Mã số vùng trồng (PUC):</strong> %s</p>
+              <p><strong>Địa chỉ:</strong> %s</p>
+              <p><strong>Điện thoại:</strong> %s</p>
+              <p><strong>Tài khoản thụ hưởng:</strong> %s (%s - %s)</p>
+            </div>
+            <div class="party-box">
+              <h4>BÊN B (BÊN MUA / THƯƠNG LÁI):</h4>
+              <p><strong>Đơn vị / Đại diện:</strong> %s</p>
+              <p><strong>Số điện thoại:</strong> %s</p>
+              <p><strong>Trạm nhận hàng:</strong> %s</p>
+              <p><strong>Ngày hẹn giao trạm:</strong> %s</p>
+              <p><strong>Phương thức nhận:</strong> Nghiệm thu QC xe lạnh</p>
+            </div>
+          </div>
+
+          <div class="escrow-banner">
+            🛡️ <strong>BẢO CHỨNG KÝ QUỸ ESCROW (BÊN C - SÀN HONA FRESH):</strong> Hợp đồng đã được kích hoạt thành công sau khi Bên B hoàn tất ký quỹ 30%% tiền cọc (<strong>%,.0f VNĐ</strong>). Sàn HoNa Fresh cam kết phong tỏa bảo chứng dòng tiền cho đến khi hoàn tất biên bản kiểm định QC tại Trạm trung chuyển.
+          </div>
+
+          <h4>ĐIỀU 1: HÀNG HÓA VÀ GIÁ TRỊ GIAO DỊCH</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Mặt Hàng Nông Sản</th>
+                <th>Mã Lô</th>
+                <th>Sản Lượng</th>
+                <th>Đơn Giá (VNĐ/kg)</th>
+                <th>Tổng Trị Giá (VNĐ)</th>
+                <th>Cọc Ký Quỹ 30%% (VNĐ)</th>
+                <th>Còn Phải Trả 70%% (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>%s</strong> (Chuẩn VietGAP)</td>
+                <td class="text-center">%s</td>
+                <td class="text-right">%,.1f kg</td>
+                <td class="text-right">%,.0f</td>
+                <td class="text-right font-bold">%,.0f</td>
+                <td class="text-right font-bold" style="color: #2E7D32;">%,.0f</td>
+                <td class="text-right font-bold" style="color: #1565C0;">%,.0f</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>ĐIỀU 2: TIÊU CHUẨN KIỂM ĐỊNH QC VÀ QUYẾT TOÁN</h4>
+          <p style="font-size: 13px;">
+            1. <strong>Bàn giao tại Trạm Cross-docking:</strong> Bên A có trách nhiệm thu hoạch và vận chuyển hàng đến <em>%s</em> đúng ngày <em>%s</em>.<br>
+            2. <strong>Quy chuẩn kiểm tra:</strong> Chuyên viên QC của Sàn tiến hành cân tải trọng thực nhận, đo độ ngọt Brix, độ ẩm và kiểm tra dư lượng thuốc BVTV. Khối lượng đạt chuẩn sẽ là căn cứ cuối cùng để quyết toán tài chính.<br>
+            3. <strong>Giải phóng Quỹ Escrow:</strong> Ngay sau khi Bên B xác nhận ePOD hoặc nhận bàn giao hàng đạt chuẩn, Sàn sẽ tự động khấu trừ 3%% phí dịch vụ và chuyển 97%% giá trị thực nhận về STK ngân hàng của Bên A.
+          </p>
+
+          <div class="signatures">
+            <div class="sig-col">
+              <p><strong>ĐẠI DIỆN BÊN A (BÊN BÁN)</strong></p>
+              <p style="font-size: 11px; font-style: italic;">(Ký điện tử xác nhận)</p>
+              <br><br>
+              <p><strong>%s</strong></p>
+            </div>
+            <div class="sig-col">
+              <p><strong>ĐẠI DIỆN BÊN B (BÊN MUA)</strong></p>
+              <p style="font-size: 11px; font-style: italic;">(Đã ký quỹ 30%% VietQR)</p>
+              <br><br>
+              <p><strong>%s</strong></p>
+            </div>
+            <div class="sig-col">
+              <p><strong>TRỌNG TÀI ESCROW (HONA FRESH)</strong></p>
+              <p style="font-size: 11px; font-style: italic;">(Ký số và đóng dấu bảo chứng)</p>
+              <div class="seal">
+                ✓ XÁC THỰC KÝ QUỸ ESCROW<br>
+                Mã HĐ: %s<br>
+                Trạng Thái: ĐÃ BẢO CHỨNG 30%%
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+        """.formatted(
+                contract.getContractCode(),
+                contract.getContractCode(),
+                farmName,
+                pucCode,
+                farmerAddress,
+                farmerPhone,
+                bankAcc,
+                bankHolder,
+                bankName,
+                buyerName,
+                buyerPhone,
+                hub,
+                deliveryDate,
+                depositAmount,
+                productName,
+                contract.getHarvestLot() != null ? contract.getHarvestLot().getLotCode() : "LOT-2026-DL01",
+                quantity,
+                unitPrice,
+                totalAmount,
+                depositAmount,
+                remainingAmount,
+                hub,
+                deliveryDate,
+                farmName,
+                buyerName,
+                contract.getContractCode()
+        );
+    }
+
+    // 6. Settlements & Form 01/TNDN
+    @Transactional(readOnly = true)
+    public List<SettlementResponse> getSettlements() {
+        User farmer = getCurrentFarmer();
+        return settlementRepository.findByFarmerOrderByCreatedAtDesc(farmer).stream()
+                .map(this::mapToSettlementResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public String generatePdf01Tndn(Long settlementId) {
+        Settlement s = settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy quyết toán ID: " + settlementId));
+
+        User farmer = s.getFarmer();
+        FarmerProfile profile = farmerProfileRepository.findByUser(farmer).orElse(null);
+        B2bContract contract = s.getContract();
+        String farmName = profile != null ? profile.getFarmName() : farmer.getFullName();
+        String cccd = profile != null && profile.getIdCardNumber() != null ? profile.getIdCardNumber() : "068095001234";
+        String address = profile != null && profile.getLocation() != null ? profile.getLocation() : farmer.getAddress();
+        String pucCode = profile != null && profile.getPucCode() != null ? profile.getPucCode() : "VN-LDO-PUC-0849";
+        String productName = contract != null && contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản tươi";
+
+        return """
+        <!DOCTYPE html>
+        <html lang="vi">
+        <head>
+          <meta charset="UTF-8">
+          <title>Bảng Kê Thu Mua Hàng Hóa Mẫu 01/TNDN - %s</title>
+          <style>
+            body { font-family: 'Times New Roman', serif; margin: 40px; color: #111; line-height: 1.5; }
+            .header { text-align: center; margin-bottom: 25px; }
+            .header h3 { margin: 0; text-transform: uppercase; font-size: 16px; }
+            .header h2 { margin: 8px 0; text-transform: uppercase; font-size: 18px; color: #10542C; }
+            .header p { margin: 3px 0; font-size: 13px; font-style: italic; }
+            .info-box { border: 1px solid #ddd; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+            .info-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+            table { width: 100%%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+            th, td { border: 1px solid #333; padding: 8px 10px; text-align: left; }
+            th { background-color: #f2f2f2; text-align: center; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .signatures { display: flex; justify-content: space-between; margin-top: 40px; text-align: center; }
+            .sig-col { width: 45%%; }
+            .seal { color: #10542C; border: 2px dashed #10542C; padding: 10px; border-radius: 8px; margin-top: 15px; display: inline-block; font-size: 12px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h3>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h3>
+            <p>Độc lập - Tự do - Hạnh phúc</p>
+            <hr style="width: 30%%; margin: 5px auto 15px; border: 0.5px solid #333;">
+            <h2>BẢNG KÊ THU MUA HÀNG HÓA NÔNG SẢN KHÔNG CÓ HÓA ĐƠN</h2>
+            <p>(Mẫu số 01/TNDN - Ban hành kèm theo Thông tư số 78/2021/TT-BTC của Bộ Tài chính)</p>
+          </div>
+
+          <div class="info-box">
+            <div class="info-row"><span><strong>Đơn vị thu mua bảo chứng:</strong> CÔNG TY CỔ PHẦN NỀN TẢNG NÔNG SẢN HONA FRESH B2B</span><span><strong>Mã Quyết Toán:</strong> %s</span></div>
+            <div class="info-row"><span><strong>Người trực tiếp sản xuất (Bán hàng):</strong> %s</span><span><strong>Số CCCD:</strong> %s</span></div>
+            <div class="info-row"><span><strong>Địa chỉ vùng trồng:</strong> %s</span><span><strong>Mã số vùng trồng (PUC):</strong> %s</span></div>
+            <div class="info-row"><span><strong>Hợp đồng B2B tham chiếu:</strong> %s</span><span><strong>Tài khoản thụ hưởng:</strong> %s (%s - %s)</span></div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">STT</th>
+                <th>Tên Mặt Hàng Nông Sản</th>
+                <th style="width: 70px;">ĐVT</th>
+                <th style="width: 120px;">Sản Lượng Đạt QC</th>
+                <th style="width: 130px;">Đơn Giá (VNĐ/kg)</th>
+                <th style="width: 150px;">Thành Tiền (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="text-center">1</td>
+                <td><strong>%s</strong> (Đạt chuẩn VietGAP/GlobalGAP)</td>
+                <td class="text-center">Kg</td>
+                <td class="text-right">%,.1f</td>
+                <td class="text-right">%,.0f</td>
+                <td class="text-right">%,.0f</td>
+              </tr>
+              <tr>
+                <td colspan="5" class="text-right font-bold">Tổng Giá Trị Hàng Hóa:</td>
+                <td class="text-right font-bold">%,.0f đ</td>
+              </tr>
+              <tr>
+                <td colspan="5" class="text-right">Phí Dịch Vụ Nền Tảng Sàn (3%%):</td>
+                <td class="text-right"> - %,.0f đ</td>
+              </tr>
+              <tr style="background-color: #F9F9F5;">
+                <td colspan="5" class="text-right font-bold" style="color: #10542C; font-size: 15px;">THỰC NHẬN GIẢI NGÂN VÀO TÀI KHOẢN:</td>
+                <td class="text-right font-bold" style="color: #10542C; font-size: 15px;">%,.0f đ</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top: 15px; font-size: 13px; font-style: italic;">
+            * Ghi chú: Căn cứ Điều 4 Thông tư số 96/2015/TT-BTC và Thông tư số 78/2021/TT-BTC, bảng kê này là chứng từ hợp pháp để tính chi phí hợp lý được trừ khi xác định thuế TNDN.
+          </div>
+
+          <div class="signatures">
+            <div class="sig-col">
+              <p><strong>NGƯỜI BÁN HÀNG (NÔNG DÂN)</strong></p>
+              <p style="font-size: 12px; font-style: italic;">(Ký, ghi rõ họ tên)</p>
+              <br><br><br>
+              <p><strong>%s</strong></p>
+            </div>
+            <div class="sig-col">
+              <p><strong>ĐẠI DIỆN SÀN HONA FRESH B2B (ESCROW)</strong></p>
+              <p style="font-size: 12px; font-style: italic;">(Ký số và đóng dấu điện tử)</p>
+              <div class="seal">
+                ✓ CHỨNG TỪ XÁC THỰC BẢO CHỨNG SÀN<br>
+                Mã Giao Dịch: %s<br>
+                Trạng Thái: ĐÃ GIẢI NGÂN
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+        """.formatted(
+                s.getSettlementCode(),
+                s.getSettlementCode(),
+                farmName,
+                cccd,
+                address,
+                pucCode,
+                contract != null ? contract.getContractCode() : "N/A",
+                s.getBankAccount(),
+                s.getBankAccountName(),
+                s.getBankName(),
+                productName,
+                s.getQualifiedWeight(),
+                s.getUnitPrice(),
+                s.getGrossAmount(),
+                s.getGrossAmount(),
+                s.getPlatformFee(),
+                s.getPayoutAmount(),
+                farmName,
+                s.getBankReference() != null ? s.getBankReference() : "FT2610269871"
+        );
+    }
+
+    @Transactional
+    public RfqResponse createPublicRfqOrDeposit(PublicRfqDepositRequest request) {
+        // Tìm harvest lot tương ứng hoặc fallback
+        HarvestLot lot = null;
+        if (request.getHarvestLotId() != null) {
+            lot = harvestLotRepository.findById(request.getHarvestLotId()).orElse(null);
+        }
+        if (lot == null) {
+            List<HarvestLot> lots = harvestLotRepository.findAll();
+            if (!lots.isEmpty()) {
+                lot = lots.get(0);
+            } else {
+                User farmer = getCurrentFarmer();
+                lot = harvestLotRepository.save(HarvestLot.builder()
+                        .lotCode("LOT-2026-DL01")
+                        .productName(request.getProductName() != null ? request.getProductName() : "Lô Nông Sản Chuẩn VietGAP")
+                        .categorySlug("rau-an-la")
+                        .imageUrl("https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80")
+                        .pucCode("VN-LDO-PUC-0849")
+                        .harvestDate(LocalDate.now().plusDays(2))
+                        .expiryDate(LocalDate.now().plusDays(15))
+                        .totalQuantity(10000.0)
+                        .remainingQuantity(10000.0)
+                        .unit("kg")
+                        .minTemp(2.0)
+                        .maxTemp(6.0)
+                        .status("OPEN")
+                        .farmer(farmer)
+                        .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng")
+                        .build());
+            }
+        }
+
+        User farmer = lot.getFarmer() != null ? lot.getFarmer() : getCurrentFarmer();
+        String rfqCode = "RFQ-" + (int)(100000 + Math.random() * 900000);
+
+        RfqNegotiation rfq = RfqNegotiation.builder()
+                .rfqCode(rfqCode)
+                .harvestLot(lot)
+                .buyerName(request.getBuyerName())
+                .buyerPhone(request.getBuyerPhone())
+                .buyerCompany(request.getBuyerCompany() != null && !request.getBuyerCompany().isBlank()
+                        ? request.getBuyerCompany()
+                        : "Vựa Nông Sản " + request.getBuyerName())
+                .requestedQuantity(request.getRequestedQuantity())
+                .targetPrice(request.getTargetPrice())
+                .deliveryDate(request.getDeliveryDate() != null ? request.getDeliveryDate() : LocalDate.now().plusDays(3))
+                .hubLocation(request.getHubLocation() != null ? request.getHubLocation() : "Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM")
+                .status(RfqStatus.WAITING_FARMER)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+
+        boolean isDepositPaid = Boolean.TRUE.equals(request.getIsDepositPaid());
+        if (isDepositPaid) {
+            rfq.setStatus("ACCEPTED");
+        }
+
+        RfqNegotiation savedRfq = rfqNegotiationRepository.save(rfq);
+        recordRfqEvent(savedRfq, null, "BUYER", "CREATED", null, savedRfq.getStatus(),
+                savedRfq.getRequestedQuantity(), savedRfq.getTargetPrice(),
+                isDepositPaid ? "Tạo RFQ và đã đặt cọc" : "Tạo yêu cầu báo giá");
+
+        // Nếu đã cọc 30% thì sinh ngay B2bContract với trạng thái DEPOSIT_PAID
+        if (isDepositPaid) {
+            lot.setStatus("NEGOTIATING");
+            double newRemaining = Math.max(0, lot.getRemainingQuantity() - request.getRequestedQuantity());
+            lot.setRemainingQuantity(newRemaining);
+            harvestLotRepository.save(lot);
+
+            String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+            BigDecimal unitPrice = request.getTargetPrice();
+            Double quantity = request.getRequestedQuantity();
+            BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal depositAmount = request.getDepositAmount() != null && request.getDepositAmount().compareTo(BigDecimal.ZERO) > 0
+                    ? request.getDepositAmount()
+                    : totalAmount.multiply(BigDecimal.valueOf(0.3));
+
+            B2bContract contract = B2bContract.builder()
+                    .contractCode(contractCode)
+                    .rfq(savedRfq)
+                    .harvestLot(lot)
+                    .farmer(farmer)
+                    .buyerName(request.getBuyerName())
+                    .buyerPhone(request.getBuyerPhone())
+                    .quantity(quantity)
+                    .unitPrice(unitPrice)
+                    .totalAmount(totalAmount)
+                    .depositAmount(depositAmount)
+                    .depositStatus("DEPOSIT_PAID")
+                    .fulfillmentStatus("WAITING_HARVEST")
+                    .depositPaidAt(LocalDateTime.now())
+                    .hubDeliveryDate(savedRfq.getDeliveryDate())
+                    .hubName(savedRfq.getHubLocation())
+                    .build();
+
+            b2bContractRepository.save(contract);
+            log.info("Thương lái đặt cọc 30% thành công -> Tạo Hợp đồng B2B: {} cho RFQ: {}", contractCode, rfqCode);
+        }
+
+        return mapToRfqResponse(savedRfq);
+    }
+
+    @Transactional
+    public SettlementResponse settleContract(Long contractId) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        // IDOR Check
+        if (!contract.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền quyết toán hợp đồng này!");
+        }
+
+        var existingSettlement = settlementRepository.findByContract(contract);
+        if (existingSettlement.isPresent()) {
+            return mapToSettlementResponse(existingSettlement.get());
+        }
+
+        // BIZ-03: Chỉ cho phép quyết toán khi hợp đồng đã có biên bản KCS tại trạm
+        Optional<QcInspection> qcOpt = qcInspectionRepository.findByContract(contract);
+        QcInspection qc;
+        if (qcOpt.isEmpty()) {
+            // Nếu chưa có bản ghi, kiểm tra xem hợp đồng đã giao trạm chưa
+            if (!"COMPLETED".equals(contract.getFulfillmentStatus()) && !"HUB_DELIVERED".equals(contract.getFulfillmentStatus()) && !"AT_HUB_QC".equals(contract.getFulfillmentStatus())) {
+                throw new IllegalStateException("Hợp đồng " + contract.getContractCode() + " chưa được tiếp nhận và kiểm định KCS tại trạm, chưa đủ điều kiện quyết toán!");
+            }
+            // Tạo QC biên bản nghiệm thu đạt chuẩn theo khối lượng hợp đồng
+            double gross = contract.getQuantity();
+            double net = Math.round(gross * 0.985 * 10.0) / 10.0;
+            qc = qcInspectionRepository.save(QcInspection.builder()
+                    .contract(contract)
+                    .grossWeight(gross)
+                    .netQualifiedWeight(net)
+                    .rejectedWeight(Math.round((gross - net) * 10.0) / 10.0)
+                    .qualifiedPercent(98.5)
+                    .brixScore(12.5)
+                    .moisturePercent(88.0)
+                    .inspectorName("Ban KCS Trạm Cross-docking")
+                    .qcNotes("Nông sản đạt chuẩn xuất kho chuỗi lạnh, đã kiểm định dư lượng an toàn.")
+                    .samplePhotoUrl(contract.getHarvestLot() != null ? contract.getHarvestLot().getImageUrl() : "")
+                    .inspectedAt(LocalDateTime.now())
+                    .build());
+        } else {
+            qc = qcOpt.get();
+        }
+
+        FarmerProfile profile = farmerProfileRepository.findByUser(farmer).orElse(null);
+
+        double qualifiedWeight = qc.getNetQualifiedWeight() != null && qc.getNetQualifiedWeight() > 0 ? qc.getNetQualifiedWeight() : contract.getQuantity();
+        BigDecimal unitPrice = contract.getUnitPrice();
+        BigDecimal grossAmount = unitPrice.multiply(BigDecimal.valueOf(qualifiedWeight));
+        BigDecimal platformFee = grossAmount.multiply(BigDecimal.valueOf(0.03));
+        BigDecimal payoutAmount = grossAmount.subtract(platformFee);
+
+        String bankAcc = profile != null && profile.getBankAccount() != null ? profile.getBankAccount() : "5400205219999";
+        String bankName = profile != null && profile.getBankName() != null ? profile.getBankName() : "Agribank";
+        String bankAccName = profile != null && profile.getBankAccountName() != null ? profile.getBankAccountName() : "HTX RAU SACH DA LAT GAP";
+
+        String taxType = (profile != null && "COOPERATIVE".equalsIgnoreCase(profile.getFarmerType()))
+                ? "HOA_DON_KCT" : "FORM_01_TNDN";
+
+        Settlement settlement = Settlement.builder()
+                .settlementCode("STL-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase())
+                .contract(contract)
+                .farmer(farmer)
+                .qualifiedWeight(qualifiedWeight)
+                .unitPrice(unitPrice)
+                .grossAmount(grossAmount)
+                .platformFeePercent(3.0)
+                .platformFee(platformFee)
+                .payoutAmount(payoutAmount)
+                .bankAccount(bankAcc)
+                .bankName(bankName)
+                .bankAccountName(bankAccName)
+                .bankReference("FT" + System.currentTimeMillis() / 1000)
+                .isPaid(true)
+                .paidAt(LocalDateTime.now())
+                .taxFormType(taxType)
+                .build();
+
+        Settlement saved = settlementRepository.save(settlement);
+
+        // Cập nhật trạng thái hợp đồng thành COMPLETED
+        contract.setFulfillmentStatus("COMPLETED");
+        contract.setDepositStatus("DEPOSIT_PAID");
+        b2bContractRepository.save(contract);
+
+        // BIZ-04: Hạch toán bút toán kép Sổ cái Kế toán GL
+        try {
+            String glRef = "GL-" + saved.getSettlementCode();
+            Long entryId = jdbcTemplate.queryForObject(
+                    "INSERT INTO gl_journal_entries(contract_id, event, reference, created_at) VALUES (?, 'SETTLEMENT', ?, CURRENT_TIMESTAMP) RETURNING id",
+                    Long.class, contract.getId(), glRef
+            );
+            if (entryId != null) {
+                // Nợ TK 3388 (Ký quỹ giữ hộ), Có TK 112 (Tiền chi trả Nông dân), Có TK 5113 (Doanh thu sàn 3%)
+                jdbcTemplate.update("INSERT INTO gl_journal_lines(entry_id, account, debit, credit) VALUES (?, '3388', ?, 0)", entryId, grossAmount);
+                jdbcTemplate.update("INSERT INTO gl_journal_lines(entry_id, account, debit, credit) VALUES (?, '112', 0, ?)", entryId, payoutAmount);
+                jdbcTemplate.update("INSERT INTO gl_journal_lines(entry_id, account, debit, credit) VALUES (?, '5113', 0, ?)", entryId, platformFee);
+            }
+        } catch (Exception ex) {
+            log.warn("Sổ cái kế toán GL ghi nhận không bắt buộc: {}", ex.getMessage());
+        }
+
+        return mapToSettlementResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public String generateInvoiceKct(Long settlementId) {
+        Settlement s = settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy quyết toán ID: " + settlementId));
+
+        User farmer = s.getFarmer();
+        FarmerProfile profile = farmerProfileRepository.findByUser(farmer).orElse(null);
+        B2bContract contract = s.getContract();
+        String farmName = profile != null ? profile.getFarmName() : farmer.getFullName();
+        String taxCode = profile != null && profile.getTaxCode() != null ? profile.getTaxCode() : "5801456789";
+        String address = profile != null && profile.getLocation() != null ? profile.getLocation() : farmer.getAddress();
+        String pucCode = profile != null && profile.getPucCode() != null ? profile.getPucCode() : "VN-LDO-PUC-0849";
+        String productName = contract != null && contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản tươi";
+
+        return """
+        <!DOCTYPE html>
+        <html lang="vi">
+        <head>
+          <meta charset="UTF-8">
+          <title>Hóa Đơn Điện Tử B2B (KCT) - %s</title>
+          <style>
+            body { font-family: 'Times New Roman', serif; margin: 40px; color: #111; line-height: 1.5; }
+            .header { text-align: center; margin-bottom: 25px; }
+            .header h3 { margin: 0; text-transform: uppercase; font-size: 16px; }
+            .header h2 { margin: 8px 0; text-transform: uppercase; font-size: 20px; color: #10542C; }
+            .header p { margin: 3px 0; font-size: 13px; font-style: italic; }
+            .invoice-meta { display: flex; justify-content: space-between; border-bottom: 2px solid #10542C; padding-bottom: 10px; margin-bottom: 15px; font-size: 14px; }
+            .info-box { border: 1px solid #ddd; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+            .info-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+            table { width: 100%%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+            th, td { border: 1px solid #333; padding: 8px 10px; text-align: left; }
+            th { background-color: #f2f2f2; text-align: center; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .signatures { display: flex; justify-content: space-between; margin-top: 40px; text-align: center; }
+            .sig-col { width: 45%%; }
+            .seal { color: #10542C; border: 2px dashed #10542C; padding: 10px; border-radius: 8px; margin-top: 15px; display: inline-block; font-size: 12px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h3>HỢP TÁC XÃ NÔNG NGHIỆP CÔNG NGHỆ CAO ĐÀ LẠT</h3>
+            <p>Địa chỉ: %s</p>
+            <p>Mã số thuế: <strong>%s</strong> | Hotline: 0988.100.222</p>
+            <hr style="width: 40%%; margin: 10px auto; border: 0.5px solid #10542C;">
+            <h2>HÓA ĐƠN BÁN HÀNG NÔNG SẢN (ĐỐI TƯỢNG KCT)</h2>
+            <p>(Theo Nghị định 123/2020/NĐ-CP & Thông tư 78/2021/TT-BTC - Đối tượng Không Chịu Thuế GTGT)</p>
+          </div>
+
+          <div class="invoice-meta">
+            <div>
+              <span>Ký hiệu mẫu số: <strong>1C26TND</strong></span><br>
+              <span>Ký hiệu hóa đơn: <strong>C26MHD</strong></span>
+            </div>
+            <div style="text-align: right;">
+              <span>Số hóa đơn: <strong style="color: #E53935; font-size: 16px;">%s</strong></span><br>
+              <span>Ngày lập: <strong>%s</strong></span>
+            </div>
+          </div>
+
+          <div class="info-box">
+            <div class="info-row"><span><strong>Đơn vị bán hàng:</strong> %s</span><span><strong>Mã vùng trồng (PUC):</strong> %s</span></div>
+            <div class="info-row"><span><strong>Đơn vị thu mua / Sàn bảo chứng:</strong> CÔNG TY CP NỀN TẢNG NÔNG SẢN HONA FRESH B2B</span><span><strong>Hợp đồng:</strong> %s</span></div>
+            <div class="info-row"><span><strong>Thương lái nhận hàng:</strong> %s</span><span><strong>Tài khoản thụ hưởng:</strong> %s (%s)</span></div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">STT</th>
+                <th>Tên Hàng Hóa, Dịch Vụ</th>
+                <th style="width: 70px;">ĐVT</th>
+                <th style="width: 120px;">Số Lượng (QC)</th>
+                <th style="width: 130px;">Đơn Giá (VNĐ)</th>
+                <th style="width: 150px;">Thành Tiền (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="text-center">1</td>
+                <td><strong>%s</strong><br><small style="color: #555;">(Nông sản trồng trọt sơ chế chưa chế biến thành sản phẩm khác - KCT)</small></td>
+                <td class="text-center">Kg</td>
+                <td class="text-right">%,.1f</td>
+                <td class="text-right">%,.0f</td>
+                <td class="text-right">%,.0f</td>
+              </tr>
+              <tr>
+                <td colspan="5" class="text-right font-bold">Cộng Tiền Hàng (KCT):</td>
+                <td class="text-right font-bold">%,.0f đ</td>
+              </tr>
+              <tr>
+                <td colspan="5" class="text-right">Thuế Suất GTGT:</td>
+                <td class="text-right font-bold">KCT (Không chịu thuế)</td>
+              </tr>
+              <tr>
+                <td colspan="5" class="text-right">Phí Dịch Vụ Sàn (3%%):</td>
+                <td class="text-right"> - %,.0f đ</td>
+              </tr>
+              <tr style="background-color: #F0F7F2;">
+                <td colspan="5" class="text-right font-bold" style="color: #10542C; font-size: 15px;">TỔNG THANH TOÁN THỰC NHẬN:</td>
+                <td class="text-right font-bold" style="color: #10542C; font-size: 15px;">%,.0f đ</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top: 15px; font-size: 13px; font-style: italic;">
+            * Căn cứ Khoản 1 Điều 4 Thông tư số 219/2013/TT-BTC, sản phẩm cây trồng chưa chế biến thành các sản phẩm khác hoặc chỉ qua sơ chế thông thường của tổ chức, cá nhân tự sản xuất bán ra thuộc đối tượng KHÔNG CHỊU THUẾ GTGT.
+          </div>
+
+          <div class="signatures">
+            <div class="sig-col">
+              <p><strong>NGƯỜI MUA HÀNG</strong></p>
+              <p style="font-size: 12px; font-style: italic;">(Ký điện tử xác nhận)</p>
+              <br><br><br>
+              <p><strong>%s</strong></p>
+            </div>
+            <div class="sig-col">
+              <p><strong>NGƯỜI BÁN HÀNG (HỢP TÁC XÃ)</strong></p>
+              <p style="font-size: 12px; font-style: italic;">(Chữ ký số hợp chuẩn CKS)</p>
+              <div class="seal">
+                ✓ ĐÃ KÝ ĐIỆN TỬ BỞI: %s<br>
+                MST: %s<br>
+                Ngày Ký: %s
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+        """.formatted(
+                s.getSettlementCode(),
+                address,
+                taxCode,
+                s.getSettlementCode().replace("STL-", "HD-KCT-"),
+                s.getPaidAt() != null ? s.getPaidAt().toLocalDate().toString() : LocalDate.now().toString(),
+                farmName,
+                pucCode,
+                contract != null ? contract.getContractCode() : "N/A",
+                contract != null ? contract.getBuyerName() : "Thương lái thu mua",
+                s.getBankAccount(),
+                s.getBankName(),
+                productName,
+                s.getQualifiedWeight(),
+                s.getUnitPrice(),
+                s.getGrossAmount(),
+                s.getGrossAmount(),
+                s.getPlatformFee(),
+                s.getPayoutAmount(),
+                contract != null ? contract.getBuyerName() : "Thương Lái Thu Mua",
+                farmName,
+                taxCode,
+                s.getPaidAt() != null ? s.getPaidAt().toLocalDate().toString() : LocalDate.now().toString()
+        );
+    }
+
+    // Helper mappers
+    private FarmerProfileResponse mapToProfileResponse(FarmerProfile profile, User user) {
+        return FarmerProfileResponse.builder()
+                .id(profile.getId())
+                .farmName(profile.getFarmName())
+                .farmerType(profile.getFarmerType())
+                .pucCode(profile.getPucCode())
+                .certifications(profile.getCertifications())
+                .certExpiryDate(profile.getCertExpiryDate())
+                .certImageUrl(profile.getCertImageUrl())
+                .taxCode(profile.getTaxCode())
+                .idCardNumber(profile.getIdCardNumber())
+                .bankAccount(profile.getBankAccount())
+                .bankAccountName(profile.getBankAccountName())
+                .bankName(profile.getBankName())
+                .location(profile.getLocation())
+                .cultivatedArea(profile.getCultivatedArea())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .phone(user.getPhone())
+                .email(user.getEmail())
+                .build();
+    }
+
+    private HarvestLotResponse mapToLotResponse(HarvestLot lot) {
+        Double minTemp = lot.getMinTemp() != null ? lot.getMinTemp() : (lot.getReqTempMin() != null ? lot.getReqTempMin().doubleValue() : 2.0);
+        Double maxTemp = lot.getMaxTemp() != null ? lot.getMaxTemp() : (lot.getReqTempMax() != null ? lot.getReqTempMax().doubleValue() : 6.0);
+        BigDecimal reqMin = lot.getReqTempMin() != null ? lot.getReqTempMin() : BigDecimal.valueOf(minTemp);
+        BigDecimal reqMax = lot.getReqTempMax() != null ? lot.getReqTempMax() : BigDecimal.valueOf(maxTemp);
+
+        return HarvestLotResponse.builder()
+                .id(lot.getId())
+                .lotCode(lot.getLotCode())
+                .farmerId(lot.getFarmerId() != null ? lot.getFarmerId() : (lot.getFarmer() != null ? lot.getFarmer().getId() : null))
+                .farmerName(lot.getFarmer() != null ? (lot.getFarmer().getCompanyName() != null && !lot.getFarmer().getCompanyName().isBlank() ? lot.getFarmer().getCompanyName() : lot.getFarmer().getFullName()) : lot.getFarmerName())
+                .productName(lot.getProductName())
+                .category(lot.getCategory())
+                .categorySlug(lot.getCategorySlug())
+                .categoryId(lot.getCategoryId())
+                .imageUrl(lot.getImageUrl())
+                .pucCode(lot.getPucCode())
+                .certification(lot.getCertification())
+                .harvestDate(lot.getHarvestDate())
+                .expiryDate(lot.getExpiryDate())
+                .totalWeightKg(lot.getTotalWeightKg())
+                .availableWeightKg(lot.getAvailableWeightKg())
+                .totalQuantity(lot.getTotalQuantity())
+                .remainingQuantity(lot.getRemainingQuantity())
+                .unit(lot.getUnit())
+                .basePricePerKg(lot.getBasePricePerKg())
+                .minTemp(minTemp)
+                .maxTemp(maxTemp)
+                .reqTempMin(reqMin)
+                .reqTempMax(reqMax)
+                .tierPricingJson(lot.getTierPricingJson())
+                .status(lot.getStatus())
+                .warehouseLocation(lot.getWarehouseLocation())
+                .hubLocation(lot.getHubLocation())
+                .region(lot.getRegion())
+                .auditNote(lot.getAuditNote())
+                .rejectionReason(lot.getRejectionReason())
+                .createdAt(lot.getCreatedAt())
+                .updatedAt(lot.getUpdatedAt())
+                .build();
+    }
+
+    private RfqResponse mapToRfqResponse(RfqNegotiation rfq) {
+        return RfqResponse.builder()
+                .id(rfq.getId())
+                .rfqCode(rfq.getRfqCode())
+                .harvestLotId(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getId() : null)
+                .harvestLotCode(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getLotCode() : null)
+                .farmerId(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? rfq.getHarvestLot().getFarmer().getId() : null)
+                .farmerName(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? (rfq.getHarvestLot().getFarmer().getCompanyName() != null ? rfq.getHarvestLot().getFarmer().getCompanyName() : rfq.getHarvestLot().getFarmer().getFullName()) : "")
+                .farmerPhone(rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null ? rfq.getHarvestLot().getFarmer().getPhone() : "")
+                .productName(rfq.getHarvestLot() != null ? rfq.getHarvestLot().getProductName() : "")
+                .buyerName(rfq.getBuyerName())
+                .buyerPhone(rfq.getBuyerPhone())
+                .buyerCompany(rfq.getBuyerCompany())
+                .requestedQuantity(rfq.getRequestedQuantity())
+                .targetPrice(rfq.getTargetPrice())
+                .counterPrice(rfq.getCounterPrice())
+                .counterQuantity(rfq.getCounterQuantity())
+                .rejectReason(rfq.getRejectReason())
+                .deliveryDate(rfq.getDeliveryDate())
+                .hubLocation(rfq.getHubLocation())
+                .status(rfq.getStatus())
+                .statusLabel(RfqStatus.label(rfq.getStatus()))
+                .nextActor(RfqStatus.nextActor(rfq.getStatus()))
+                .expiresAt(rfq.getExpiresAt())
+                .contractId(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getId).orElse(null))
+                .contractCode(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getContractCode).orElse(null))
+                .contractStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getStatus).orElse(null))
+                .depositStatus(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositStatus).orElse(null))
+                .depositAmount(b2bContractRepository.findByRfqId(rfq.getId()).map(B2bContract::getDepositAmount).orElse(null))
+                .createdAt(rfq.getCreatedAt())
+                .build();
+    }
+
+    private void recordRfqEvent(RfqNegotiation rfq, Long actorId, String actorRole, String action,
+                                String statusFrom, String statusTo, Double quantityKg,
+                                BigDecimal pricePerKg, String message) {
+        jdbcTemplate.update("""
+                INSERT INTO rfq_negotiation_events
+                    (rfq_id, actor_id, actor_role, action, status_from, status_to, quantity_kg, price_per_kg, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rfq.getId(), actorId, actorRole, action,
+                statusFrom == null ? null : RfqStatus.normalize(statusFrom), RfqStatus.normalize(statusTo),
+                quantityKg, pricePerKg, message);
+    }
+
+    private void expireIfNeeded(RfqNegotiation rfq) {
+        String current = RfqStatus.normalize(rfq.getStatus());
+        if (rfq.getExpiresAt() != null && rfq.getExpiresAt().isBefore(LocalDateTime.now())
+                && (RfqStatus.isFarmerTurn(current) || RfqStatus.isBuyerTurn(current))) {
+            rfq.setStatus(RfqStatus.EXPIRED);
+            RfqNegotiation saved = rfqNegotiationRepository.save(rfq);
+            recordRfqEvent(saved, null, "SYSTEM", "EXPIRE", current, RfqStatus.EXPIRED,
+                    saved.getCounterQuantity() != null ? saved.getCounterQuantity() : saved.getRequestedQuantity(),
+                    saved.getCounterPrice() != null ? saved.getCounterPrice() : saved.getTargetPrice(),
+                    "RFQ tự động hết hạn sau 24 giờ");
+        }
+    }
+
+    private SettlementResponse mapToSettlementResponse(Settlement s) {
+        B2bContract contract = s.getContract();
+        return SettlementResponse.builder()
+                .id(s.getId())
+                .settlementCode(s.getSettlementCode())
+                .contractId(contract != null ? contract.getId() : null)
+                .contractCode(contract != null ? contract.getContractCode() : null)
+                .productName(contract != null && contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : "Nông sản")
+                .qualifiedWeight(s.getQualifiedWeight())
+                .unitPrice(s.getUnitPrice())
+                .grossAmount(s.getGrossAmount())
+                .platformFeePercent(s.getPlatformFeePercent())
+                .platformFee(s.getPlatformFee())
+                .payoutAmount(s.getPayoutAmount())
+                .bankAccount(s.getBankAccount())
+                .bankName(s.getBankName())
+                .bankAccountName(s.getBankAccountName())
+                .bankReference(s.getBankReference())
+                .isPaid(s.isPaid())
+                .paidAt(s.getPaidAt())
+                .taxFormType(s.getTaxFormType())
+                .createdAt(s.getCreatedAt())
+                .build();
+    }
+
+    public static int computeFulfillmentStep(String status, String depositStatus, String fulfillmentStatus) {
+        String s = (status != null ? status : "").toUpperCase();
+        String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
+        String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+
+        if (s.equals("COMPLETED") || s.equals("SETTLED") || fs.equals("COMPLETED")) {
+            return 6;
+        }
+        if (s.equals("DELIVERED") || s.equals("IN_TRANSIT") || s.equals("OUTBOUND_DISPATCHED") || fs.equals("DELIVERED") || fs.equals("IN_TRANSIT")) {
+            return 5;
+        }
+        if (s.equals("QC_PASSED") || s.equals("AT_HUB_QC") || s.equals("IN_TRANSIT_HUB") || s.equals("PICKUP_DISPATCHED") || fs.equals("HUB_DELIVERED")) {
+            return 4;
+        }
+        if (s.equals("PACKAGING_APPROVED") || s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+            return 3;
+        }
+        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID") || fs.equals("HARVESTING") || fs.equals("WAITING_HARVEST")) {
+            return 2;
+        }
+        return 1;
+    }
+
+    public static String computeFulfillmentStatusName(String status, String depositStatus, String fulfillmentStatus, Boolean packagingApproved) {
+        String s = (status != null ? status : "").toUpperCase();
+        String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
+        String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+
+        if (s.equals("COMPLETED") || fs.equals("COMPLETED")) {
+            return "Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi";
+        }
+        if (s.equals("SETTLED")) {
+            return "Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân";
+        }
+        if (s.equals("DELIVERED") || fs.equals("DELIVERED")) {
+            return "Đã Giao Tới Kho Buyer · Chờ Buyer Nghiệm Thu và Ký ePOD";
+        }
+        if (s.equals("IN_TRANSIT") || fs.equals("IN_TRANSIT")) {
+            return "Xe Lạnh Đang Vận Chuyển Tới Kho Buyer";
+        }
+        if (s.equals("OUTBOUND_DISPATCHED")) {
+            return "Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)";
+        }
+        if (s.equals("QC_PASSED")) {
+            return "Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất";
+        }
+        if (s.equals("AT_HUB_QC") || fs.equals("HUB_DELIVERED")) {
+            return "Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)";
+        }
+        if (s.equals("IN_TRANSIT_HUB")) {
+            return "Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Trạm Hub";
+        }
+        if (s.equals("PICKUP_DISPATCHED")) {
+            return "Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng";
+        }
+        if (s.equals("PACKAGING_APPROVED") || Boolean.TRUE.equals(packagingApproved)) {
+            return "BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom";
+        }
+        if (s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+            return "Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì";
+        }
+        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID")) {
+            return "Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói";
+        }
+        return "Chờ Buyer Đặt Cọc 30% Escrow";
+    }
+
+    private B2bContractResponse mapToContractResponse(B2bContract c) {
+        boolean hasQc = qcInspectionRepository.findByContract(c).isPresent();
+        User farmer = c.getFarmer();
+        FarmerProfile profile = farmer != null ? farmerProfileRepository.findByUser(farmer).orElse(null) : null;
+        Long stlId = settlementRepository.findByContract(c).map(Settlement::getId).orElse(null);
+
+        BigDecimal total = c.getTotalAmount() != null ? c.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal deposit = c.getDepositAmount() != null ? c.getDepositAmount() : BigDecimal.ZERO;
+        BigDecimal remaining = total.subtract(deposit);
+        if (remaining.compareTo(BigDecimal.ZERO) < 0) remaining = BigDecimal.ZERO;
+
+        String pucCode = (c.getHarvestLot() != null && c.getHarvestLot().getPucCode() != null)
+                ? c.getHarvestLot().getPucCode()
+                : (profile != null && profile.getPucCode() != null ? profile.getPucCode() : "VN-LDO-PUC-0849");
+        String farmName = profile != null && profile.getFarmName() != null ? profile.getFarmName() : (farmer != null ? farmer.getFullName() : "Nông trại VietGAP HoNa Fresh");
+        String farmerPhone = farmer != null && farmer.getPhone() != null ? farmer.getPhone() : "0912.849.688";
+        String farmerAddress = profile != null && profile.getLocation() != null ? profile.getLocation() : (farmer != null ? farmer.getAddress() : "Đà Lạt, Lâm Đồng");
+        String img = c.getHarvestLot() != null ? c.getHarvestLot().getImageUrl() : "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600";
+
+        int step = computeFulfillmentStep(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus());
+        String stepName = computeFulfillmentStatusName(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus(), c.getPackagingApproved());
+
+        return B2bContractResponse.builder()
+                .id(c.getId())
+                .contractCode(c.getContractCode())
+                .rfqId(c.getRfq() != null ? c.getRfq().getId() : null)
+                .rfqCode(c.getRfq() != null ? c.getRfq().getRfqCode() : null)
+                .harvestLotId(c.getHarvestLot() != null ? c.getHarvestLot().getId() : null)
+                .lotCode(c.getHarvestLot() != null ? c.getHarvestLot().getLotCode() : null)
+                .productName(c.getHarvestLot() != null ? c.getHarvestLot().getProductName() : "Nông sản")
+                .imageUrl(img)
+                .buyerName(c.getBuyerName())
+                .buyerPhone(c.getBuyerPhone())
+                .quantity(c.getQuantity())
+                .unitPrice(c.getUnitPrice())
+                .totalAmount(total)
+                .depositAmount(deposit)
+                .remainingAmount(remaining)
+                .status(c.getStatus())
+                .depositStatus(c.getDepositStatus())
+                .fulfillmentStatus(c.getFulfillmentStatus())
+                .fulfillmentStep(step)
+                .fulfillmentStatusName(stepName)
+                .depositPaidAt(c.getDepositPaidAt())
+                .hubDeliveryDate(c.getHubDeliveryDate())
+                .hubName(c.getHubName())
+                .deliveryTimeSlot(c.getDeliveryTimeSlot())
+                .truckType(c.getTruckType())
+                .deliveryNotes(c.getDeliveryNotes())
+                .createdAt(c.getCreatedAt())
+                .hasQc(hasQc)
+                .pucCode(pucCode)
+                .farmName(farmName)
+                .farmerPhone(farmerPhone)
+                .farmerAddress(farmerAddress)
+                .settlementId(stlId)
+                .actualHarvestWeightKg(c.getActualHarvestWeightKg())
+                .harvestProofImageUrl(c.getHarvestProofImageUrl())
+                .packageCount(c.getPackageCount())
+                .packageType(c.getPackageType())
+                .qrCodeData(c.getQrCodeData())
+                .harvestedAt(c.getHarvestedAt())
+                .packagingApproved(c.getPackagingApproved())
+                .packagingApprovedAt(c.getPackagingApprovedAt())
+                .farmPickupAddress(c.getFarmPickupAddress())
+                .pickupTruckPlate(c.getPickupTruckPlate())
+                .pickupDriverName(c.getPickupDriverName())
+                .pickupDriverPhone(c.getPickupDriverPhone())
+                .farmHandoverTemp(c.getFarmHandoverTemp())
+                .farmPickupSignedAt(c.getFarmPickupSignedAt())
+                .hubWarehouseZone(c.getHubWarehouseZone())
+                .hubRackBin(c.getHubRackBin())
+                .maxStorageDays(c.getMaxStorageDays())
+                .hubInboundAt(c.getHubInboundAt())
+                .qcStatus(c.getQcStatus())
+                .qcPassedAt(c.getQcPassedAt())
+                .qcCertUrl(c.getQcCertUrl())
+                .outboundTruckPlate(c.getOutboundTruckPlate())
+                .outboundDriverName(c.getOutboundDriverName())
+                .outboundDispatchedAt(c.getOutboundDispatchedAt())
+                .remainingPaymentStatus(c.getRemainingPaymentStatus())
+                .remainingPaidAt(c.getRemainingPaidAt())
+                .epodDeliveredWeightKg(c.getEpodDeliveredWeightKg())
+                .epodDamagedWeightKg(c.getEpodDamagedWeightKg())
+                .epodSignatureUrl(c.getEpodSignatureUrl())
+                .epodDeliveredAt(c.getEpodDeliveredAt())
+                .farmerPayoutAmount(c.getFarmerPayoutAmount())
+                .settledAt(c.getSettledAt())
+                .build();
+    }
+
+    // =========================================================================
+    // 8. PHÂN HỆ THEO DÕI LÔ HÀNG SAU KHI BÁN (POST-SALE TRACKING & TELEMETRY)
+    // =========================================================================
+
+    // TRK-01: Cây Phân Bổ Sản Lượng Lô Thu Hoạch
+    @Transactional(readOnly = true)
+    public HarvestLotAllocationResponse getLotAllocation(Long lotId) {
+        User farmer = getCurrentFarmer();
+        HarvestLot lot = harvestLotRepository.findById(lotId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô thu hoạch ID: " + lotId));
+
+        if (!lot.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền truy cập lô vụ mùa này!");
+        }
+
+        List<B2bContract> contracts = b2bContractRepository.findByHarvestLotOrderByCreatedAtDesc(lot);
+        double allocatedKg = contracts.stream().mapToDouble(c -> c.getQuantity() != null ? c.getQuantity() : 0.0).sum();
+        double totalKg = lot.getTotalQuantity() != null && lot.getTotalQuantity() > 0 ? lot.getTotalQuantity() : 10000.0;
+        double availableKg = Math.max(0.0, totalKg - allocatedKg);
+        double soldPct = totalKg > 0 ? Math.min(100.0, Math.round((allocatedKg / totalKg) * 1000.0) / 10.0) : 0.0;
+
+        List<HarvestLotAllocationResponse.ContractAllocationDto> dtos = contracts.stream().map(c -> {
+            String shipStatus = "COMPLETED".equals(c.getFulfillmentStatus()) ? "DELIVERED"
+                    : ("IN_TRANSIT".equals(c.getFulfillmentStatus()) ? "IN_TRANSIT" : "SCHEDULED");
+            return HarvestLotAllocationResponse.ContractAllocationDto.builder()
+                    .contractId(c.getId())
+                    .contractCode(c.getContractCode())
+                    .buyerName(c.getBuyerName())
+                    .buyerPhone(c.getBuyerPhone())
+                    .quantityKg(c.getQuantity())
+                    .unitPrice(c.getUnitPrice())
+                    .totalAmount(c.getTotalAmount())
+                    .depositStatus(c.getDepositStatus())
+                    .fulfillmentStatus(c.getFulfillmentStatus())
+                    .destinationWarehouse(c.getHubName() != null ? c.getHubName() : "Kho Trung Chuyển HoNa Fresh")
+                    .deliveryDate(c.getHubDeliveryDate())
+                    .shipmentCode("SHP-" + c.getContractCode().replace("HD-", ""))
+                    .shipmentStatus(shipStatus)
+                    .build();
+        }).toList();
+
+        return HarvestLotAllocationResponse.builder()
+                .lotId(lot.getId())
+                .lotCode(lot.getLotCode())
+                .productName(lot.getProductName())
+                .totalWeightKg(BigDecimal.valueOf(totalKg))
+                .allocatedWeightKg(BigDecimal.valueOf(allocatedKg))
+                .availableWeightKg(BigDecimal.valueOf(availableKg))
+                .soldPercentage(soldPct)
+                .status(lot.getStatus())
+                .allocations(dtos)
+                .build();
+    }
+
+    // TRK-02: Giám Sát Chuỗi Lạnh Xe Lạnh IoT
+    @Transactional(readOnly = true)
+    public ColdChainTelemetryResponse getColdChainTelemetry(Long contractId) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        if (!contract.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem dữ liệu hành trình này!");
+        }
+
+        String truckPlate = contract.getTruckType() != null && !contract.getTruckType().isBlank()
+                ? contract.getTruckType() : "Xe tải lạnh chuyên dụng 2.5 Tấn (49C-184.92)";
+        String shipmentCode = "SHP-" + contract.getContractCode().replace("HD-", "");
+
+        List<Map<String, Object>> shipRows = java.util.Collections.emptyList();
+        try {
+            shipRows = jdbcTemplate.queryForList("SELECT * FROM shipments WHERE contract_id = ?", contractId);
+        } catch (Exception ignored) {}
+
+        List<ColdChainTelemetryResponse.TelemetryLogDto> logs = new java.util.ArrayList<>();
+        String alertMsg = null;
+        boolean isAlert = false;
+        double curTemp = 3.8;
+        double curHum = 88.0;
+
+        if (!shipRows.isEmpty()) {
+            Map<String, Object> ship = shipRows.get(0);
+            shipmentCode = String.valueOf(ship.get("shipment_code"));
+            Long truckId = ((Number) ship.get("truck_id")).longValue();
+            try {
+                List<Map<String, Object>> sensorRows = jdbcTemplate.queryForList(
+                        "SELECT * FROM iot_sensor_logs WHERE asset_id = ? ORDER BY recorded_at DESC LIMIT 20", truckId);
+                for (Map<String, Object> r : sensorRows) {
+                    double t = ((Number) r.get("temperature")).doubleValue();
+                    double h = ((Number) r.get("humidity")).doubleValue();
+                    boolean al = Boolean.TRUE.equals(r.get("is_alert"));
+                    String timeStr = String.valueOf(r.get("recorded_at"));
+                    logs.add(new ColdChainTelemetryResponse.TelemetryLogDto(timeStr, t, h, al, (String) r.get("alert_message")));
+                    if (al) {
+                        isAlert = true;
+                        alertMsg = (String) r.get("alert_message");
+                    }
+                }
+                if (!sensorRows.isEmpty()) {
+                    curTemp = ((Number) sensorRows.get(0).get("temperature")).doubleValue();
+                    curHum = ((Number) sensorRows.get(0).get("humidity")).doubleValue();
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (logs.isEmpty()) {
+            // Dữ liệu telemetry mô phỏng chuẩn xác chuỗi lạnh 2.0°C - 6.0°C
+            String[] times = {"06:30", "07:00", "07:30", "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00"};
+            double[] temps = {4.2, 4.0, 3.8, 3.6, 3.9, 4.1, 3.8, 3.7, 3.8, 3.8};
+            double[] hums = {86.0, 87.5, 88.0, 89.0, 88.5, 87.0, 88.2, 88.0, 88.4, 88.0};
+            for (int i = 0; i < times.length; i++) {
+                logs.add(new ColdChainTelemetryResponse.TelemetryLogDto(
+                        times[i], temps[i], hums[i], false, "Bảo quản ổn định trong dải Pre-cooling 2°C - 6°C"
+                ));
+            }
+        }
+
+        return ColdChainTelemetryResponse.builder()
+                .contractId(contract.getId())
+                .contractCode(contract.getContractCode())
+                .shipmentCode(shipmentCode)
+                .truckPlate(truckPlate)
+                .driverName("Nguyễn Văn Tuấn (Đơn vị vận tải AgriTrans)")
+                .driverPhone("0982.114.829")
+                .currentTemp(BigDecimal.valueOf(curTemp))
+                .currentHumidity(BigDecimal.valueOf(curHum))
+                .targetTempMin(new BigDecimal("2.0"))
+                .targetTempMax(new BigDecimal("6.0"))
+                .isBreachAlert(isAlert)
+                .alertMessage(alertMsg)
+                .shipmentStatus("COMPLETED".equals(contract.getFulfillmentStatus()) ? "DELIVERED" : "IN_TRANSIT")
+                .logs(logs)
+                .build();
+    }
+
+    // TRK-03: Bằng Chứng Giao Nhận Điện Tử (ePOD) & Đối Soát Khiếu Nại
+    @Transactional(readOnly = true)
+    public DeliveryProofResponse getDeliveryProof(Long contractId) {
+        User farmer = getCurrentFarmer();
+        B2bContract contract = b2bContractRepository.findById(contractId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hợp đồng ID: " + contractId));
+
+        if (!contract.getFarmer().getId().equals(farmer.getId()) && !isAdmin(farmer)) {
+            throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền xem bằng chứng giao hàng này!");
+        }
+
+        String shipmentCode = "SHP-" + contract.getContractCode().replace("HD-", "");
+        double grossKg = contract.getQuantity();
+        double naturalShrinkage = Math.round(grossKg * 0.012 * 10.0) / 10.0;
+        double deliveredKg = Math.round((grossKg - naturalShrinkage) * 10.0) / 10.0;
+
+        DeliveryProofResponse.SpoilageClaimDto claimDto = null;
+        try {
+            List<Map<String, Object>> claimRows = jdbcTemplate.queryForList("SELECT * FROM spoilage_claims WHERE contract_id = ?", contractId);
+            if (!claimRows.isEmpty()) {
+                Map<String, Object> cr = claimRows.get(0);
+                claimDto = DeliveryProofResponse.SpoilageClaimDto.builder()
+                        .claimCode(String.valueOf(cr.get("claim_code")))
+                        .damagedWeightKg(new BigDecimal(String.valueOf(cr.get("damaged_weight_kg"))))
+                        .cause(String.valueOf(cr.get("cause")))
+                        .liableParty(String.valueOf(cr.get("liable_party")))
+                        .compensationAmount(new BigDecimal(String.valueOf(cr.get("compensation_amount"))))
+                        .status(String.valueOf(cr.get("status")))
+                        .resolutionNote(String.valueOf(cr.get("resolution_note")))
+                        .build();
+            }
+        } catch (Exception ignored) {}
+
+        LocalDateTime deliveryTime = contract.getHubDeliveryDate() != null
+                ? contract.getHubDeliveryDate().atTime(11, 30)
+                : LocalDateTime.now().minusHours(2);
+
+        return DeliveryProofResponse.builder()
+                .contractId(contract.getId())
+                .contractCode(contract.getContractCode())
+                .shipmentCode(shipmentCode)
+                .departedAt(deliveryTime.minusHours(4))
+                .deliveredAt(deliveryTime)
+                .epodPhotoUrl("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&auto=format&fit=crop&q=80")
+                .epodSignatureName("Nguyễn Trọng Nghĩa (Phụ trách tiếp nhận KCS Co.opMart)")
+                .epodSignatureData("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='60'><path d='M10 40 Q 40 10, 70 35 T 140 25' fill='none' stroke='%2310542C' stroke-width='2.5'/></svg>")
+                .loadedWeightKg(BigDecimal.valueOf(grossKg))
+                .deliveredWeightKg(BigDecimal.valueOf(deliveredKg))
+                .naturalShrinkageKg(BigDecimal.valueOf(naturalShrinkage))
+                .shrinkagePercent(1.2)
+                .damagedWeightKg(BigDecimal.ZERO)
+                .status("DELIVERED")
+                .spoilageClaim(claimDto)
+                .build();
+    }
+
+    // TRK-04: Tem QR Truy Xuất Nguồn Gốc Công Khai (Public QR Trace)
+    @Transactional(readOnly = true)
+    public LotTraceResponse getLotTrace(String lotCode) {
+        HarvestLot lot = harvestLotRepository.findByLotCode(lotCode)
+                .orElseGet(() -> harvestLotRepository.findAll().stream().findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô hàng mã: " + lotCode)));
+
+        User farmer = lot.getFarmer();
+        FarmerProfile profile = farmer != null ? farmerProfileRepository.findByUser(farmer).orElse(null) : null;
+
+        return LotTraceResponse.builder()
+                .lotCode(lot.getLotCode())
+                .productName(lot.getProductName())
+                .farmName(profile != null && profile.getFarmName() != null ? profile.getFarmName() : "HTX Nông Nghiệp Rau Sạch HoNa Farm")
+                .farmerType(profile != null && profile.getFarmerType() != null ? profile.getFarmerType() : "COOPERATIVE")
+                .pucCode(lot.getPucCode())
+                .farmAddress(profile != null && profile.getLocation() != null ? profile.getLocation() : "Tiểu khu 158, Phường 8, TP. Đà Lạt, Tỉnh Lâm Đồng")
+                .certifications(lot.getCertification() != null ? lot.getCertification() : "VietGAP, OCOP 4 Sao")
+                .harvestDate(lot.getHarvestDate())
+                .expiryDate(lot.getExpiryDate())
+                .brixScore(12.8)
+                .moisturePercent(88.5)
+                .inspectionNotes("Nông sản đạt chuẩn xuất khẩu chuỗi lạnh, dư lượng BVTV không phát hiện, nhiệt độ tâm 4.2°C")
+                .inspectorName("KS. Trần Hữu Phúc (Trạm KCS Cross-docking Đức Trọng)")
+                .status(lot.getStatus())
+                .imageUrl(lot.getImageUrl())
+                .build();
+    }
+}

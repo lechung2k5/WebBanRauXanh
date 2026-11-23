@@ -1,0 +1,699 @@
+'use client';
+
+import React, { useState, useEffect, Suspense } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
+import { ProductCard } from '@/components/ProductCard';
+import { ProductDetailModal } from '@/components/ProductDetailModal';
+import B2BNegotiationModal from '@/components/B2BNegotiationModal';
+import Pagination from '@/components/Pagination';
+import { Product } from '@/types';
+import { getProducts } from '@/services/api';
+import { trackProductView } from '@/services/recommendationService';
+import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
+import { REAL_FARMS_CATALOG, RealFarm } from '@/utils/realFarmDirectory';
+import {
+  Filter,
+  SlidersHorizontal,
+  ChevronRight,
+  Leaf,
+  Sparkles,
+  RotateCcw,
+  Search,
+  ArrowUpDown,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  ShieldCheck,
+  MapPin,
+  Phone,
+  Award,
+} from 'lucide-react';
+
+const normalizeCategory = (cat: string | null): string | null => {
+  if (!cat) return null;
+  const c = cat.toLowerCase().replace(/_/g, '-');
+  if (c === '1' || c === 'rau-sach' || c === 'rau-an-la') return 'rau-sach';
+  if (c === '2' || c === 'cu' || c === 'cu-qua-tuoi' || c === 'cu-qua') return 'cu';
+  if (c === '3' || c === 'nam-tuoi' || c === 'nam-tuoi-huu-co' || c === 'nam') return 'nam-tuoi';
+  if (c === '4' || c === 'combo' || c === 'rau-gia-vi' || c === 'rau-gia-vi-thao-moc' || c === 'gia-vi') return 'rau-gia-vi';
+  return cat;
+};
+
+function ProductListContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialCategory = normalizeCategory(searchParams.get('category'));
+  const initialSearch = searchParams.get('search') || '';
+
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSemanticResult, setIsSemanticResult] = useState(false);
+  const [appliedKeyword, setAppliedKeyword] = useState(initialSearch);
+  const [sidebarInput, setSidebarInput] = useState('');
+  const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(initialCategory);
+  const [priceRange, setPriceRange] = useState<number>(100000);
+  const [selectedCert, setSelectedCert] = useState<string | null>(null);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
+  const [activeFarmModal, setActiveFarmModal] = useState<RealFarm | null>(null);
+  const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc' | 'discount'>('default');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [negotiatingProduct, setNegotiatingProduct] = useState<Product | null>(null);
+  const [isWsConnected, setIsWsConnected] = useState(false);
+  const [realtimeNotice, setRealtimeNotice] = useState<string | null>(null);
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [totalProductPages, setTotalProductPages] = useState(1);
+
+  useEffect(() => {
+    setSelectedCategorySlug(normalizeCategory(searchParams.get('category')));
+    const searchParam = searchParams.get('search') || '';
+    setAppliedKeyword(searchParam);
+    setSidebarInput(''); // Reset ô nhập ở sidebar về trống
+  }, [searchParams]);
+
+  const fetchList = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getProducts({
+        keyword: appliedKeyword || undefined,
+        categorySlug: selectedCategorySlug || undefined,
+        maxPrice: priceRange < 100000 ? priceRange : undefined,
+        isOrganic: selectedCert === 'organic' ? true : undefined,
+        page: currentPage,
+        size: pageSize,
+      });
+      setProducts(res.products);
+      setTotalProducts(res.totalElements);
+      setTotalProductPages(Math.max(1, res.totalPages));
+      setIsSemanticResult(Boolean(res.isSemanticSearch));
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedKeyword, selectedCategorySlug, priceRange, selectedCert, currentPage, pageSize]);
+
+  useEffect(() => {
+    void fetchList();
+  }, [fetchList]);
+
+  const debouncedFetchList = React.useCallback((noticeMsg?: string) => {
+    if (noticeMsg) {
+      setRealtimeNotice(noticeMsg);
+      setTimeout(() => setRealtimeNotice(null), 5000);
+    }
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      void fetchList();
+    }, 300);
+  }, [fetchList]);
+
+  // Lắng nghe STOMP WebSocket và sự kiện đồng bộ B2B để cập nhật tức thì (KHÔNG POLLING)
+  useEffect(() => {
+    setIsWsConnected(b2bWebSocket.getConnected());
+    const unsubConn = b2bWebSocket.onConnectionChange((connected) => {
+      setIsWsConnected(connected);
+    });
+
+    // Lắng nghe sự kiện Lô nông sản qua STOMP /topic/lots
+    const unsubLots = b2bWebSocket.subscribeLots((data: any) => {
+      const action = data?.action;
+      const lot = data?.lot;
+      const lotName = lot?.productName || lot?.lotCode || 'lô hàng';
+      let msg = '';
+      if (action === 'LOT_STATUS_CHANGED' && lot?.status === 'OPEN') {
+        msg = `Lô nông sản mới "${lotName}" vừa được duyệt mở bán!`;
+      } else if (action === 'LOT_CREATED') {
+        msg = `Vừa có lô nông sản "${lotName}" được đưa lên sàn!`;
+      } else if (action === 'LOT_UPDATED') {
+        msg = `Lô "${lotName}" vừa cập nhật thông tin sản lượng/giá bán.`;
+      } else if (action === 'LOT_DELETED') {
+        msg = `Một lô hàng vừa được gỡ khỏi sàn.`;
+      }
+      debouncedFetchList(msg || undefined);
+    });
+
+    // Lắng nghe sự kiện Sản phẩm qua STOMP /topic/products
+    const unsubProducts = b2bWebSocket.subscribeProducts((data: any) => {
+      const action = data?.action;
+      const p = data?.product;
+      const pName = p?.name || 'sản phẩm';
+      let msg = '';
+      if (action === 'PRODUCT_CREATED') {
+        msg = `Sản phẩm mới "${pName}" vừa được thêm vào danh mục!`;
+      } else if (action === 'PRODUCT_UPDATED') {
+        msg = `Sản phẩm "${pName}" vừa được cập nhật giá/tồn kho.`;
+      } else if (action === 'PRODUCT_DELETED') {
+        msg = `Một sản phẩm vừa được gỡ khỏi danh mục.`;
+      }
+      debouncedFetchList(msg || undefined);
+    });
+
+    // Lắng nghe sự kiện đồng bộ đa tab/storage
+    const unsubSync = subscribeB2bSyncEvents((event) => {
+      if (
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'LOT_STATUS_CHANGED' ||
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED' ||
+        event.type === 'LOT_DELETED' ||
+        event.type === 'PRODUCT_CREATED' ||
+        event.type === 'PRODUCT_UPDATED' ||
+        event.type === 'PRODUCT_DELETED'
+      ) {
+        debouncedFetchList();
+      }
+    });
+
+    const handleStorage = () => debouncedFetchList();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('b2b_sync_event', handleStorage);
+    window.addEventListener('b2b_lot_updated', handleStorage);
+
+    return () => {
+      unsubConn();
+      unsubLots();
+      unsubProducts();
+      unsubSync();
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('b2b_sync_event', handleStorage);
+      window.removeEventListener('b2b_lot_updated', handleStorage);
+    };
+  }, [debouncedFetchList]);
+
+  // Apply sorting and farm filter
+  const filteredProducts = products.filter((p) => {
+    if (!selectedFarm) return true;
+    return (
+      p.farmName?.toLowerCase().includes(selectedFarm.toLowerCase()) ||
+      p.farmOwner?.toLowerCase().includes(selectedFarm.toLowerCase()) ||
+      p.farmLocation?.toLowerCase().includes(selectedFarm.toLowerCase())
+    );
+  });
+
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
+    if (sortBy === 'price-asc') return a.price - b.price;
+    if (sortBy === 'price-desc') return b.price - a.price;
+    if (sortBy === 'discount') return (b.discountPercent || 0) - (a.discountPercent || 0);
+    return 0;
+  });
+
+  const totalPages = totalProductPages;
+  const paginatedProducts = sortedProducts;
+
+  const formatVND = (price: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
+  };
+
+  const handleCategoryClick = (slug: string | null) => {
+    setSelectedCategorySlug(slug);
+    setCurrentPage(1);
+    if (slug) {
+      router.push(`/san-pham?category=${slug}`);
+    } else {
+      router.push('/san-pham');
+    }
+  };
+
+  const handleSidebarSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const term = sidebarInput.trim();
+    setSidebarInput(''); // Reset ô nhập ở sidebar về trống ngay lập tức
+    if (!term) return;
+    setAppliedKeyword(term);
+    setCurrentPage(1);
+    const catQuery = selectedCategorySlug ? `&category=${selectedCategorySlug}` : '';
+    router.push(`/san-pham?search=${encodeURIComponent(term)}${catQuery}`);
+  };
+
+  const handleResetFilters = () => {
+    setSelectedCategorySlug(null);
+    setAppliedKeyword('');
+    setSidebarInput('');
+    setPriceRange(100000);
+    setSelectedCert(null);
+    setSelectedStage(null);
+    setSelectedFarm(null);
+    setSortBy('default');
+    setCurrentPage(1);
+    router.push('/san-pham');
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F9F9F5] flex flex-col justify-between">
+      <Header />
+
+      <main className="max-w-[1240px] mx-auto px-4 py-6 w-full flex-1">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-xs text-[#6B7280] mb-6">
+          <Link href="/" className="hover:text-[#10542C]">Trang chủ</Link>
+          <ChevronRight className="w-3 h-3" />
+          <span className="text-[#10542C] font-bold">Sàn lô nông sản xuất vườn (B2B)</span>
+        </div>
+
+        {/* Header Title & Sắp Xếp */}
+        <div className="bg-white rounded-2xl p-6 border border-[#EAECE8] mb-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-heading text-2xl font-black text-[#10542C] flex items-center gap-2.5">
+                <Leaf className="w-6 h-6 text-[#8BC34A]" />
+                Sàn Giao Dịch Lô Nông Sản Số Lượng Lớn
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors ${
+                  isWsConnected
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+                title={isWsConnected ? 'Đã kết nối trực tiếp qua WebSocket STOMP (/topic/lots)' : 'Đang kết nối lại WebSocket...'}
+              >
+                <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+                {isWsConnected ? 'WebSocket Live' : 'Đang kết nối...'}
+              </span>
+            </div>
+            <p className="text-xs text-[#6B7280] mt-1">
+              {appliedKeyword && products.length === 0 ? (
+                <>Không có lô nông sản nào khớp với từ khóa: <strong className="text-[#E53935]">&ldquo;{appliedKeyword}&rdquo;</strong></>
+              ) : (
+                <>Tìm thấy <strong className="text-[#10542C]">{products.length}</strong> lô nông sản tận vườn từ các Hợp tác xã đạt chuẩn VietGAP & GlobalGAP</>
+              )}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-[#6B7280] flex items-center gap-1">
+              <ArrowUpDown className="w-3.5 h-3.5" /> Sắp xếp:
+            </span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs font-bold text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
+            >
+              <option value="default">Mới nhất theo vụ mùa</option>
+              <option value="price-asc">Giá sỉ: Thấp đến Cao</option>
+              <option value="price-desc">Giá sỉ: Cao đến Thấp</option>
+              <option value="discount">Chiết khấu lô cao nhất</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Banner thông báo thay đổi thời gian thực qua WebSocket */}
+        {realtimeNotice && (
+          <div className="mb-6 px-4 py-3 bg-emerald-50/90 border border-emerald-300 rounded-xl text-xs text-emerald-900 font-bold flex items-center justify-between shadow-xs transition-all">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 animate-spin" />
+              <span>{realtimeNotice}</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-semibold">
+              Đồng bộ tức thì qua WebSocket
+            </span>
+          </div>
+        )}
+
+        {/* Layout 2 cột: Sidebar Bộ Lọc (280px) & Grid Sản phẩm */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+          {/* Cột Bộ Lọc (Trái) */}
+          <aside className="bg-white rounded-2xl p-5 border border-[#EAECE8] shadow-xs space-y-6 lg:sticky lg:top-24">
+            <div className="flex items-center justify-between border-b border-[#F0F2ED] pb-3">
+              <span className="font-heading font-bold text-sm text-[#10542C] flex items-center gap-1.5">
+                <SlidersHorizontal className="w-4 h-4 text-[#8BC34A]" /> Bộ Lọc Thu Mua B2B
+              </span>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="text-[11px] text-[#E53935] hover:underline flex items-center gap-1 cursor-pointer font-bold"
+              >
+                <RotateCcw className="w-3 h-3" /> Đặt lại
+              </button>
+            </div>
+
+            {/* Tìm kiếm nhanh */}
+            <div>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tìm kiếm lô hàng / Vùng trồng</label>
+              <form onSubmit={handleSidebarSearchSubmit} className="relative flex items-center">
+                <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Ví dụ: bắp cải Đà Lạt, HTX Mộc Châu..."
+                  value={sidebarInput}
+                  onChange={(e) => setSidebarInput(e.target.value)}
+                  className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl pl-9 pr-14 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C] transition-all"
+                />
+                <button
+                  type="submit"
+                  className="absolute right-1.5 px-2.5 py-1 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                >
+                  Tìm
+                </button>
+              </form>
+            </div>
+
+            {/* Danh Mục */}
+            <div>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Ngành hàng nông sản</label>
+              <div className="space-y-1.5">
+                {[
+                  { name: 'Tất cả lô hàng xuất vườn', slug: null },
+                  { name: 'Rau ăn lá số lượng lớn', slug: 'rau-sach' },
+                  { name: 'Củ quả vụ mùa thu hái', slug: 'cu' },
+                  { name: 'Nấm & Dược liệu tươi', slug: 'nam-tuoi' },
+                ].map((cat) => (
+                  <button
+                    key={cat.name}
+                    type="button"
+                    onClick={() => handleCategoryClick(cat.slug)}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-between cursor-pointer ${
+                      selectedCategorySlug === cat.slug
+                        ? 'bg-[#10542C] text-white shadow-2xs'
+                        : 'text-[#6B7280] hover:bg-[#F4F5F1] hover:text-[#10542C]'
+                    }`}
+                  >
+                    <span>{cat.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tiến độ vụ mùa */}
+            <div>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tiến độ thu hái</label>
+              <div className="space-y-1 text-xs">
+                {[
+                  { label: 'Tất cả vụ mùa', val: null },
+                  { label: 'Đang thu hoạch rộ', val: 'Đang thu hoạch' },
+                  { label: 'Sắp thu hoạch (Đặt trước)', val: 'Sắp thu hoạch' },
+                  { label: 'Chào bán trước vụ', val: 'Chào bán trước vụ' },
+                ].map((st) => (
+                  <label key={st.label} className="flex items-center gap-2 cursor-pointer py-0.5">
+                    <input
+                      type="radio"
+                      name="stageFilter"
+                      checked={selectedStage === st.val}
+                      onChange={() => {
+                        setSelectedStage(st.val);
+                        setCurrentPage(1);
+                      }}
+                      className="accent-[#10542C]"
+                    />
+                    <span className={selectedStage === st.val ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
+                      {st.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Khoảng giá sỉ */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold text-[#2C3E2E]">Giá sỉ tối đa (đ/kg)</label>
+                <span className="text-xs font-black text-[#10542C]">{formatVND(priceRange)}</span>
+              </div>
+              <input
+                type="range"
+                min={5000}
+                max={100000}
+                step={5000}
+                value={priceRange}
+                onChange={(e) => {
+                  setPriceRange(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="w-full h-1.5 bg-[#E5E7EB] rounded-lg appearance-none cursor-pointer accent-[#10542C]"
+              />
+              <div className="flex justify-between text-[10px] text-[#6B7280] mt-1 font-semibold">
+                <span>5.000đ/kg</span>
+                <span>100.000đ+/kg</span>
+              </div>
+            </div>
+
+            {/* Chứng nhận */}
+            <div>
+              <label className="block text-xs font-bold text-[#2C3E2E] mb-2">Tiêu chuẩn kiểm định</label>
+              <div className="flex flex-col gap-2">
+                {[
+                  { label: 'Hữu cơ (Organic / PGS)', val: 'organic' },
+                  { label: 'Chuẩn VietGAP / GlobalGAP', val: 'vietgap' },
+                ].map((cert) => (
+                  <label
+                    key={cert.val}
+                    className="flex items-center gap-2 text-xs text-[#2C3E2E] cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="cert"
+                      checked={selectedCert === cert.val}
+                      onChange={() => {
+                        setSelectedCert(selectedCert === cert.val ? null : cert.val);
+                        setCurrentPage(1);
+                      }}
+                      className="accent-[#10542C]"
+                    />
+                    <span>{cert.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Nông Trại & HTX Đã Xác Thực */}
+            <div className="border-t border-[#F0F2ED] pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-[#2C3E2E] flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Nông trại &amp; HTX thật
+                </label>
+                {selectedFarm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFarm(null);
+                      setCurrentPage(1);
+                    }}
+                    className="text-[10px] text-emerald-700 hover:underline font-bold"
+                  >
+                    Tất cả
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                <label className="flex items-center gap-2 text-xs text-[#2C3E2E] cursor-pointer hover:bg-[#F9F9F5] p-1.5 rounded-lg transition-colors">
+                  <input
+                    type="radio"
+                    name="farmFilter"
+                    checked={selectedFarm === null}
+                    onChange={() => {
+                      setSelectedFarm(null);
+                      setCurrentPage(1);
+                    }}
+                    className="accent-[#10542C]"
+                  />
+                  <span className={selectedFarm === null ? 'font-bold text-[#10542C]' : 'text-[#6B7280]'}>
+                    Tất cả nông trại (100% Đã Kiểm Định)
+                  </span>
+                </label>
+                {REAL_FARMS_CATALOG.map((farm) => (
+                  <label
+                    key={farm.id}
+                    className="flex items-start gap-2 text-xs text-[#2C3E2E] cursor-pointer hover:bg-[#F9F9F5] p-1.5 rounded-lg transition-colors"
+                  >
+                    <input
+                      type="radio"
+                      name="farmFilter"
+                      checked={selectedFarm === farm.shortName || selectedFarm === farm.name}
+                      onChange={() => {
+                        setSelectedFarm(farm.shortName);
+                        setCurrentPage(1);
+                      }}
+                      className="accent-[#10542C] mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className={`truncate ${selectedFarm === farm.shortName ? 'font-bold text-[#10542C]' : 'text-[#2C3E2E]'}`}>
+                        {farm.shortName}
+                      </div>
+                      <div className="text-[10px] text-[#8C9587] flex items-center gap-1 mt-0.5">
+                        <MapPin className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                        <span className="truncate">{farm.province}</span>
+                        <span className="text-emerald-700 font-mono text-[9px] font-bold">[{farm.pucCode.slice(-4)}]</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          {/* Cột Danh Sách Sản Phẩm (Phải - 3 cột): 1 hàng 1 card trải rộng chiều ngang */}
+          <div className="lg:col-span-3 space-y-6">
+            {/* Trust Banner: Cam kết Nông Trại Thật & Vùng Trồng PUC Quốc Gia */}
+            <div className="bg-gradient-to-r from-[#10542C] via-[#176B38] to-[#0A3D1F] text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-emerald-800">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/20">
+                    <ShieldCheck className="w-6 h-6 text-[#9AE6B4]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-heading font-black text-sm sm:text-base text-white tracking-wide">
+                        100% Nông Sản Xuất Vườn Từ Nông Trại Thật &amp; HTX Đã Xác Thực
+                      </h3>
+                      <span className="inline-flex items-center gap-1 bg-[#E8F5E9] text-[#10542C] text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> PUC Quốc Gia
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-100/90 mt-1 leading-relaxed">
+                      Toàn bộ sản phẩm niêm yết trên sàn đều có mã số vùng trồng thực địa, chủ nông trại đại diện, chứng nhận VietGAP/GlobalGAP và được Kỹ sư trạm KCS kiểm định trước khi thương lái thanh toán.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-stretch md:self-auto justify-end">
+                  <span className="text-[11px] font-bold text-emerald-200 bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
+                    {REAL_FARMS_CATALOG.length} Vùng Trồng Trực Tiếp
+                  </span>
+                </div>
+              </div>
+            </div>
+            {(isSemanticResult || appliedKeyword) && !loading && products.length > 0 && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-emerald-950 flex items-center gap-2">
+                      <span>Gợi ý nguồn hàng phù hợp: Đã tìm thấy {products.length} lô nông sản cho &quot;{appliedKeyword}&quot;</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedKeyword('');
+                          setSidebarInput('');
+                          setCurrentPage(1);
+                          if (selectedCategorySlug) {
+                            router.push(`/san-pham?category=${selectedCategorySlug}`);
+                          } else {
+                            router.push('/san-pham');
+                          }
+                        }}
+                        className="text-[11px] bg-white border border-emerald-300 hover:border-red-400 text-emerald-800 hover:text-red-600 px-2.5 py-0.5 rounded-full font-bold cursor-pointer transition-colors ml-1"
+                        title="Xóa lọc từ khóa"
+                      >
+                        ✕ Xóa lọc
+                      </button>
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 mt-0.5">
+                      Hệ thống tự động kết nối các nông trại &amp; HTX có nguồn cung đáp ứng từ khóa tìm kiếm của bạn.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="flex flex-col gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="bg-white rounded-2xl p-4 border border-[#EAECE8] flex flex-col md:flex-row gap-4 animate-pulse">
+                    <div className="w-full md:w-64 h-48 bg-gray-100 rounded-xl shrink-0" />
+                    <div className="flex-1 space-y-3 py-2">
+                      <div className="h-4 bg-gray-100 rounded w-1/3" />
+                      <div className="h-6 bg-gray-100 rounded w-2/3" />
+                      <div className="h-4 bg-gray-100 rounded w-1/2" />
+                      <div className="h-3 bg-gray-100 rounded w-full" />
+                    </div>
+                    <div className="w-full md:w-60 bg-gray-50 rounded-xl p-3 space-y-3 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            ) : paginatedProducts.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center border border-[#EAECE8] space-y-3">
+                <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 mx-auto">
+                  <Leaf className="w-7 h-7 opacity-70" />
+                </div>
+                <h3 className="font-heading font-bold text-base text-[#2C3E2E]">Không tìm thấy lô hàng phù hợp</h3>
+                <p className="text-xs text-[#6B7280] max-w-md mx-auto">
+                  {appliedKeyword
+                    ? `Không tìm thấy lô nông sản nào khớp với từ khóa "${appliedKeyword}". Bạn vui lòng thử tìm với tên rau củ, vùng trồng hoặc món ăn (ví dụ: bắp cải, cà chua, nấm tươi, Đà Lạt, canh chua...).`
+                    : 'Hãy thử xóa bớt bộ lọc hoặc tìm với từ khóa khác.'}
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="px-5 py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                  >
+                    Xem tất cả lô hàng
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Layout 1 hàng 1 lô nông sản - card chiều ngang to ra */}
+                <div id="product-list-container" className="grid lg:grid-cols-2 gap-5">
+                  {paginatedProducts.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      layout="grid"
+                      onViewDetail={(p) => {
+                        trackProductView(p);
+                        setSelectedProduct(p);
+                      }}
+                      onNegotiate={(p) => setNegotiatingProduct(p)}
+                    />
+                  ))}
+                </div>
+
+                {/* Phân trang thông minh */}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={totalProducts}
+                  pageSize={pageSize}
+                  onPageChange={(page) => setCurrentPage(page)}
+                  scrollTargetId="product-list-container"
+                />
+              </>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* Product Detail Modal */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={!!selectedProduct}
+        onClose={() => setSelectedProduct(null)}
+        onOpenNegotiation={(p: Product) => setNegotiatingProduct(p)}
+      />
+
+      {/* B2B RFQ Negotiation Modal */}
+      <B2BNegotiationModal
+        product={negotiatingProduct}
+        isOpen={!!negotiatingProduct}
+        onClose={() => setNegotiatingProduct(null)}
+      />
+
+      <Footer />
+    </div>
+  );
+}
+
+export default function ProductListPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#F9F9F5] flex items-center justify-center">Đang tải...</div>}>
+      <ProductListContent />
+    </Suspense>
+  );
+}
