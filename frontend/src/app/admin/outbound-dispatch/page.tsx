@@ -54,6 +54,7 @@ import {
   DEFAULT_OFFICIAL_HUBS,
 } from '@/services/fleetDispatchApi';
 import { b2bWebSocket } from '@/services/websocketService';
+import { api } from '@/services/auth';
 
 export default function AdminOutboundDispatchPage() {
   const [hubs] = useState<WarehouseHubDto[]>(DEFAULT_OFFICIAL_HUBS);
@@ -65,6 +66,8 @@ export default function AdminOutboundDispatchPage() {
   const [completedDeliveries, setCompletedDeliveries] = useState<OutboundDeliveryStopDto[]>([]);
   const [vehicles, setVehicles] = useState<FleetVehicleDto[]>([]);
   const [drivers, setDrivers] = useState<FleetDriverDto[]>([]);
+  const [coldAssets, setColdAssets] = useState<any[]>([]);
+  const [coldAlerts, setColdAlerts] = useState<any[]>([]);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -113,12 +116,14 @@ export default function AdminOutboundDispatchPage() {
     try {
       setLoading(true);
       setError(null);
-      const [eligibleRes, tripsRes, vehRes, drvRes, completedRes] = await Promise.all([
+      const [eligibleRes, tripsRes, vehRes, drvRes, completedRes, coldAssetRes, coldAlertRes] = await Promise.all([
         fleetDispatchApi.getEligibleOutboundContracts(selectedHubId),
         fleetDispatchApi.getOutboundTrips(selectedHubId),
         fleetDispatchApi.getVehicles(selectedHubId, 'AVAILABLE'),
         fleetDispatchApi.getDrivers(selectedHubId, 'AVAILABLE'),
         fleetDispatchApi.getCompletedDeliveries(selectedHubId).catch(() => []),
+        api<any[]>('admin/cold-assets').catch(() => []),
+        api<any[]>('admin/iot/alerts').catch(() => []),
       ]);
 
       setEligibleContracts(Array.isArray(eligibleRes) ? eligibleRes : []);
@@ -126,6 +131,8 @@ export default function AdminOutboundDispatchPage() {
       setVehicles(Array.isArray(vehRes) ? vehRes : []);
       setDrivers(Array.isArray(drvRes) ? drvRes : []);
       setCompletedDeliveries(Array.isArray(completedRes) ? completedRes : []);
+      setColdAssets(Array.isArray(coldAssetRes) ? coldAssetRes : []);
+      setColdAlerts(Array.isArray(coldAlertRes) ? coldAlertRes : []);
       setSelectedContractIds([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được dữ liệu điều phối Outbound');
@@ -141,6 +148,43 @@ export default function AdminOutboundDispatchPage() {
     });
     return () => unsub();
   }, [loadData]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      Promise.all([
+        api<any[]>('admin/cold-assets').catch(() => []),
+        api<any[]>('admin/iot/alerts').catch(() => []),
+      ]).then(([assets, alerts]) => {
+        setColdAssets(Array.isArray(assets) ? assets : []);
+        setColdAlerts(Array.isArray(alerts) ? alerts : []);
+      });
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const handleAcknowledgeAlert = async (alertId: number) => {
+    const note = window.prompt('Ghi chú tiếp nhận cảnh báo:', 'Đã liên hệ tài xế và kiểm tra hệ thống làm lạnh.');
+    if (note === null) return;
+    try {
+      await api(`admin/iot/alerts/${alertId}/acknowledge`, 'POST', { note });
+      setSuccessMsg('Đã ghi nhận người tiếp nhận và thời điểm xử lý cảnh báo.');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tiếp nhận cảnh báo');
+    }
+  };
+
+  const handleResolveAlert = async (alertId: number) => {
+    const note = window.prompt('Mô tả biện pháp khắc phục:', 'Đã phục hồi máy lạnh, nhiệt độ trở lại ngưỡng 2°C - 6°C.');
+    if (note === null) return;
+    try {
+      await api(`admin/iot/alerts/${alertId}/resolve`, 'POST', { note });
+      setSuccessMsg('Đã đóng cảnh báo và lưu lịch sử khắc phục.');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đóng cảnh báo');
+    }
+  };
 
   // Hợp đồng được chọn để gom chuyến
   const selectedContracts = useMemo(
@@ -439,13 +483,13 @@ export default function AdminOutboundDispatchPage() {
           <div>
             <div className="flex items-center gap-2 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-1">
               <Truck className="w-4 h-4 text-emerald-300 animate-pulse" />
-              <span>Outbound Multi-drop Delivery & Cross-docking</span>
+              <span>Điều phối · Chuỗi lạnh · ePOD · Thanh toán</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-heading font-black tracking-tight text-white flex items-center gap-3">
-              <Navigation className="w-7 h-7 text-[#8BC34A]" /> Điều Phối Giao Hàng Cho Thương Lái (Outbound)
+              <Navigation className="w-7 h-7 text-[#8BC34A]" /> Điều Phối Giao Buyer & Hoàn Tất Đơn Hàng
             </h1>
             <p className="text-xs text-white/80 mt-1 max-w-2xl">
-              Gom chuyến đa điểm (Multi-drop) từ các lô hàng đã kiểm định đạt chuẩn QC tại kho lạnh FEFO lên xe tải lạnh chuyên dụng, phân công tài xế và khởi tạo lộ trình giao hàng đến kho Buyer (Quy tắc MULTI & ONCE).
+              Theo dõi tập trung từ lúc lô đạt QC và xuất kho, vận chuyển chuỗi lạnh, bàn giao ePOD, Buyer ký nhận đến khi thanh toán và quyết toán hoàn tất.
             </p>
           </div>
 
@@ -480,6 +524,126 @@ export default function AdminOutboundDispatchPage() {
           </div>
         </div>
       </div>
+
+      {/* Trung tâm giám sát hợp nhất: thay thế hai module IoT và Phiếu giao hàng cũ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Đang điều phối / vận chuyển</p>
+          <p className="mt-1 text-2xl font-black text-blue-900">
+            {trips.filter((trip) => ['ASSIGNED', 'ON_DELIVERY'].includes(trip.status)).length}
+          </p>
+          <p className="text-[11px] text-blue-700">chuyến cần theo dõi liên tục</p>
+        </div>
+        <div className={`rounded-2xl border p-4 ${coldAssets.some((asset) => asset.status === 'TEMP_WARNING' || Number(asset.current_temp) < 2 || Number(asset.current_temp) > 6) ? 'border-rose-300 bg-rose-50' : 'border-emerald-200 bg-emerald-50/70'}`}>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Cảm biến chuỗi lạnh</p>
+          <p className="mt-1 text-2xl font-black text-slate-900">
+            {coldAssets.filter((asset) => asset.asset_type === 'REFRIGERATED_TRUCK').length}
+          </p>
+          <p className="text-[11px] text-slate-600">
+            {coldAssets.some((asset) => asset.status === 'TEMP_WARNING' || Number(asset.current_temp) < 2 || Number(asset.current_temp) > 6)
+              ? 'Có thiết bị vượt ngưỡng 2°C - 6°C'
+              : 'Tự động làm mới mỗi 10 giây'}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Chờ bàn giao / ký ePOD</p>
+          <p className="mt-1 text-2xl font-black text-amber-900">
+            {trips.flatMap((trip) => trip.stops || []).filter((stop) => ['ARRIVED', 'PENDING_BUYER_CONFIRMATION'].includes(stop.status)).length}
+          </p>
+          <p className="text-[11px] text-amber-700">điểm giao cần xử lý</p>
+        </div>
+        <div className="rounded-2xl border border-violet-200 bg-violet-50/70 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Chờ thanh toán cuối</p>
+          <p className="mt-1 text-2xl font-black text-violet-900">
+            {completedDeliveries.filter((stop) => stop.contract?.status !== 'SETTLED').length}
+          </p>
+          <p className="text-[11px] text-violet-700">đơn đã nhận nhưng chưa quyết toán</p>
+        </div>
+      </div>
+
+      {coldAssets.filter((asset) => asset.asset_type === 'REFRIGERATED_TRUCK').length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <Thermometer className="w-4 h-4 text-[#10542C]" />
+              <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">Giám sát nhiệt độ xe lạnh đang phục vụ giao Buyer</h2>
+            </div>
+            <span className="text-[10px] text-slate-500">Ngưỡng an toàn 2°C - 6°C</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {coldAssets.filter((asset) => asset.asset_type === 'REFRIGERATED_TRUCK').map((asset) => {
+              const temperature = Number(asset.current_temp || 0);
+              const warning = asset.status === 'TEMP_WARNING' || temperature < 2 || temperature > 6;
+              return (
+                <div key={asset.id} className={`min-w-56 rounded-xl border px-3 py-2.5 ${warning ? 'border-rose-300 bg-rose-50' : 'border-emerald-200 bg-emerald-50/50'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] font-bold text-slate-800">{asset.asset_code}</span>
+                    <span className={`text-[10px] font-bold ${warning ? 'text-rose-700' : 'text-emerald-700'}`}>{warning ? 'CẢNH BÁO' : 'AN TOÀN'}</span>
+                  </div>
+                  <p className={`mt-1 text-lg font-black ${warning ? 'text-rose-700' : 'text-emerald-800'}`}>{temperature.toFixed(1)}°C</p>
+                  <p className="text-[10px] text-slate-500">Độ ẩm {Number(asset.current_humidity || 0).toFixed(0)}% · {asset.asset_name}</p>
+                  <div className="flex gap-1.5 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => void api('admin/iot/inject-fault', 'POST', { assetId: asset.id, mode: 'TEMP_SPIKE' }).then(loadData).catch((err) => setError(err instanceof Error ? err.message : 'Không tạo được cảnh báo thử'))}
+                      className="px-2 py-1 rounded-md border border-rose-200 bg-white text-rose-700 text-[10px] font-bold"
+                    >
+                      Kiểm thử cảnh báo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void api('admin/iot/reset-fault', 'POST', { assetId: asset.id }).then(loadData).catch((err) => setError(err instanceof Error ? err.message : 'Không phục hồi được cảm biến'))}
+                      className="px-2 py-1 rounded-md border border-emerald-200 bg-white text-emerald-700 text-[10px] font-bold"
+                    >
+                      Phục hồi
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {coldAlerts.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">Nhật ký xử lý cảnh báo chuỗi lạnh</h2>
+              <p className="text-[11px] text-slate-500">Lưu người tiếp nhận, thời gian và biện pháp khắc phục; cảnh báo chỉ đóng khi thiết bị đã về ngưỡng an toàn.</p>
+            </div>
+            <span className="text-[11px] font-bold text-rose-700">{coldAlerts.filter((alert) => alert.status !== 'RESOLVED').length} cảnh báo chưa đóng</span>
+          </div>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {coldAlerts.slice(0, 20).map((alert) => (
+              <div key={alert.id} className={`rounded-xl border p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${alert.status === 'RESOLVED' ? 'border-slate-200 bg-slate-50' : alert.status === 'ACKNOWLEDGED' ? 'border-amber-200 bg-amber-50/60' : 'border-rose-300 bg-rose-50/70'}`}>
+                <div className="min-w-0 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-bold text-slate-900">{alert.asset_code}</span>
+                    <span className="font-mono text-[10px] text-slate-500">{alert.contract_code || 'Chưa gắn hợp đồng'}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${alert.status === 'RESOLVED' ? 'bg-slate-200 text-slate-700' : alert.status === 'ACKNOWLEDGED' ? 'bg-amber-200 text-amber-900' : 'bg-rose-200 text-rose-900'}`}>{alert.status}</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 mt-1">{alert.alert_message}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Tạo lúc {alert.created_at ? new Date(alert.created_at).toLocaleString('vi-VN') : '—'}
+                    {alert.acknowledged_by_name ? ` · Tiếp nhận: ${alert.acknowledged_by_name}` : ''}
+                    {alert.resolved_by_name ? ` · Khắc phục: ${alert.resolved_by_name}` : ''}
+                  </p>
+                  {(alert.acknowledge_note || alert.resolution_note) && <p className="text-[11px] text-slate-600 mt-1">{alert.resolution_note || alert.acknowledge_note}</p>}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  {alert.status === 'OPEN' && (
+                    <button type="button" onClick={() => void handleAcknowledgeAlert(Number(alert.id))} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[11px] font-bold">Tiếp nhận</button>
+                  )}
+                  {alert.status !== 'RESOLVED' && (
+                    <button type="button" onClick={() => void handleResolveAlert(Number(alert.id))} className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-[11px] font-bold">Xác nhận khắc phục</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 2. THANH CHỌN TRẠM TRUNG CHUYỂN (5 HUB CHÍNH THỨC) */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-3">
@@ -773,7 +937,7 @@ export default function AdminOutboundDispatchPage() {
             }`}
           >
             <Boxes className="w-4 h-4" />
-            <span>Hàng Sẵn Sàng Giao ({eligibleContracts.length})</span>
+            <span>Chờ Xuất Kho ({eligibleContracts.length})</span>
           </button>
 
           <button
@@ -785,7 +949,7 @@ export default function AdminOutboundDispatchPage() {
             }`}
           >
             <Route className="w-4 h-4" />
-            <span>Chuyến Xe Outbound ({trips.length})</span>
+            <span>Giám Sát Giao & Chuỗi Lạnh ({trips.length})</span>
           </button>
 
           <button
@@ -797,7 +961,7 @@ export default function AdminOutboundDispatchPage() {
             }`}
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>Đơn Đã Ký Nhận Hoàn Tất ({completedDeliveries.length})</span>
+            <span>Đã Nhận & Thanh Toán ({completedDeliveries.length})</span>
           </button>
         </div>
 
@@ -1190,15 +1354,10 @@ export default function AdminOutboundDispatchPage() {
 
                         <div className="flex items-center gap-2">
                           {trip.status === 'ASSIGNED' && (
-                            <button
-                              type="button"
-                              disabled={submitting}
-                              onClick={() => handleDepartTrip(trip.id)}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold transition cursor-pointer shadow-xs"
-                            >
+                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 text-xs font-bold">
                               <Truck className="w-3.5 h-3.5" />
-                              <span>Xuất Bến Khởi Hành</span>
-                            </button>
+                              <span>Chờ tài xế xác nhận xuất bến</span>
+                            </span>
                           )}
 
                           {canCancel && (
@@ -1276,11 +1435,6 @@ export default function AdminOutboundDispatchPage() {
                               const isStopArrived = stop.status === 'ARRIVED';
                               const isStopAssigned = stop.status === 'ASSIGNED' || stop.status === 'PLANNED';
 
-                              const canArrive = (trip.status === 'ON_DELIVERY' || trip.status === 'ASSIGNED') && isStopAssigned;
-                              const canSubmitDriverEpod = isStopArrived;
-                              const canBuyerConfirm = isStopPendingBuyer;
-                              const canSettle = isStopConfirmed && !isContractSettled;
-
                               return (
                                 <div
                                   key={stop.id}
@@ -1347,59 +1501,11 @@ export default function AdminOutboundDispatchPage() {
                                     </div>
                                   </div>
 
-                                  {/* CÁC NÚT THAO TÁC THEO QUY TRÌNH (BƯỚC 1 -> BƯỚC 4) */}
+                                  {/* Admin chỉ giám sát; thao tác nghiệp vụ thuộc đúng cổng Driver/Buyer. */}
                                   <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60">
-                                    {/* Bước 1: Nút Đã tới địa điểm của điểm dừng */}
-                                    {canArrive && (
-                                      <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => handleArriveStop(stop.id)}
-                                        className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                                      >
-                                        <MapPin className="w-3.5 h-3.5" />
-                                        <span>Đã Tới Địa Điểm Của Điểm Dừng</span>
-                                      </button>
-                                    )}
-
-                                    {/* Bước 2: Tài xế lập biên bản bàn giao ePOD */}
-                                    {canSubmitDriverEpod && (
-                                      <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => openDriverEpodModal(stop)}
-                                        className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                                      >
-                                        <PenTool className="w-3.5 h-3.5" />
-                                        <span>Tài Xế Bàn Giao ePOD</span>
-                                      </button>
-                                    )}
-
-                                    {/* Bước 3: Buyer xác nhận & ký nhận hàng */}
-                                    {canBuyerConfirm && (
-                                      <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => openBuyerConfirmModal(stop)}
-                                        className="px-3.5 py-1.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                                      >
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>Buyer Kiểm Đếm & Ký Nhận Hàng</span>
-                                      </button>
-                                    )}
-
-                                    {/* Bước 4: Thanh toán nốt tiền còn lại & Xong đơn */}
-                                    {canSettle && (
-                                      <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => openSettlementModal(stop.contractId || 17)}
-                                        className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                                      >
-                                        <CreditCard className="w-3.5 h-3.5" />
-                                        <span>Thanh Toán Nốt 70% & Hoàn Tất Đơn</span>
-                                      </button>
-                                    )}
+                                    <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs">
+                                      {isStopAssigned || isStopArrived ? 'Thao tác tiếp theo: Tài xế thực hiện tại Portal Tài xế' : isStopPendingBuyer ? 'Thao tác tiếp theo: Buyer ký nhận tại Portal Buyer' : isStopConfirmed && !isContractSettled ? 'Thao tác tiếp theo: Buyer thanh toán phần còn lại' : 'Admin đang giám sát trạng thái'}
+                                    </span>
 
                                     {/* Trạng thái đã quyết toán 100% */}
                                     {isContractSettled && (

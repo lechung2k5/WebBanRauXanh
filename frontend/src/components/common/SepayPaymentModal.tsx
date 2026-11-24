@@ -168,7 +168,10 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
                 Thanh Toán Thành Công!
               </h3>
               <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                Hệ thống đã tự động xác nhận số tiền chuyển khoản <strong>{formatVND(amount)}</strong>. Đơn hàng của bạn đang được chuẩn bị để giao trong thời gian sớm nhất.
+                Hệ thống đã xác nhận số tiền chuyển khoản <strong>{formatVND(amount)}</strong>.{' '}
+                {type === 'FINAL_PAYMENT'
+                  ? 'Hợp đồng đã hoàn tất thanh toán và được chuyển sang trạng thái quyết toán.'
+                  : 'Đơn hàng của bạn đang được xử lý theo tiến độ giao dịch.'}
               </p>
             </div>
 
@@ -192,7 +195,11 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
                 <span>Thanh Toán Chuyển Khoản Tự Động</span>
               </div>
               <h3 className="font-heading font-black text-xl text-[#10542C]">
-                {title || (type === 'ORDER' ? 'Quét Mã VietQR Thanh Toán Đơn Hàng' : 'Quét Mã VietQR Nộp Cọc Hợp Đồng')}
+                {title || (type === 'ORDER'
+                  ? 'Quét Mã VietQR Thanh Toán Đơn Hàng'
+                  : type === 'FINAL_PAYMENT'
+                    ? 'Quét Mã VietQR Thanh Toán Phần Còn Lại'
+                    : 'Quét Mã VietQR Nộp Cọc Hợp Đồng')}
               </h3>
               <p className="text-xs text-slate-500">
                 Mở ứng dụng ngân hàng bất kỳ để quét mã và chuyển tiền tự động

@@ -6,6 +6,7 @@ import com.btl.webbanrau.dto.request.BuyerEpodRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
+import com.btl.webbanrau.dto.request.BuyerClaimRequest;
 import com.btl.webbanrau.dto.request.BuyerProfileRequest;
 import com.btl.webbanrau.dto.response.BuyerProfileResponse;
 import com.btl.webbanrau.dto.response.OrderResponse;
@@ -36,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -374,6 +376,7 @@ public class BuyerWorkflowService {
         List<Map<String, Object>> list = db.queryForList("""
                 SELECT c.id, c.contract_code, c.status, c.deposit_status, c.fulfillment_status, c.total_goods_amount, c.deposit_30_amount,
                        c.deposit_received, c.balance_received, c.refund_amount, c.delivery_address,
+                       c.remaining_amount, c.remaining_payment_status, c.remaining_paid_at, c.settled_at,
                        c.offered_weight_kg, c.offered_price_per_kg, c.created_at, c.lot_id,
                        c.packaging_approved, c.packaging_approved_at, c.actual_harvest_weight_kg,
                        c.harvest_proof_image_url, c.package_count, c.package_type, c.qr_code_data,
@@ -485,6 +488,10 @@ public class BuyerWorkflowService {
     @Transactional(readOnly = true)
     public Map<String, Object> finalPaymentQr(Long contractId) {
         Map<String, Object> contract = ownedContract(contractId);
+        String status = Objects.toString(contract.get("status"), "");
+        if (!Set.of("DELIVERED", "SETTLED").contains(status)) {
+            throw new AuthException(409, "DELIVERY_NOT_CONFIRMED", "Chỉ được thanh toán phần còn lại sau khi Buyer đã kiểm hàng và ký nhận ePOD.");
+        }
         Map<String, Object> quote = business.settlementQuote(contractId);
         Map<String, Object> result = new LinkedHashMap<>(quote);
         result.put("contractId", contractId);
@@ -492,19 +499,95 @@ public class BuyerWorkflowService {
         result.put("bank", "MB Bank");
         result.put("accountNumber", "0987654321");
         result.put("transferContent", "TT70 " + contract.get("contract_code"));
+        BigDecimal amount = status.equals("SETTLED") ? BigDecimal.ZERO : (BigDecimal) quote.get("balanceDue");
+        result.put("remainingAmount", amount);
+        result.put("qrUrl", "https://img.vietqr.io/image/MB-0987654321-compact2.png?amount="
+                + amount.toBigInteger() + "&addInfo=TT70%20" + contract.get("contract_code"));
         return result;
     }
 
     @Transactional
     public Map<String, Object> confirmFinalPayment(Long contractId) {
         Map<String, Object> contract = ownedContract(contractId);
-        ObjectNode request = objectMapper.createObjectNode()
-                .put("status", "DELIVERED")
-                .put("reference", "BAL-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase());
-        business.transition(contractId, request);
+        String status = Objects.toString(contract.get("status"), "");
+        if ("SETTLED".equals(status)) {
+            return contract;
+        }
+        if (!"DELIVERED".equals(status)) {
+            throw new AuthException(409, "DELIVERY_NOT_CONFIRMED", "Bạn cần kiểm hàng và ký nhận ePOD trước khi thanh toán 70% còn lại.");
+        }
+        Integer openClaims = db.queryForObject(
+                "select count(*) from spoilage_claims where contract_id=? and status='OPEN'",
+                Integer.class, contractId);
+        if (openClaims != null && openClaims > 0) {
+            throw new AuthException(409, "OPEN_CLAIM", "Hợp đồng đang có khiếu nại mở; chỉ được thanh toán sau khi Admin xử lý xong.");
+        }
+
+        String paymentStatus = Objects.toString(contract.get("remaining_payment_status"), "UNPAID");
+        if (!"PAID".equals(paymentStatus)) {
+            ObjectNode paymentRequest = objectMapper.createObjectNode()
+                    .put("status", "DELIVERED")
+                    .put("reference", "BAL-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase());
+            business.transition(contractId, paymentRequest);
+            db.update("UPDATE b2b_contracts SET remaining_paid_at=CURRENT_TIMESTAMP WHERE id=?", contractId);
+        }
+
+        ObjectNode settlementRequest = objectMapper.createObjectNode()
+                .put("status", "SETTLED")
+                .put("reference", "SET-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase())
+                .put("bankTransferRef", "BAL-" + UUID.randomUUID().toString().substring(0, 10).toUpperCase());
+        business.transition(contractId, settlementRequest);
         Map<String, Object> updated = ownedContract(contractId);
-        b2bRealtimeService.notifyContractUpdated("FINAL_PAID", (String) updated.get("contract_code"), updated);
+        b2bRealtimeService.notifyContractUpdated("SETTLED", (String) updated.get("contract_code"), updated);
         return updated;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> claims() {
+        User buyer = currentBuyer();
+        return db.queryForList("""
+                SELECT cl.*, c.contract_code, l.product_name,
+                       c.status AS contract_status, c.delivery_address
+                FROM spoilage_claims cl
+                JOIN b2b_contracts c ON c.id=cl.contract_id
+                LEFT JOIN harvest_lots l ON l.id=c.lot_id
+                WHERE c.buyer_id=?
+                ORDER BY cl.id DESC
+                """, buyer.getId());
+    }
+
+    @Transactional
+    public Map<String, Object> createClaim(BuyerClaimRequest request) {
+        Map<String, Object> contract = ownedContract(request.getContractId());
+        String status = Objects.toString(contract.get("status"), "");
+        if (!Set.of("IN_TRANSIT", "DELIVERED").contains(status)) {
+            throw new AuthException(409, "CLAIM_NOT_ALLOWED", "Chỉ được gửi khiếu nại khi hàng đang giao hoặc sau khi đã nhận hàng.");
+        }
+        BigDecimal maxWeight = decimal(contract, "offered_weight_kg");
+        if (request.getDamagedWeightKg().compareTo(maxWeight) > 0) {
+            throw new AuthException(400, "INVALID_CLAIM_WEIGHT", "Khối lượng khiếu nại không được lớn hơn khối lượng hợp đồng.");
+        }
+        Integer openClaims = db.queryForObject(
+                "select count(*) from spoilage_claims where contract_id=? and status='OPEN'",
+                Integer.class, request.getContractId());
+        if (openClaims != null && openClaims > 0) {
+            throw new AuthException(409, "CLAIM_ALREADY_OPEN", "Hợp đồng đang có một khiếu nại mở; vui lòng theo dõi kết quả xử lý.");
+        }
+
+        String claimCode = "CLM-BUYER-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        BigDecimal compensation = request.getDamagedWeightKg().multiply(decimal(contract, "offered_price_per_kg"));
+        Long id = db.queryForObject("""
+                insert into spoilage_claims(claim_code,contract_id,damaged_weight_kg,cause,liable_party,compensation_amount,status)
+                values (?,?,?,?,?,?,'OPEN') returning id
+                """, Long.class, claimCode, request.getContractId(), request.getDamagedWeightKg(),
+                request.getCause().trim(), "PLATFORM", compensation);
+        return db.queryForMap("""
+                select cl.*, c.contract_code, l.product_name, c.status contract_status
+                from spoilage_claims cl
+                join b2b_contracts c on c.id=cl.contract_id
+                left join harvest_lots l on l.id=c.lot_id
+                where cl.id=?
+                """, id);
     }
 
     @Transactional(readOnly = true)

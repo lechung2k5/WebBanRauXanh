@@ -38,6 +38,9 @@ public class AdminBusinessController {
     @PostMapping("/shipments") public Object schedule(@RequestBody JsonNode n){return ApiResponse.success(business.schedule(n));}
     @PostMapping("/shipments/{id}/epod") public Object epod(@PathVariable long id,@RequestBody JsonNode n){business.epod(id,n);return ApiResponse.success("Đã lưu ePOD",null);}
     @GetMapping("/iot/telemetry") public Object telemetry(@RequestParam long assetId){return ApiResponse.success(business.telemetry(assetId));}
+    @GetMapping("/iot/alerts") public Object coldChainAlerts(){return ApiResponse.success(business.coldChainAlerts());}
+    @PostMapping("/iot/alerts/{id}/acknowledge") public Object acknowledgeColdChainAlert(@PathVariable long id,@RequestBody(required=false) JsonNode n){business.acknowledgeColdChainAlert(id,n);return ApiResponse.success("Đã tiếp nhận cảnh báo chuỗi lạnh",null);}
+    @PostMapping("/iot/alerts/{id}/resolve") public Object resolveColdChainAlert(@PathVariable long id,@RequestBody(required=false) JsonNode n){business.resolveColdChainAlert(id,n);return ApiResponse.success("Đã xác nhận khắc phục cảnh báo chuỗi lạnh",null);}
     @PostMapping("/iot/inject-fault") public Object fault(@RequestBody JsonNode n){return ApiResponse.success(business.inject(n,false));}
     @PostMapping("/iot/reset-fault") public Object reset(@RequestBody JsonNode n){return ApiResponse.success(business.inject(n,true));}
     @GetMapping("/settings") public Object settings(){return ApiResponse.success(business.settings());}

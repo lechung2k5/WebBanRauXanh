@@ -1062,6 +1062,9 @@ export function buyerPayDeposit(contractId: number | string): B2bSyncContract | 
   }
 
   const c = { ...contracts[idx] };
+  if (c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStep >= 2) {
+    return c;
+  }
   c.depositStatus = 'DEPOSIT_PAID';
   c.depositPaidAt = new Date().toISOString();
   c.fulfillmentStep = 2; // Tự động chuyển sang Mốc 2: Nông dân bắt đầu thu hoạch & đóng gói

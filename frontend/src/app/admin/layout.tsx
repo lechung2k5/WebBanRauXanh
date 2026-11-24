@@ -12,8 +12,6 @@ import {
   Sprout,
   Handshake,
   Warehouse,
-  Thermometer,
-  Truck,
   Receipt,
   LogOut,
   Menu,
@@ -108,18 +106,6 @@ export default function AdminLayout({
       name: 'Điều phối giao Buyer',
       href: '/admin/outbound-dispatch',
       icon: Navigation,
-    },
-    {
-      id: 'iot',
-      name: 'Giám sát chuỗi lạnh',
-      href: '/admin/iot',
-      icon: Thermometer,
-    },
-    {
-      id: 'shipments',
-      name: 'Vận tải & Phiếu giao hàng',
-      href: '/admin/shipments',
-      icon: Truck,
     },
     {
       id: 'accounting',

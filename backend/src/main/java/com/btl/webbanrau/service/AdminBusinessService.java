@@ -142,11 +142,18 @@ public class AdminBusinessService {
                 Long coldRoomId = db.queryForList("select id from cold_assets where asset_type='COLD_ROOM' limit 1").stream()
                         .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
                 if (coldRoomId == null) {
-                    coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values ('CR-01','COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class);
+                    coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values (?,'COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class, code("CR"));
                 }
                 BigDecimal weight = decimal(c, "offered_weight_kg");
-                db.update("insert into hub_inspections(inspection_code,contract_id,cold_room_id,received_weight_kg,qualified_weight_kg,rejected_weight_kg,brix_degree,moisture_pct,qc_staff_id,qc_note) values (?,?,?,?,?,?,12.5,85.0,?,?)",
-                        code("QC"), id, coldRoomId, weight, weight, BigDecimal.ZERO, AuthService.current().getId(), "Đạt tiêu chuẩn bảo quản HoNa Fresh");
+                Long qcStaffId = AuthService.current().getId();
+                db.update("""
+                    insert into hub_inspections(
+                        inspection_code, contract_id, cold_room_id,
+                        received_weight_kg, qualified_weight_kg, rejected_weight_kg,
+                        brix_degree, moisture_pct, qc_staff_id, qc_note
+                    ) values (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    code("QC"), id, coldRoomId, weight, weight, BigDecimal.ZERO, new BigDecimal("12.5"), new BigDecimal("85.0"), qcStaffId, "Đạt tiêu chuẩn bảo quản HoNa Fresh");
             }
             db.update("update b2b_contracts set qc_status='QC_PASSED',qc_passed_at=CURRENT_TIMESTAMP,fulfillment_status='AT_HUB_QC' where id=?", id);
         } else if(next.equals("OUTBOUND_DISPATCHED") || next.equals("IN_TRANSIT")) {
@@ -154,11 +161,11 @@ public class AdminBusinessService {
             if(shipment.isEmpty()) {
                 Long truckId = db.queryForList("select id from cold_assets where asset_type='REFRIGERATED_TRUCK' limit 1").stream()
                         .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
-                Long driverId = db.queryForList("select id from users where role='DRIVER' and enabled=true limit 1").stream()
+                Long driverId = db.queryForList("select u.id from users u join users_roles ur on ur.user_id=u.id join roles r on r.id=ur.role_id where r.name in ('ROLE_DRIVER','DRIVER') and u.enabled=true limit 1").stream()
                         .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
                 if (driverId == null) driverId = AuthService.current().getId();
                 if (truckId == null) {
-                    truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values ('TRK-HONAFRESH','REFRIGERATED_TRUCK','Xe tải lạnh 5 tấn HoNa Fresh',5000,?) returning id", Long.class, driverId);
+                    truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values (?,'REFRIGERATED_TRUCK','Xe tải lạnh 5 tấn HoNa Fresh',5000,?) returning id", Long.class, code("TRK"), driverId);
                 }
                 BigDecimal loaded = decimal(c, "offered_weight_kg");
                 db.update("insert into shipments(shipment_code,contract_id,truck_id,driver_id,loaded_weight_kg,status,departed_at) values (?,?,?,?,?,'IN_TRANSIT',CURRENT_TIMESTAMP)",
@@ -263,6 +270,50 @@ public class AdminBusinessService {
     }
     public List<Map<String,Object>> telemetry(long assetId) { return db.queryForList("select * from iot_sensor_logs where asset_id=? order by id desc limit 60",assetId); }
 
+    public List<Map<String,Object>> coldChainAlerts() {
+        return db.queryForList("""
+            select a.*, ca.asset_code, ca.asset_name, c.contract_code,
+                   ack.full_name acknowledged_by_name, res.full_name resolved_by_name
+            from cold_chain_alerts a
+            join cold_assets ca on ca.id=a.asset_id
+            left join b2b_contracts c on c.id=a.contract_id
+            left join users ack on ack.id=a.acknowledged_by
+            left join users res on res.id=a.resolved_by
+            order by case a.status when 'OPEN' then 0 when 'ACKNOWLEDGED' then 1 else 2 end,
+                     a.created_at desc
+            limit 500
+            """);
+    }
+
+    @Transactional
+    public void acknowledgeColdChainAlert(long alertId, JsonNode n) {
+        var alert = lock("cold_chain_alerts", alertId);
+        String status = Objects.toString(alert.get("status"), "");
+        if ("RESOLVED".equals(status)) bad("Cảnh báo đã được xử lý hoàn tất");
+        String note = n == null ? "Đã tiếp nhận và đang kiểm tra thiết bị" : n.path("note").asText("Đã tiếp nhận và đang kiểm tra thiết bị");
+        db.update("update cold_chain_alerts set status='ACKNOWLEDGED',acknowledged_by=?,acknowledged_at=CURRENT_TIMESTAMP,acknowledge_note=?,updated_at=CURRENT_TIMESTAMP where id=?",
+                AuthService.current().getId(), note, alertId);
+        audit("COLD_ALERT_ACKNOWLEDGED", alertId);
+    }
+
+    @Transactional
+    public void resolveColdChainAlert(long alertId, JsonNode n) {
+        var alert = lock("cold_chain_alerts", alertId);
+        if ("RESOLVED".equals(Objects.toString(alert.get("status"), ""))) return;
+        String note = n == null ? "Thiết bị đã trở lại ngưỡng an toàn" : n.path("note").asText("").trim();
+        if (note.isBlank()) bad("Vui lòng nhập nội dung khắc phục cảnh báo");
+        long assetId = asLong(alert, "asset_id");
+        var asset = lock("cold_assets", assetId);
+        BigDecimal temp = decimal(asset, "current_temp");
+        var cfg = settings();
+        if (temp.compareTo(decimal(cfg, "temp_min")) < 0 || temp.compareTo(decimal(cfg, "temp_max")) > 0) {
+            bad("Thiết bị vẫn đang ngoài ngưỡng an toàn; hãy phục hồi cảm biến trước khi đóng cảnh báo");
+        }
+        db.update("update cold_chain_alerts set status='RESOLVED',resolved_by=?,resolved_at=CURRENT_TIMESTAMP,resolution_note=?,updated_at=CURRENT_TIMESTAMP where id=?",
+                AuthService.current().getId(), note, alertId);
+        audit("COLD_ALERT_RESOLVED", alertId);
+    }
+
     @Transactional public void approvePackaging(long id, JsonNode n) {
         var c = lock("b2b_contracts", id);
         db.update("update b2b_contracts set packaging_approved=true,packaging_approved_at=CURRENT_TIMESTAMP,fulfillment_status='PACKAGING_APPROVED',status='PACKAGING_APPROVED',updated_at=CURRENT_TIMESTAMP where id=?", id);
@@ -343,10 +394,22 @@ public class AdminBusinessService {
             Long coldRoomId = db.queryForList("select id from cold_assets where asset_type='COLD_ROOM' limit 1").stream()
                     .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
             if (coldRoomId == null) {
-                coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values ('CR-01','COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class);
+                coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values (?,'COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class, code("CR"));
             }
-            db.update("insert into hub_inspections(inspection_code,contract_id,cold_room_id,received_weight_kg,qualified_weight_kg,rejected_weight_kg,brix_degree,moisture_pct,qc_staff_id,qc_note) values (?,?,?,?,?,?,?,?,85.0,?,?)",
-                    code("QC"), id, coldRoomId, net, net, BigDecimal.ZERO, brix, AuthService.current().getId(), "Đạt tiêu chuẩn bảo quản HoNa Fresh (Brix: " + brix + ", Nitrate: " + nitrate + " ppm)");
+            if (net == null || net.compareTo(BigDecimal.ZERO) <= 0) {
+                net = decimal(c, "offered_weight_kg");
+            }
+            Long qcStaffId = AuthService.current().getId();
+            BigDecimal moisture = new BigDecimal("85.0");
+            db.update("""
+                insert into hub_inspections(
+                    inspection_code, contract_id, cold_room_id,
+                    received_weight_kg, qualified_weight_kg, rejected_weight_kg,
+                    brix_degree, moisture_pct, qc_staff_id, qc_note
+                ) values (?,?,?,?,?,?,?,?,?,?)
+                """,
+                code("QC"), id, coldRoomId, net, net, BigDecimal.ZERO, brix, moisture, qcStaffId,
+                "Đạt tiêu chuẩn bảo quản HoNa Fresh (Brix: " + brix + ", Nitrate: " + nitrate + " ppm)");
         } else {
             db.update("update hub_inspections set brix_degree=?, qc_note=?, updated_at=CURRENT_TIMESTAMP where contract_id=?",
                     brix, "Đạt tiêu chuẩn bảo quản HoNa Fresh (Brix: " + brix + ", Nitrate: " + nitrate + " ppm)", id);
@@ -368,11 +431,11 @@ public class AdminBusinessService {
         if(shipment.isEmpty()) {
             Long truckId = db.queryForList("select id from cold_assets where asset_type='REFRIGERATED_TRUCK' limit 1").stream()
                     .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
-            Long driverId = db.queryForList("select id from users where role='DRIVER' and enabled=true limit 1").stream()
+            Long driverId = db.queryForList("select u.id from users u join users_roles ur on ur.user_id=u.id join roles r on r.id=ur.role_id where r.name in ('ROLE_DRIVER','DRIVER') and u.enabled=true limit 1").stream()
                     .findFirst().map(m -> ((Number)m.get("id")).longValue()).orElse(null);
             if (driverId == null) driverId = AuthService.current().getId();
             if (truckId == null) {
-                truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values ('TRK-LASTMILE','REFRIGERATED_TRUCK','Xe lạnh chặng cuối HoNa',5000,?) returning id", Long.class, driverId);
+                truckId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg,driver_id) values (?,'REFRIGERATED_TRUCK','Xe lạnh chặng cuối HoNa',5000,?) returning id", Long.class, code("TRK"), driverId);
             }
             BigDecimal loaded = decimal(c, "offered_weight_kg");
             db.update("insert into shipments(shipment_code,contract_id,truck_id,driver_id,loaded_weight_kg,status,departed_at) values (?,?,?,?,?,'IN_TRANSIT',CURRENT_TIMESTAMP)",
@@ -392,7 +455,16 @@ public class AdminBusinessService {
         BigDecimal humidity=reset?new BigDecimal("85"):mode.equals("DOOR_OPEN")?decimal(asset,"current_humidity").subtract(new BigDecimal("5")).max(BigDecimal.ZERO):decimal(asset,"current_humidity");
         var cfg=settings();boolean alert=temp.compareTo(decimal(cfg,"temp_min"))<0||temp.compareTo(decimal(cfg,"temp_max"))>0;
         db.update("update cold_assets set current_temp=?,current_humidity=?,status=? where id=?",temp,humidity,alert?"TEMP_WARNING":"NORMAL",id);
-        db.update("insert into iot_sensor_logs(asset_id,temperature,humidity,is_alert,alert_message) values (?,?,?,?,?)",id,temp,humidity,alert,reset?"Mô phỏng: phục hồi":"Mô phỏng: "+mode);audit(reset?"IOT_RESET":"IOT_FAULT",id);
+        String alertMessage = reset ? "Mô phỏng: phục hồi" : "Mô phỏng: " + mode;
+        Long sensorLogId = db.queryForObject("insert into iot_sensor_logs(asset_id,temperature,humidity,is_alert,alert_message) values (?,?,?,?,?) returning id", Long.class, id, temp, humidity, alert, alertMessage);
+        if (alert && sensorLogId != null) {
+            Long contractId = db.queryForList("select contract_id from shipments where truck_id=? and status in ('SCHEDULED','IN_TRANSIT') order by id desc limit 1", id)
+                    .stream().findFirst().map(row -> asLong(row, "contract_id")).orElse(null);
+            String severity = temp.compareTo(new BigDecimal("12")) >= 0 ? "CRITICAL" : "HIGH";
+            db.update("insert into cold_chain_alerts(sensor_log_id,asset_id,contract_id,severity,alert_message) values (?,?,?,?,?)",
+                    sensorLogId, id, contractId, severity, alertMessage + " · " + temp + "°C");
+        }
+        audit(reset?"IOT_RESET":"IOT_FAULT",id);
         return Map.of("assetId",id,"temperature",temp,"humidity",humidity,"isAlert",alert,"simulated",true);
     }
     @Transactional public long claim(JsonNode n) {

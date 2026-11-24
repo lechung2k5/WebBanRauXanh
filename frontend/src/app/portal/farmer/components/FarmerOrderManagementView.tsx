@@ -36,7 +36,6 @@ import {
   farmerStartHarvest,
   farmerCompleteHarvest,
   farmerVerifyHarvest,
-  buyerPayDeposit,
   replaceSyncContracts,
 } from '@/services/b2bSyncService';
 import { getFarmerContractsFromServer, startFarmerHarvest } from '@/services/farmerApi';
@@ -366,9 +365,6 @@ export default function FarmerOrderManagementView({
           return prev;
         });
       } else if (isDepositPaid && code) {
-        try {
-          buyerPayDeposit(code);
-        } catch {}
         setContracts((prev) =>
           prev.map((c) => {
             if (c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()) {

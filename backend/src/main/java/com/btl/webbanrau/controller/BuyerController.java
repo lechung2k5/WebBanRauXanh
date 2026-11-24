@@ -6,6 +6,7 @@ import com.btl.webbanrau.dto.request.BuyerRfqActionRequest;
 import com.btl.webbanrau.dto.request.BuyerRfqRequest;
 import com.btl.webbanrau.dto.request.BuyerWarehouseRequest;
 import com.btl.webbanrau.dto.request.B2bReviewRequest;
+import com.btl.webbanrau.dto.request.BuyerClaimRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
 import com.btl.webbanrau.dto.response.BuyerProfileResponse;
 import com.btl.webbanrau.dto.response.OrderResponse;
@@ -126,7 +127,17 @@ public class BuyerController {
 
     @PostMapping("/contracts/{id}/final-payment/confirm")
     public ApiResponse<Map<String, Object>> confirmFinalPayment(@PathVariable Long id) {
-        return ApiResponse.success("Đã xác nhận thanh toán 70% giả lập", buyer.confirmFinalPayment(id));
+        return ApiResponse.success("Đã xác nhận thanh toán phần còn lại và hoàn tất hợp đồng", buyer.confirmFinalPayment(id));
+    }
+
+    @GetMapping("/claims")
+    public ApiResponse<List<Map<String, Object>>> claims() {
+        return ApiResponse.success(buyer.claims());
+    }
+
+    @PostMapping("/claims")
+    public ApiResponse<Map<String, Object>> createClaim(@Valid @RequestBody BuyerClaimRequest request) {
+        return ApiResponse.success("Đã gửi khiếu nại và tạm khóa quyết toán hợp đồng", buyer.createClaim(request));
     }
 
     @GetMapping("/contracts/{id}/reviews")

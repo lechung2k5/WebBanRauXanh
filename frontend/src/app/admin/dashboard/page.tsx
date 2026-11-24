@@ -283,7 +283,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/iot"
+            href="/admin/outbound-dispatch"
             className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
           >
             <div>
@@ -291,35 +291,14 @@ export default function AdminDashboardPage() {
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-red-700 transition-colors">
-                Giám Sát Nhiệt Độ Thùng Lạnh & Cảnh Báo
+                Điều Phối Giao Buyer & Giám Sát Hoàn Tất
               </h4>
               <p className="text-xs text-[#6B7280] mt-1">
-                Biểu đồ nhiệt độ thời gian thực (2°C - 6°C), chuông cảnh báo và kiểm tra giả lập sự cố.
+                Theo dõi xuất kho, hành trình chuỗi lạnh, phiếu ePOD, Buyer ký nhận và thanh toán quyết toán trên cùng một luồng.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-red-600 mt-4">
-              <span>Đến trang Giám Sát Nhiệt Độ</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-
-          <Link
-            href="/admin/shipments"
-            className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
-          >
-            <div>
-              <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center mb-3">
-                <Truck className="w-5 h-5" />
-              </div>
-              <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-sky-800 transition-colors">
-                Điều Phối Đội Xe Lạnh & Phiếu Giao Nhận
-              </h4>
-              <p className="text-xs text-[#6B7280] mt-1">
-                Quản lý đội xe thùng lạnh, bản đồ lộ trình giao nhận và phiếu bàn giao có chữ ký xác nhận.
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-sky-700 mt-4">
-              <span>Đến trang Đội Xe Lạnh</span>
+              <span>Đến trang Điều Phối Giao Buyer</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>

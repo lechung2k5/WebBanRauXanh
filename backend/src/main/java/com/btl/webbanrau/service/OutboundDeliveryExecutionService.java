@@ -34,7 +34,11 @@ public class OutboundDeliveryExecutionService {
             return outboundDeliveryTripRepository.findAll();
         }
         List<String> activeStatuses = List.of("ASSIGNED", "ON_DELIVERY", "COMPLETED");
-        return outboundDeliveryTripRepository.findByDriverPhoneAndStatusIn(driverPhone, activeStatuses);
+        return outboundDeliveryTripRepository.findAll().stream()
+                .filter(trip -> activeStatuses.contains(trip.getStatus()))
+                .filter(trip -> trip.getDriver() != null && samePhone(driverPhone, trip.getDriver().getPhone()))
+                .sorted((left, right) -> right.getId().compareTo(left.getId()))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -43,12 +47,21 @@ public class OutboundDeliveryExecutionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chuyến xe outbound id: " + tripId));
     }
 
+    @Transactional(readOnly = true)
+    public OutboundDeliveryTrip getDriverTripDetail(Long tripId, String driverPhone) {
+        OutboundDeliveryTrip trip = getTripDetail(tripId);
+        if (trip.getDriver() == null || !samePhone(driverPhone, trip.getDriver().getPhone())) {
+            throw new IllegalArgumentException("Bạn không được phân công chuyến xe này");
+        }
+        return trip;
+    }
+
     @Transactional
     public OutboundDeliveryTrip driverDepartTrip(Long tripId, String driverPhone, boolean isAdmin) {
         OutboundDeliveryTrip trip = outboundDeliveryTripRepository.findById(tripId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chuyến xe outbound id: " + tripId));
 
-        if (!isAdmin && (trip.getDriver() == null || !driverPhone.equals(trip.getDriver().getPhone()))) {
+        if (!isAdmin && (trip.getDriver() == null || !samePhone(driverPhone, trip.getDriver().getPhone()))) {
             throw new IllegalArgumentException("Bạn không được phân công chuyến xe này");
         }
 
@@ -92,7 +105,7 @@ public class OutboundDeliveryExecutionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy điểm dừng id: " + stopId));
 
         OutboundDeliveryTrip trip = stop.getTrip();
-        if (!isAdmin && (trip.getDriver() == null || !driverPhone.equals(trip.getDriver().getPhone()))) {
+        if (!isAdmin && (trip.getDriver() == null || !samePhone(driverPhone, trip.getDriver().getPhone()))) {
             throw new IllegalArgumentException("Bạn không có quyền thao tác trên điểm dừng này");
         }
 
@@ -115,7 +128,7 @@ public class OutboundDeliveryExecutionService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy điểm dừng id: " + stopId));
 
         OutboundDeliveryTrip trip = stop.getTrip();
-        if (!isAdmin && (trip.getDriver() == null || !driverPhone.equals(trip.getDriver().getPhone()))) {
+        if (!isAdmin && (trip.getDriver() == null || !samePhone(driverPhone, trip.getDriver().getPhone()))) {
             throw new IllegalArgumentException("Bạn không có quyền thao tác trên điểm dừng này");
         }
 
@@ -182,9 +195,14 @@ public class OutboundDeliveryExecutionService {
     }
 
     @Transactional(readOnly = true)
-    public OutboundDeliveryStop getStopDetail(Long stopId) {
-        return outboundDeliveryStopRepository.findById(stopId)
+    public OutboundDeliveryStop getBuyerStopDetail(Long stopId, Long buyerUserId, boolean isAdmin) {
+        OutboundDeliveryStop stop = outboundDeliveryStopRepository.findById(stopId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông tin điểm dừng id: " + stopId));
+        if (!isAdmin && (stop.getContract() == null || stop.getContract().getBuyer() == null
+                || !stop.getContract().getBuyer().getId().equals(buyerUserId))) {
+            throw new IllegalArgumentException("Bạn không có quyền xem chuyến giao hàng của người khác");
+        }
+        return stop;
     }
 
     @Transactional
@@ -266,5 +284,10 @@ public class OutboundDeliveryExecutionService {
 
         b2bRealtimeService.notifyContractUpdated("DELIVERED", contract.getContractCode(), contract);
         return outboundDeliveryStopRepository.save(stop);
+    }
+
+    private static boolean samePhone(String left, String right) {
+        if (left == null || right == null) return false;
+        return left.replaceAll("\\D", "").equals(right.replaceAll("\\D", ""));
     }
 }

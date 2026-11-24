@@ -18,7 +18,7 @@ import java.util.List;
 @RequestMapping("/buyer/outbound-deliveries")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasAnyRole('BUYER', 'ADMIN')")
+@PreAuthorize("hasRole('BUYER')")
 @Transactional(readOnly = true)
 public class BuyerOutboundDeliveryController {
 
@@ -27,30 +27,28 @@ public class BuyerOutboundDeliveryController {
     @GetMapping("/pending")
     public Object getPendingDeliveries() {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        List<OutboundDeliveryStop> stops = outboundDeliveryExecutionService.getBuyerPendingDeliveries(user.getId(), isAdmin);
+        List<OutboundDeliveryStop> stops = outboundDeliveryExecutionService.getBuyerPendingDeliveries(user.getId(), false);
         return ApiResponse.success(stops);
     }
 
     @GetMapping("/my-deliveries")
     public Object getMyDeliveries() {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        List<OutboundDeliveryStop> stops = outboundDeliveryExecutionService.getBuyerDeliveries(user.getId(), isAdmin);
+        List<OutboundDeliveryStop> stops = outboundDeliveryExecutionService.getBuyerDeliveries(user.getId(), false);
         return ApiResponse.success(stops);
     }
 
     @GetMapping("/stops/{stopId}")
     public Object getStopDetail(@PathVariable Long stopId) {
-        OutboundDeliveryStop stop = outboundDeliveryExecutionService.getStopDetail(stopId);
+        var user = AuthService.current();
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.getBuyerStopDetail(stopId, user.getId(), false);
         return ApiResponse.success(stop);
     }
 
     @PostMapping("/stops/{stopId}/confirm-epod")
     public Object confirmEpod(@PathVariable Long stopId, @Valid @RequestBody BuyerEpodConfirmRequest req) {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        OutboundDeliveryStop stop = outboundDeliveryExecutionService.buyerConfirmEpod(stopId, req, user.getId(), isAdmin);
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.buyerConfirmEpod(stopId, req, user.getId(), false);
         return ApiResponse.success("Buyer đã ký nhận thành công biên bản ePOD", stop);
     }
 }
