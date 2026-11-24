@@ -33,7 +33,7 @@ public class OutboundDeliveryStop {
     private OutboundDeliveryTrip trip;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
-    @JoinColumn(name = "contract_id", nullable = false, unique = true)
+    @JoinColumn(name = "contract_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "buyer", "farmer", "harvestLot", "rfq"})
     private B2bContract contract;
 

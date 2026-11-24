@@ -71,18 +71,29 @@ export default function B2BNegotiationModal({
   const { currentUser } = useApp();
 
   // 1. Phân loại nhóm nông sản và cấu hình giá cơ sở
-  const categoryConfig = detectAgriCategory(
-    product.name || product.categoryName,
-    product.categorySlug
-  );
-  const totalLotVolume =
-    product.availableVolume || product.totalLotVolume || product.stockQuantity || 10000;
-  const basePrice = product.price || 15000;
-  const tiers = calculate3TierPricing(basePrice, categoryConfig, totalLotVolume);
+  const categoryConfig = useMemo(() => {
+    return detectAgriCategory(
+      product.name || product.categoryName,
+      product.categorySlug
+    );
+  }, [product.name, product.categoryName, product.categorySlug]);
+
+  const totalLotVolume = useMemo(() => {
+    return product.availableVolume || product.totalLotVolume || product.stockQuantity || 10000;
+  }, [product.availableVolume, product.totalLotVolume, product.stockQuantity]);
+
+  const basePrice = useMemo(() => {
+    return product.price || 15000;
+  }, [product.price]);
+
+  const tiers = useMemo(() => {
+    return calculate3TierPricing(basePrice, categoryConfig, totalLotVolume);
+  }, [basePrice, categoryConfig, totalLotVolume]);
+
   const moq = tiers[0].minKg;
 
-  const [quantity, setQuantity] = useState<number>(moq);
-  const [targetPrice, setTargetPrice] = useState<number>(tiers[0].pricePerKg);
+  const [quantity, setQuantity] = useState<number>(() => moq);
+  const [targetPrice, setTargetPrice] = useState<number>(() => tiers[0].pricePerKg);
   const [traderName, setTraderName] = useState('');
   const [traderPhone, setTraderPhone] = useState('');
   const [traderCompany, setTraderCompany] = useState('');
@@ -180,6 +191,8 @@ export default function B2BNegotiationModal({
 
   // Tự động khởi tạo giá trị ban đầu và điền thông tin tài khoản thương lái đang đăng nhập
   useEffect(() => {
+    if (!isOpen || !product) return;
+
     if (editingRfq) {
       setQuantity(editingRfq.requestedQuantityKg || moq);
       setTargetPrice(editingRfq.counterPricePerKg || editingRfq.targetPricePerKg || tiers[0].pricePerKg);
@@ -204,19 +217,11 @@ export default function B2BNegotiationModal({
         }
       }
       if (editingRfq.notes) setNotes(editingRfq.notes);
-    } else if (product) {
-      const cfg = detectAgriCategory(
-        product.name || product.categoryName,
-        product.categorySlug
-      );
-      const lotVol =
-        product.availableVolume || product.totalLotVolume || product.stockQuantity || 10000;
-      const base = product.price || 15000;
-      const t = calculate3TierPricing(base, cfg, lotVol);
-      setQuantity(t[0].minKg);
-      setTargetPrice(t[0].pricePerKg);
+    } else {
+      setQuantity(tiers[0].minKg);
+      setTargetPrice(tiers[0].pricePerKg);
     }
-  }, [product, isOpen, editingRfq, updateDistanceToBuyerLocation, moq, tiers]);
+  }, [isOpen, product.id, editingRfq?.id]);
 
   useEffect(() => {
     if (editingRfq) return;
@@ -779,21 +784,23 @@ export default function B2BNegotiationModal({
                 <div className="relative">
                   <input
                     type="number"
-                    min={moq}
+                    min={1}
                     max={totalLotVolume}
-                    step={categoryConfig.type === 'ROOT_TUBER' ? 100 : 50}
-                    value={quantity}
+                    step="any"
+                    value={quantity === 0 ? '' : quantity}
                     onChange={(e) => {
-                      const newQty = Math.max(0, Number(e.target.value));
+                      const val = e.target.value;
+                      const newQty = val === '' ? 0 : Math.max(0, Number(val));
                       setQuantity(newQty);
-                      // Tự động gợi ý mức giá tương ứng với bậc sản lượng mới
-                      const adv = analyzeBuyerPurchaseStrategy(
-                        newQty,
-                        basePrice,
-                        categoryConfig,
-                        totalLotVolume
-                      );
-                      setTargetPrice(adv.appliedPricePerKg);
+                      if (newQty > 0) {
+                        const adv = analyzeBuyerPurchaseStrategy(
+                          newQty,
+                          basePrice,
+                          categoryConfig,
+                          totalLotVolume
+                        );
+                        setTargetPrice(adv.appliedPricePerKg);
+                      }
                     }}
                     className={`w-full bg-[#F9F9F5] border rounded-xl px-3.5 h-11 text-sm font-bold text-[#10542C] focus:outline-none ${
                       !advisory.isValidMinimum || !advisory.isValidMaximum
@@ -849,10 +856,13 @@ export default function B2BNegotiationModal({
                 <div className="relative">
                   <input
                     type="number"
-                    min={3000}
+                    min={1000}
                     step={100}
-                    value={targetPrice}
-                    onChange={(e) => setTargetPrice(Math.max(0, Number(e.target.value)))}
+                    value={targetPrice === 0 ? '' : targetPrice}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTargetPrice(val === '' ? 0 : Math.max(0, Number(val)));
+                    }}
                     className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3.5 h-11 text-sm font-bold text-[#E53935] focus:outline-none focus:border-[#10542C]"
                     required
                   />

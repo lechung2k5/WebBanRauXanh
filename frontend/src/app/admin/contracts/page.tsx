@@ -67,7 +67,6 @@ const select = (name: string, label: string, options: string[]): Field => ({ nam
 
 const nextState: Record<string, string> = {
   RFQ_SENT: 'AGREED',
-  AGREED: 'DEPOSIT_PAID',
   DEPOSIT_PAID: 'AT_HUB_QC',
   AT_HUB_QC: 'IN_TRANSIT',
   IN_TRANSIT: 'DELIVERED',
@@ -76,7 +75,6 @@ const nextState: Record<string, string> = {
 
 const nextStateLabel: Record<string, string> = {
   RFQ_SENT: 'Chấp thuận đơn đàm phán',
-  AGREED: 'Xác nhận cọc 30%',
   DEPOSIT_PAID: 'Chuyển trạm kiểm định',
   AT_HUB_QC: 'Điều xe vận chuyển',
   IN_TRANSIT: 'Ký nhận bàn giao',
@@ -1042,6 +1040,23 @@ export default function AdminContractsPage() {
                               'DELIVERED',
                               'SETTLED',
                             ].includes(rawFulfill);
+
+                            // 0. Chờ buyer thanh toán 30% tiền cọc (Chỉ hiển thị, không thể nhấn)
+                            if (
+                              (str(row.status) === 'AGREED' || str(row.status) === 'WAITING_DEPOSIT' || (!isDepositPaid && !isAdvancedStage)) &&
+                              str(row.status) !== 'CANCELLED' &&
+                              str(row.status) !== 'REJECTED'
+                            ) {
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 rounded-xl border border-amber-200"
+                                  title="Hợp đồng đang chờ người mua (Buyer) thanh toán 30% tiền cọc bảo chứng Escrow qua VietQR"
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                  <span>Chờ buyer thanh toán 30% tiền cọc</span>
+                                </span>
+                              );
+                            }
 
                             // 1. Chờ nhà vườn thu hoạch
                             if (!isAdvancedStage && isDepositPaid && !isHarvestDone) {

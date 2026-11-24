@@ -15,7 +15,7 @@ public interface OutboundDeliveryStopRepository extends JpaRepository<OutboundDe
     @Query("SELECT s FROM OutboundDeliveryStop s WHERE s.trip.id = :tripId ORDER BY s.stopSequence ASC")
     List<OutboundDeliveryStop> findByTripIdOrderByStopSequenceAsc(@Param("tripId") Long tripId);
 
-    @Query("SELECT s FROM OutboundDeliveryStop s WHERE s.contract.id = :contractId")
+    @Query("SELECT s FROM OutboundDeliveryStop s WHERE s.contract.id = :contractId AND s.status != 'CANCELLED'")
     Optional<OutboundDeliveryStop> findByContractId(@Param("contractId") Long contractId);
 
     @Query("SELECT COUNT(s) > 0 FROM OutboundDeliveryStop s WHERE s.contract.id = :contractId AND s.status != 'CANCELLED'")

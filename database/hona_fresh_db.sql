@@ -106,6 +106,7 @@ ALTER TABLE IF EXISTS ONLY public.users DROP CONSTRAINT IF EXISTS users_pkey;
 ALTER TABLE IF EXISTS ONLY public.users DROP CONSTRAINT IF EXISTS users_google_id_key;
 ALTER TABLE IF EXISTS ONLY public.outbound_delivery_stops DROP CONSTRAINT IF EXISTS uq_outbound_stop_seq;
 ALTER TABLE IF EXISTS ONLY public.outbound_delivery_stops DROP CONSTRAINT IF EXISTS uq_outbound_stop_contract;
+DROP INDEX IF EXISTS public.uq_outbound_stop_contract;
 ALTER TABLE IF EXISTS ONLY public.uploaded_assets DROP CONSTRAINT IF EXISTS uploaded_assets_pkey;
 ALTER TABLE IF EXISTS ONLY public.uploaded_assets DROP CONSTRAINT IF EXISTS uploaded_assets_asset_id_key;
 ALTER TABLE IF EXISTS ONLY public.categories DROP CONSTRAINT IF EXISTS ukt8o6pivur7nn124jehx7cygw5;
@@ -4760,11 +4761,10 @@ ALTER TABLE ONLY public.uploaded_assets
 
 
 --
--- Name: outbound_delivery_stops uq_outbound_stop_contract; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: outbound_delivery_stops uq_outbound_stop_contract; Type: INDEX; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.outbound_delivery_stops
-    ADD CONSTRAINT uq_outbound_stop_contract UNIQUE (contract_id);
+CREATE UNIQUE INDEX uq_outbound_stop_contract ON public.outbound_delivery_stops USING btree (contract_id) WHERE ((status)::text <> 'CANCELLED'::text);
 
 
 --
