@@ -193,12 +193,60 @@ export function formatStatusVi(rawStatus: string | null | undefined): StatusMeta
       badgeClass: 'bg-cyan-50 text-cyan-700 border border-cyan-200',
     };
   }
-  if (s === 'PACKAGED' || s === 'PACKAGING_DONE' || s === 'READY_FOR_PICKUP') {
+  if (s === 'HARVESTED' || s === 'PACKAGED' || s === 'PACKAGING_DONE' || s === 'READY_FOR_PICKUP') {
     return {
-      label: 'Đã đóng gói · Chờ điều phối vận chuyển',
+      label: 'Đã đóng gói (QR Code) · Chờ BQT duyệt',
       bgClass: 'bg-indigo-50',
       textClass: 'text-indigo-700',
       badgeClass: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+    };
+  }
+  if (s === 'PACKAGING_APPROVED') {
+    return {
+      label: 'BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe',
+      bgClass: 'bg-indigo-50',
+      textClass: 'text-indigo-700',
+      badgeClass: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+    };
+  }
+  if (s === 'PICKUP_DISPATCHED' || s === 'DISPATCHING' || s === 'TRUCK_ASSIGNED') {
+    return {
+      label: 'Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn',
+      bgClass: 'bg-purple-50',
+      textClass: 'text-purple-700',
+      badgeClass: 'bg-purple-50 text-purple-700 border border-purple-200',
+    };
+  }
+  if (s === 'IN_TRANSIT_HUB') {
+    return {
+      label: 'Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Hub',
+      bgClass: 'bg-sky-50',
+      textClass: 'text-sky-700',
+      badgeClass: 'bg-sky-50 text-sky-700 border border-sky-200',
+    };
+  }
+  if (s === 'AT_HUB_QC' || s === 'HUB_DELIVERED') {
+    return {
+      label: 'Đã Tới Hub · Đang Kiểm Định QC (Brix/Nitrat)',
+      bgClass: 'bg-amber-50',
+      textClass: 'text-amber-700',
+      badgeClass: 'bg-amber-50 text-amber-700 border border-amber-200',
+    };
+  }
+  if (s === 'QC_PASSED') {
+    return {
+      label: 'Đạt Chuẩn QC HoNa · Lưu Kho Mát Chờ Xuất',
+      bgClass: 'bg-emerald-50',
+      textClass: 'text-emerald-700',
+      badgeClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    };
+  }
+  if (s === 'OUTBOUND_DISPATCHED') {
+    return {
+      label: 'Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)',
+      bgClass: 'bg-violet-50',
+      textClass: 'text-violet-700',
+      badgeClass: 'bg-violet-50 text-violet-700 border border-violet-200',
     };
   }
   if (s === 'DISPATCHING' || s === 'TRUCK_ASSIGNED') {
@@ -225,9 +273,9 @@ export function formatStatusVi(rawStatus: string | null | undefined): StatusMeta
       badgeClass: 'bg-orange-50 text-orange-700 border border-orange-200',
     };
   }
-  if (s === 'EPOD_SIGNED' || s === 'WAITING_FINAL_PAYMENT') {
+  if (s === 'EPOD_SIGNED' || s === 'WAITING_FINAL_PAYMENT' || s === 'SETTLED') {
     return {
-      label: 'Đã ký ePOD · Chờ quyết toán 70%',
+      label: 'Buyer Đã Ký ePOD & Thanh Toán 70% · Chờ Giải Ngân',
       bgClass: 'bg-teal-50',
       textClass: 'text-teal-700',
       badgeClass: 'bg-teal-50 text-teal-700 border border-teal-200',

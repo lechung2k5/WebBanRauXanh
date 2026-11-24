@@ -355,14 +355,11 @@ export const fleetDispatchApi = {
   getDriverOutboundTripDetail: (tripId: number) =>
     api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}`),
   departOutboundTrip: (tripId: number) =>
-    api<OutboundDeliveryTripDto>(`admin/outbound-dispatch/trips/${tripId}/depart`, 'POST')
-      .catch(() => api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}/depart`, 'POST')),
+    api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}/depart`, 'POST'),
   arriveOutboundStop: (stopId: number) =>
-    api<OutboundDeliveryStopDto>(`admin/outbound-dispatch/stops/${stopId}/arrive`, 'POST')
-      .catch(() => api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/arrive`, 'POST')),
+    api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/arrive`, 'POST'),
   submitDriverOutboundEpod: (stopId: number, data: DriverOutboundEpodRequest) =>
-    api<OutboundDeliveryStopDto>(`admin/outbound-dispatch/stops/${stopId}/submit-epod`, 'POST', data)
-      .catch(() => api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/submit-epod`, 'POST', data)),
+    api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/submit-epod`, 'POST', data),
 
   // Buyer Outbound Confirmation & ePOD (Phase 2)
   getBuyerPendingDeliveries: () =>
@@ -372,8 +369,7 @@ export const fleetDispatchApi = {
   getBuyerStopDetail: (stopId: number) =>
     api<OutboundDeliveryStopDto>(`buyer/outbound-deliveries/stops/${stopId}`),
   confirmBuyerEpod: (stopId: number, data: BuyerEpodConfirmRequest) =>
-    api<OutboundDeliveryStopDto>(`admin/outbound-dispatch/stops/${stopId}/buyer-confirm`, 'POST', data)
-      .catch(() => api<OutboundDeliveryStopDto>(`buyer/outbound-deliveries/stops/${stopId}/confirm-epod`, 'POST', data)),
+    api<OutboundDeliveryStopDto>(`buyer/outbound-deliveries/stops/${stopId}/confirm-epod`, 'POST', data),
 
   // Settlement & Quyết toán hợp đồng (Phase 3)
   getSettlementQuote: (contractId: number) =>
@@ -456,6 +452,11 @@ export interface OutboundDeliveryStopDto {
   buyerNotes?: string;
   handoverPhotoUrl?: string;
   createdAt: string;
+  tripId?: number;
+  tripCode?: string;
+  vehiclePlate?: string;
+  driverName?: string;
+  hubName?: string;
   contract?: any;
 }
 

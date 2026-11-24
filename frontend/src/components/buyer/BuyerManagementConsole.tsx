@@ -12,6 +12,12 @@ import {
   getStoredUser,
   getProducts,
   confirmBuyerDepositApi,
+  confirmBuyerFinalPaymentApi,
+  getBuyerFinalPaymentQrApi,
+  getBuyerTelemetryApi,
+  getBuyerClaimsApi,
+  createBuyerClaimApi,
+  type BuyerClaim,
 } from '@/services/api';
 import { updateContractFulfillmentStatusApi } from '@/services/farmerApi';
 import { formatDateVi, formatStatusVi } from '@/utils/formatters';
@@ -77,7 +83,40 @@ import {
   CreditCard,
 } from 'lucide-react';
 
-type BuyerTab = 'overview' | 'catalog' | 'negotiations' | 'contracts' | 'shipments' | 'profile';
+type BuyerTab = 'overview' | 'catalog' | 'negotiations' | 'contracts' | 'shipments' | 'claims' | 'profile';
+
+function computeClientStep(rawStatus?: string, depositStatus?: string, rawFulfillment?: string): number {
+  const s = String(rawStatus || '').trim().toUpperCase();
+  const fs = String(rawFulfillment || '').trim().toUpperCase();
+  const ds = String(depositStatus || '').trim().toUpperCase();
+
+  if (s === 'COMPLETED' || s === 'SETTLED' || fs === 'COMPLETED') return 6;
+  if (s === 'DELIVERED' || s === 'IN_TRANSIT' || s === 'OUTBOUND_DISPATCHED' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
+  if (s === 'QC_PASSED' || s === 'AT_HUB_QC' || s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || fs === 'HUB_DELIVERED') return 4;
+  if (s === 'PACKAGING_APPROVED' || s === 'HARVESTED' || fs === 'HARVESTED') return 3;
+  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || fs === 'HARVESTING' || fs === 'WAITING_HARVEST') return 2;
+  return 1;
+}
+
+function computeClientStepName(rawStatus?: string, depositStatus?: string, rawFulfillment?: string, isApproved?: boolean): string {
+  const s = String(rawStatus || '').trim().toUpperCase();
+  const fs = String(rawFulfillment || '').trim().toUpperCase();
+  const ds = String(depositStatus || '').trim().toUpperCase();
+
+  if (s === 'COMPLETED' || fs === 'COMPLETED') return 'Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi';
+  if (s === 'SETTLED') return 'Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân';
+  if (s === 'DELIVERED' || fs === 'DELIVERED') return 'Đã Giao Tới Kho Buyer · Chờ Buyer Nghiệm Thu và Ký ePOD';
+  if (s === 'IN_TRANSIT' || fs === 'IN_TRANSIT') return 'Xe Lạnh Đang Vận Chuyển Tới Kho Buyer';
+  if (s === 'OUTBOUND_DISPATCHED') return 'Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)';
+  if (s === 'QC_PASSED') return 'Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất';
+  if (s === 'AT_HUB_QC' || fs === 'HUB_DELIVERED') return 'Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)';
+  if (s === 'IN_TRANSIT_HUB') return 'Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Trạm Hub';
+  if (s === 'PICKUP_DISPATCHED') return 'Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng';
+  if (s === 'PACKAGING_APPROVED' || isApproved) return 'BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom';
+  if (s === 'HARVESTED' || fs === 'HARVESTED') return 'Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì';
+  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID') return 'Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói';
+  return 'Chờ Buyer Đặt Cọc 30% Escrow';
+}
 
 export default function BuyerManagementConsole() {
   const router = useRouter();
@@ -94,6 +133,14 @@ export default function BuyerManagementConsole() {
   const [rfqs, setRfqs] = useState<B2bSyncRfq[]>([]);
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
   const [outboundStops, setOutboundStops] = useState<OutboundDeliveryStopDto[]>([]);
+  const [selectedDeliveryStopId, setSelectedDeliveryStopId] = useState<number | null>(null);
+  const [deliveryTelemetry, setDeliveryTelemetry] = useState<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>>([]);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [buyerClaims, setBuyerClaims] = useState<BuyerClaim[]>([]);
+  const [claimContractId, setClaimContractId] = useState<number>(0);
+  const [claimDamagedWeight, setClaimDamagedWeight] = useState('');
+  const [claimCause, setClaimCause] = useState('Hàng hóa hư hỏng hoặc không đạt chất lượng khi nhận');
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
   const [activeEpodModalStop, setActiveEpodModalStop] = useState<OutboundDeliveryStopDto | null>(null);
   const [buyerSignerName, setBuyerSignerName] = useState<string>('');
   const [buyerSignerPhone, setBuyerSignerPhone] = useState<string>('');
@@ -294,12 +341,14 @@ export default function BuyerManagementConsole() {
   const loadAllData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [backendContracts, backendRfqs, backendStops] = await Promise.all([
+      const [backendContracts, backendRfqs, backendStops, backendClaims] = await Promise.all([
         getBuyerB2bContractsApi().catch(() => []),
         getBuyerRfqsApi().catch(() => []),
         fleetDispatchApi.getBuyerDeliveries().catch(() => []),
+        getBuyerClaimsApi().catch(() => []),
       ]);
       setOutboundStops(Array.isArray(backendStops) ? backendStops : []);
+      setBuyerClaims(Array.isArray(backendClaims) ? backendClaims : []);
 
       const localContracts = getSyncContracts();
       const localRfqs = getSyncRfqs();
@@ -408,19 +457,33 @@ export default function BuyerManagementConsole() {
         if (bc.contractCode) {
           const code = bc.contractCode.trim().toUpperCase();
           const rawStatus = String((bc as any).status || bc.depositStatus || '').toUpperCase();
-          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || rawStatus === 'HARVESTED' || rawStatus === 'PACKAGING_APPROVED' || rawStatus === 'AT_HUB_QC' || rawStatus === 'IN_TRANSIT' || rawStatus === 'DELIVERED' || rawStatus === 'SETTLED' || bc.depositStatus === 'DEPOSIT_PAID';
+          const rawFulfillment = String((bc as any).fulfillmentStatus || (bc as any).fulfillment_status || '').toUpperCase();
+          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || rawStatus === 'ACTIVE' || bc.depositStatus === 'DEPOSIT_PAID' || Boolean(bc.depositPaidAt);
           const isApproved = Boolean(
             (bc as any).packagingApproved ||
             (bc as any).packaging_approved ||
             rawStatus === 'PACKAGING_APPROVED' ||
-            (typeof window !== 'undefined' && JSON.parse(localStorage.getItem('hona_packaging_approved_codes') || '[]').includes(code))
+            rawStatus === 'PICKUP_DISPATCHED' ||
+            rawStatus === 'IN_TRANSIT_HUB' ||
+            rawStatus === 'AT_HUB_QC' ||
+            rawStatus === 'QC_PASSED' ||
+            rawStatus === 'OUTBOUND_DISPATCHED' ||
+            rawStatus === 'IN_TRANSIT' ||
+            rawStatus === 'DELIVERED' ||
+            rawStatus === 'SETTLED' ||
+            rawStatus === 'COMPLETED'
           );
+          const fStep = (bc as any).fulfillmentStep || computeClientStep(rawStatus, bc.depositStatus, rawFulfillment);
+          const fName = (bc as any).fulfillmentStatusName || computeClientStepName(rawStatus, bc.depositStatus, rawFulfillment, isApproved);
+
           contractMap.set(code, {
             ...bc,
             packagingApproved: isApproved,
-            status: isApproved && rawStatus !== 'SETTLED' && rawStatus !== 'DELIVERED' && rawStatus !== 'AT_HUB_QC' && rawStatus !== 'IN_TRANSIT' ? 'PACKAGING_APPROVED' : bc.status,
-            depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : bc.depositStatus,
-            fulfillmentStep: (bc as any).fulfillmentStep || (rawStatus === 'SETTLED' ? 6 : rawStatus === 'DELIVERED' ? 5 : rawStatus === 'AT_HUB_QC' ? 4 : (isApproved || rawStatus === 'HARVESTED' || bc.actualHarvestWeightKg ? 2 : (isDepositPaid ? 2 : 1))),
+            status: rawStatus,
+            depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
+            fulfillmentStatus: rawFulfillment,
+            fulfillmentStep: fStep,
+            fulfillmentStatusName: fName,
           });
         }
       }
@@ -430,22 +493,22 @@ export default function BuyerManagementConsole() {
           const existing = contractMap.get(code)!;
           contractMap.set(code, {
             ...existing,
-            packagingApproved: Boolean(sc.packagingApproved || existing.packagingApproved),
-            actualHarvestWeightKg: sc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
-            grade1Ratio: sc.grade1Ratio || existing.grade1Ratio,
-            packageCount: sc.packageCount || existing.packageCount,
-            packageType: sc.packageType || existing.packageType,
-            qrCodeData: sc.qrCodeData || existing.qrCodeData,
-            farmPickupAddress: sc.farmPickupAddress || existing.farmPickupAddress,
-            fulfillmentStep: sc.fulfillmentStep || existing.fulfillmentStep,
-            fulfillmentStatusName: sc.fulfillmentStatusName || existing.fulfillmentStatusName,
-            pickupTruckPlate: sc.pickupTruckPlate || existing.pickupTruckPlate,
-            truckLicensePlate: sc.truckLicensePlate || sc.pickupTruckPlate || existing.truckLicensePlate,
-            pickupDriverName: sc.pickupDriverName || existing.pickupDriverName,
-            truckDriverName: sc.truckDriverName || sc.pickupDriverName || existing.truckDriverName,
-            pickupDriverPhone: sc.pickupDriverPhone || existing.pickupDriverPhone,
-            truckDriverPhone: sc.truckDriverPhone || sc.pickupDriverPhone || existing.truckDriverPhone,
-            truckTempCurrent: sc.truckTempCurrent || existing.truckTempCurrent,
+            packagingApproved: Boolean(existing.packagingApproved || sc.packagingApproved),
+            actualHarvestWeightKg: existing.actualHarvestWeightKg || sc.actualHarvestWeightKg,
+            grade1Ratio: existing.grade1Ratio || sc.grade1Ratio,
+            packageCount: existing.packageCount || sc.packageCount,
+            packageType: existing.packageType || sc.packageType,
+            qrCodeData: existing.qrCodeData || sc.qrCodeData,
+            farmPickupAddress: existing.farmPickupAddress || sc.farmPickupAddress,
+            fulfillmentStep: existing.fulfillmentStep || sc.fulfillmentStep,
+            fulfillmentStatusName: existing.fulfillmentStatusName || sc.fulfillmentStatusName,
+            pickupTruckPlate: existing.pickupTruckPlate || sc.pickupTruckPlate,
+            truckLicensePlate: existing.truckLicensePlate || sc.truckLicensePlate || sc.pickupTruckPlate,
+            pickupDriverName: existing.pickupDriverName || sc.pickupDriverName,
+            truckDriverName: existing.truckDriverName || sc.truckDriverName || sc.pickupDriverName,
+            pickupDriverPhone: existing.pickupDriverPhone || sc.pickupDriverPhone,
+            truckDriverPhone: existing.truckDriverPhone || sc.truckDriverPhone || sc.pickupDriverPhone,
+            truckTempCurrent: existing.truckTempCurrent || sc.truckTempCurrent,
           });
         } else {
           contractMap.set(code, {
@@ -500,8 +563,8 @@ export default function BuyerManagementConsole() {
             depositStatus: isDepPaid ? 'DEPOSIT_PAID' : existing.depositStatus,
             depositAmount: lc.depositAmount || existing.depositAmount,
             totalAmount: lc.totalAmount || existing.totalAmount,
-            fulfillmentStep: lc.fulfillmentStep || existing.fulfillmentStep || (isDepPaid ? 2 : 1),
-            fulfillmentStatusName: lc.fulfillmentStatusName || existing.fulfillmentStatusName,
+            fulfillmentStep: existing.fulfillmentStep || lc.fulfillmentStep || (isDepPaid ? 2 : 1),
+            fulfillmentStatusName: existing.fulfillmentStatusName || lc.fulfillmentStatusName,
             packagingApproved: Boolean(lc.packagingApproved || existing.packagingApproved),
             actualHarvestWeightKg: lc.actualHarvestWeightKg || existing.actualHarvestWeightKg,
             grade1Ratio: (lc as any).grade1Ratio || existing.grade1Ratio,
@@ -609,7 +672,52 @@ export default function BuyerManagementConsole() {
 
   useEffect(() => {
     void loadAllData();
+    const interval = setInterval(() => {
+      void loadAllData();
+    }, 4000);
+    return () => clearInterval(interval);
   }, [loadAllData]);
+
+  const selectedDeliveryStop = useMemo(
+    () => outboundStops.find((stop) => stop.id === selectedDeliveryStopId) || outboundStops[0] || null,
+    [outboundStops, selectedDeliveryStopId],
+  );
+
+  useEffect(() => {
+    if (outboundStops.length === 0) {
+      setSelectedDeliveryStopId(null);
+      return;
+    }
+    if (!outboundStops.some((stop) => stop.id === selectedDeliveryStopId)) {
+      const activeStop = outboundStops.find((stop) => !['BUYER_CONFIRMED', 'REJECTED', 'CANCELLED'].includes(stop.status));
+      setSelectedDeliveryStopId((activeStop || outboundStops[0]).id);
+    }
+  }, [outboundStops, selectedDeliveryStopId]);
+
+  useEffect(() => {
+    if (activeTab !== 'shipments' || !selectedDeliveryStop?.contractId) {
+      setDeliveryTelemetry([]);
+      return;
+    }
+    let cancelled = false;
+    const loadTelemetry = async () => {
+      setTelemetryLoading(true);
+      try {
+        const rows = await getBuyerTelemetryApi(selectedDeliveryStop.contractId);
+        if (!cancelled) setDeliveryTelemetry(rows);
+      } catch {
+        if (!cancelled) setDeliveryTelemetry([]);
+      } finally {
+        if (!cancelled) setTelemetryLoading(false);
+      }
+    };
+    void loadTelemetry();
+    const timer = window.setInterval(loadTelemetry, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeTab, selectedDeliveryStop?.contractId]);
 
   // 3. Kết nối kênh đồng bộ thời gian thực hai chiều với Nông dân & Quản trị viên
   // Kết hợp BroadcastChannel (0ms) + Smart Polling từ Server Shared Sync (2.0s) + Sự kiện chuyển Tab Focus
@@ -784,21 +892,35 @@ export default function BuyerManagementConsole() {
     }
   };
 
+  const openFinalPayment = async (contract: any) => {
+    try {
+      const quote = await getBuyerFinalPaymentQrApi(Number(contract.id));
+      setSelectedContractForFinalPayment({
+        ...contract,
+        ...quote,
+        remainingAmount: Number(quote.remainingAmount ?? quote.balanceDue ?? contract.remainingAmount ?? 0),
+      });
+    } catch (err) {
+      setNotification(err instanceof Error ? err.message : 'Chưa thể tạo thông tin thanh toán cuối.');
+    }
+  };
+
   const confirmFinalPayment = async (contract: any) => {
     try {
-      await api(`buyer/contracts/${contract.id}/final-payment/confirm`, 'POST', {}).catch(() => {});
+      await confirmBuyerFinalPaymentApi(Number(contract.id));
       buyerPayFinalSettlement(contract.contractCode || contract.id);
       b2bWebSocket.publish('/topic/contracts', {
         action: 'FINAL_PAID',
         contractCode: contract.contractCode,
-        status: 'DELIVERED',
+        status: 'SETTLED',
       });
       setSelectedContractForFinalPayment(null);
-      void loadAllData();
-      setNotification('Đã thanh toán 70% quyết toán còn lại thành công!');
+      await loadAllData();
+      setNotification('Đã thanh toán phần còn lại và hoàn tất giao dịch thành công!');
       setTimeout(() => setNotification(null), 4000);
-    } catch (err: any) {
-      alert(err?.message || 'Có lỗi khi xác nhận thanh toán.');
+    } catch (err) {
+      setNotification(err instanceof Error ? err.message : 'Có lỗi khi xác nhận thanh toán.');
+      throw err;
     }
   };
 
@@ -920,6 +1042,27 @@ export default function BuyerManagementConsole() {
     }
   };
 
+  const handleCreateClaim = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const damagedWeightKg = Number(claimDamagedWeight);
+    if (!claimContractId || !Number.isFinite(damagedWeightKg) || damagedWeightKg <= 0 || !claimCause.trim()) {
+      setNotification('Vui lòng chọn hợp đồng, nhập khối lượng và nội dung khiếu nại hợp lệ.');
+      return;
+    }
+    try {
+      setClaimSubmitting(true);
+      await createBuyerClaimApi({ contractId: claimContractId, damagedWeightKg, cause: claimCause.trim() });
+      setClaimDamagedWeight('');
+      setClaimCause('Hàng hóa hư hỏng hoặc không đạt chất lượng khi nhận');
+      await loadAllData();
+      setNotification('Đã gửi khiếu nại. Hợp đồng sẽ tạm khóa quyết toán cho tới khi Admin xử lý.');
+    } catch (err) {
+      setNotification(err instanceof Error ? err.message : 'Không thể gửi khiếu nại.');
+    } finally {
+      setClaimSubmitting(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-[#F5F6F2] flex flex-col items-center justify-center gap-3">
@@ -990,9 +1133,15 @@ export default function BuyerManagementConsole() {
             },
             {
               id: 'shipments',
-              label: 'Chuyến Xe Đang Giao',
+              label: 'Điều Phối Giao & Nhận',
               icon: Truck,
               badge: inTransitContracts.length,
+            },
+            {
+              id: 'claims',
+              label: 'Khiếu Nại & Bồi Thường',
+              icon: AlertTriangle,
+              badge: buyerClaims.filter((claim) => claim.status === 'OPEN').length,
             },
             { id: 'profile', label: 'Hồ Sơ & Kho Tiếp Nhận', icon: UserIcon },
           ].map((item) => {
@@ -1055,6 +1204,7 @@ export default function BuyerManagementConsole() {
               {activeTab === 'negotiations' && 'Đơn đàm phán giá sỉ'}
               {activeTab === 'contracts' && 'Hợp đồng & Đặt cọc'}
               {activeTab === 'shipments' && 'Theo dõi chuyến xe giao hàng'}
+              {activeTab === 'claims' && 'Khiếu nại & bồi thường'}
               {activeTab === 'profile' && 'Hồ sơ thương lái & kho tiếp nhận'}
             </strong>
           </div>
@@ -2080,12 +2230,12 @@ export default function BuyerManagementConsole() {
                           {isPaid && (
                             (() => {
                               const isFinalPaid = (c as any).finalPaidStatus === 'PAID' || (c as any).fulfillmentStep >= 6 || (c as any).status === 'SETTLED';
-                              const step = Number((c as any).fulfillmentStep || 1);
-                              if (!isFinalPaid && step >= 4) {
+                              const isDeliveryAccepted = String((c as any).status || '').toUpperCase() === 'DELIVERED';
+                              if (!isFinalPaid && isDeliveryAccepted) {
                                 return (
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedContractForFinalPayment(c as any)}
+                                    onClick={() => void openFinalPayment(c as any)}
                                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
                                     title="Quét mã VietQR thanh toán 70% giá trị hợp đồng còn lại"
                                   >
@@ -2182,9 +2332,9 @@ export default function BuyerManagementConsole() {
           {activeTab === 'shipments' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
-                <h3 className="font-heading font-black text-lg text-[#10542C]">Hành Trình Xe Tải Lạnh Giao Hàng</h3>
+                <h3 className="font-heading font-black text-lg text-[#10542C]">Điều Phối Giao & Hoàn Tất Đơn Hàng</h3>
                 <p className="text-xs text-[#6B7280] mt-0.5">
-                  Bản đồ lộ trình vận chuyển và phiếu ký nhận bàn giao nông sản tại kho
+                  Giám sát xuyên suốt từ lúc xuất kho, chuỗi lạnh, ePOD đến thanh toán và nhận hàng hoàn tất
                 </p>
               </div>
 
@@ -2194,18 +2344,57 @@ export default function BuyerManagementConsole() {
                 origin={{
                   lat: 11.9404,
                   lng: 108.4583,
-                  name: 'Trạm Tiếp Nhận Nông Sản Đức Trọng, Lâm Đồng',
+                  name: selectedDeliveryStop?.hubName || 'Trạm Tiếp Nhận Nông Sản Đức Trọng, Lâm Đồng',
                 }}
                 destination={{
                   lat: 10.8499,
                   lng: 106.7725,
-                  name: profileWarehouse || 'Kho Tiếp Nhận Nông Sản Thủ Đức, TP.HCM',
+                  name: selectedDeliveryStop?.deliveryAddressSnapshot || profileWarehouse || 'Kho Tiếp Nhận Nông Sản Thủ Đức, TP.HCM',
                 }}
-                truckCode="49C-198.86 (Xe thùng lạnh)"
-                temperature={4.2}
-                statusBadge="Xe đang di chuyển an toàn"
+                truckCode={selectedDeliveryStop?.vehiclePlate || 'Chưa phân xe'}
+                temperature={deliveryTelemetry[0]?.temperature || 4.2}
+                statusBadge={selectedDeliveryStop ? `Trạng thái: ${selectedDeliveryStop.status}` : 'Chưa có chuyến giao'}
                 height={340}
               />
+
+              {selectedDeliveryStop && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Chuyến đang theo dõi</p>
+                    <p className="mt-1 font-mono font-bold text-[#10542C]">{selectedDeliveryStop.tripCode || `STOP-${selectedDeliveryStop.id}`}</p>
+                    <p className="text-[11px] text-slate-500 mt-1">Xe {selectedDeliveryStop.vehiclePlate || 'chưa cập nhật'} · {selectedDeliveryStop.driverName || 'Chưa cập nhật tài xế'}</p>
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${deliveryTelemetry[0]?.alert ? 'border-rose-300 bg-rose-50' : 'border-emerald-200 bg-emerald-50/50'}`}>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Chuỗi lạnh gần nhất</p>
+                    <p className={`mt-1 text-xl font-black ${deliveryTelemetry[0]?.alert ? 'text-rose-700' : 'text-emerald-700'}`}>
+                      {telemetryLoading ? 'Đang tải...' : deliveryTelemetry.length > 0 ? `${deliveryTelemetry[0].temperature.toFixed(1)}°C` : 'Chưa có dữ liệu'}
+                    </p>
+                    <p className="text-[11px] text-slate-500">{deliveryTelemetry.length > 0 ? `Độ ẩm ${deliveryTelemetry[0].humidity.toFixed(0)}% · cập nhật mỗi 10 giây` : 'Thiết bị chưa gửi telemetry cho chuyến này'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhận hàng & ePOD</p>
+                    <p className="mt-1 font-bold text-slate-800">
+                      {selectedDeliveryStop.status === 'BUYER_CONFIRMED' ? 'Đã kiểm đếm và ký nhận' : selectedDeliveryStop.status === 'PENDING_BUYER_CONFIRMATION' ? 'Chờ Buyer ký nhận' : selectedDeliveryStop.status === 'ARRIVED' ? 'Xe đã đến kho' : 'Đang vận chuyển'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">Q4: {Number(selectedDeliveryStop.actualDeliveredWeightKg || selectedDeliveryStop.expectedWeightKg).toLocaleString()} kg</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Thanh toán cuối</p>
+                    <p className="mt-1 font-bold text-slate-800">
+                      {selectedDeliveryStop.contract?.status === 'SETTLED' ? 'Đã thanh toán & hoàn tất' : selectedDeliveryStop.status === 'BUYER_CONFIRMED' ? 'Sẵn sàng thanh toán' : 'Chờ ký nhận ePOD'}
+                    </p>
+                    {selectedDeliveryStop.status === 'BUYER_CONFIRMED' && selectedDeliveryStop.contract?.status !== 'SETTLED' && (
+                      <button
+                        type="button"
+                        onClick={() => void openFinalPayment({ ...selectedDeliveryStop.contract, id: selectedDeliveryStop.contractId, contractCode: selectedDeliveryStop.contractCode })}
+                        className="mt-2 px-3 py-1.5 rounded-lg bg-[#10542C] text-white text-[11px] font-bold hover:bg-[#0C3E20]"
+                      >
+                        Thanh toán phần còn lại
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Banner các biên bản ePOD cần Buyer ký xác nhận ngay */}
               {outboundStops.some((s) => s.status === 'PENDING_BUYER_CONFIRMATION' || s.status === 'ARRIVED') && (
@@ -2277,13 +2466,14 @@ export default function BuyerManagementConsole() {
                       return (
                         <div
                           key={`outbound-stop-${s.id}-${idx}`}
-                          className={`p-4 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                          onClick={() => setSelectedDeliveryStopId(s.id)}
+                          className={`p-4 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs cursor-pointer ${
                             isConfirmed
                               ? 'bg-emerald-50/30 border-emerald-200'
                               : isPending
                               ? 'bg-amber-50/30 border-amber-200 shadow-xs'
                               : 'bg-[#F9FAF8] border-[#EAECE8]'
-                          }`}
+                          } ${selectedDeliveryStopId === s.id ? 'ring-2 ring-[#10542C]/40 border-[#10542C]' : ''}`}
                         >
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
@@ -2333,6 +2523,19 @@ export default function BuyerManagementConsole() {
                                 <span>Đã Chốt Q4</span>
                               </span>
                             )}
+                            {isConfirmed && s.contract?.status !== 'SETTLED' && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void openFinalPayment({ ...s.contract, id: s.contractId, contractCode: s.contractCode });
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-[#10542C] hover:bg-[#0C3E20] text-white font-bold text-xs flex items-center gap-1.5"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                                <span>Thanh toán & hoàn tất</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -2364,6 +2567,102 @@ export default function BuyerManagementConsole() {
                     ))
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== TAB: KHIẾU NẠI & BỒI THƯỜNG ==================== */}
+          {activeTab === 'claims' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              <div>
+                <h3 className="font-heading font-black text-lg text-[#10542C]">Khiếu Nại Giao Nhận & Bồi Thường</h3>
+                <p className="text-xs text-[#6B7280] mt-0.5">Gửi biên bản khi hàng đang giao hoặc sau khi nhận; theo dõi quyết định và mã hoàn tiền/bồi thường từ Admin.</p>
+              </div>
+
+              <form onSubmit={handleCreateClaim} className="bg-white rounded-3xl p-6 border border-rose-200 shadow-xs space-y-4">
+                <div className="flex items-center gap-2 text-rose-800 font-black text-sm">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>Lập khiếu nại mới</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <label className="space-y-1.5">
+                    <span className="font-bold text-slate-700">Hợp đồng liên quan *</span>
+                    <select
+                      required
+                      value={claimContractId || ''}
+                      onChange={(event) => setClaimContractId(Number(event.target.value))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50"
+                    >
+                      <option value="">Chọn hợp đồng đang giao/đã nhận</option>
+                      {contracts
+                        .filter((contract) => ['IN_TRANSIT', 'DELIVERED'].includes(String((contract as any).status || '').toUpperCase()))
+                        .map((contract) => (
+                          <option key={contract.id} value={contract.id}>{contract.contractCode} · {contract.productName}</option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="font-bold text-slate-700">Khối lượng ảnh hưởng (kg) *</span>
+                    <input
+                      required
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={claimDamagedWeight}
+                      onChange={(event) => setClaimDamagedWeight(event.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50"
+                    />
+                  </label>
+                  <label className="space-y-1.5 md:col-span-1">
+                    <span className="font-bold text-slate-700">Mô tả sự cố *</span>
+                    <input
+                      required
+                      value={claimCause}
+                      onChange={(event) => setClaimCause(event.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50"
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-slate-500">Mỗi hợp đồng chỉ có một khiếu nại mở. Khiếu nại mở sẽ khóa thanh toán/giải ngân cuối.</p>
+                  <button disabled={claimSubmitting} type="submit" className="px-4 py-2.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold disabled:opacity-50">
+                    {claimSubmitting ? 'Đang gửi...' : 'Gửi khiếu nại'}
+                  </button>
+                </div>
+              </form>
+
+              <div className="space-y-3">
+                {buyerClaims.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-sm text-slate-500">Bạn chưa có khiếu nại nào.</div>
+                ) : buyerClaims.map((claim) => {
+                  const resolved = claim.status !== 'OPEN';
+                  return (
+                    <div key={claim.id} className={`bg-white rounded-3xl border p-5 shadow-xs space-y-3 ${resolved ? 'border-emerald-200' : 'border-rose-200'}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-[#10542C]">{claim.claimCode}</span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${claim.status === 'OPEN' ? 'bg-rose-100 text-rose-800' : claim.status === 'DISMISSED' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>{claim.status}</span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1">{claim.contractCode} · {claim.productName}</p>
+                        </div>
+                        <div className="text-right text-xs">
+                          <p className="text-slate-500">Giá trị yêu cầu</p>
+                          <strong className="text-rose-700">{formatVND(claim.compensationAmount)}</strong>
+                        </div>
+                      </div>
+                      <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                        <div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-500 block">Khối lượng ảnh hưởng</span><strong>{claim.damagedWeightKg.toLocaleString()} kg</strong></div>
+                        <div className="rounded-xl bg-slate-50 p-3 sm:col-span-2"><span className="text-slate-500 block">Nội dung</span><strong>{claim.cause}</strong></div>
+                      </div>
+                      {(claim.resolutionNote || claim.resolutionRef) && (
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900">
+                          <strong>Kết quả xử lý:</strong> {claim.resolutionNote || 'Đã xử lý'} {claim.resolutionRef ? `· Mã tham chiếu: ${claim.resolutionRef}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2497,14 +2796,15 @@ export default function BuyerManagementConsole() {
         <SepayPaymentModal
           isOpen={!!selectedContractForFinalPayment}
           onClose={() => setSelectedContractForFinalPayment(null)}
-          type="CONTRACT"
+          type="FINAL_PAYMENT"
           code={String(selectedContractForFinalPayment.contractCode || `HD-${selectedContractForFinalPayment.id}`)}
           amount={Number(selectedContractForFinalPayment.remainingAmount || Math.round((selectedContractForFinalPayment.totalAmount || 0) * 0.7))}
           title="Quét Mã VietQR Thanh Toán 70% Quyết Toán Hợp Đồng"
           recipientName={currentUser?.fullName || 'Thương Lái'}
           onManualConfirm={() => confirmFinalPayment(selectedContractForFinalPayment)}
           onSuccess={() => {
-            confirmFinalPayment(selectedContractForFinalPayment);
+            setSelectedContractForFinalPayment(null);
+            void loadAllData();
           }}
         />
       )}

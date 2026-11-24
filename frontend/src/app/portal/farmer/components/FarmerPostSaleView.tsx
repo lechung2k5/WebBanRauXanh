@@ -1,6 +1,7 @@
 'use client';
 
 import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, autoCompleteContractAfterTimeout, B2bSyncContract } from '@/services/b2bSyncService';
+import { formatDateVi } from '@/utils/formatters';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
@@ -80,7 +81,13 @@ export default function FarmerPostSaleView({
   const [refreshError, setRefreshError] = useState('');
   const [startingHarvest, setStartingHarvest] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
+
+  const isRefreshingRef = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const refreshContracts = async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     setRefreshing(true);
     try {
       const serverContracts = await getFarmerContractsFromServer().catch(() => []);
@@ -92,21 +99,12 @@ export default function FarmerPostSaleView({
 
       const merged = serverContracts.map((sc) => {
         const syncItem = syncMap.get(sc.contractCode?.trim().toUpperCase());
-        if (syncItem && syncItem.fulfillmentStep) {
-          const stepMap: Record<number, B2BContract['fulfillmentStatus']> = {
-            1: 'WAITING_HARVEST',
-            2: 'HARVESTING',
-            3: 'IN_TRANSIT',
-            4: 'HUB_DELIVERED',
-            6: 'COMPLETED',
-          };
-          const mappedStatus = stepMap[syncItem.fulfillmentStep];
-          return {
-            ...sc,
-            fulfillmentStatus: mappedStatus || sc.fulfillmentStatus,
-          };
-        }
-        return sc;
+        const resolvedStep = sc.fulfillmentStep || syncItem?.fulfillmentStep;
+        return {
+          ...sc,
+          fulfillmentStep: resolvedStep || sc.fulfillmentStep,
+          packagingApproved: Boolean(sc.packagingApproved || syncItem?.packagingApproved),
+        };
       });
 
       setContracts(merged.length > 0 ? merged : serverContracts);
@@ -115,16 +113,25 @@ export default function FarmerPostSaleView({
     } catch (error) {
       setRefreshError(error instanceof Error ? error.message : 'Không thể làm mới dữ liệu');
     } finally {
+      isRefreshingRef.current = false;
       setRefreshing(false);
     }
   };
+
   useEffect(() => {
     void refreshContracts();
-    const unsub = subscribeB2bSyncEvents(() => {
-      void refreshContracts();
+    const unsub = subscribeB2bSyncEvents((event) => {
+      if (!event || event.type === 'CONTRACTS_SYNCED' || event.type === 'CONTRACTS_STORAGE_SYNC' || event.type === 'LOT_UPDATED' || event.type === 'PRODUCT_UPDATED') {
+        return;
+      }
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        void refreshContracts();
+      }, 800);
     });
     return () => {
       unsub();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, []);
   const [subTab, setSubTab] = useState<'allocation' | 'coldchain' | 'epod' | 'trace'>('allocation');
@@ -213,11 +220,32 @@ export default function FarmerPostSaleView({
 
   useEffect(() => {
     const contract = contracts.find((item) => item.id === selectedContractId) || contracts[0];
-    const steps: Record<string, number> = {
-      WAITING_HARVEST: 1, HARVESTING: 2, IN_TRANSIT: 3,
-      HUB_DELIVERED: 4, COMPLETED: 6,
-    };
-    setFulfillmentStep(contract ? steps[contract.fulfillmentStatus] || 1 : 1);
+    if (!contract) return;
+
+    let step = contract.fulfillmentStep;
+    if (!step || step < 1 || step > 6) {
+      const s = String(contract.status || '').toUpperCase();
+      const fs = String(contract.fulfillmentStatus || '').toUpperCase();
+      const ds = String(contract.depositStatus || '').toUpperCase();
+      if (s === 'COMPLETED' || s === 'SETTLED' || fs === 'COMPLETED' || contract.settledAt || (contract as any).remainingPaymentStatus === 'PAID') {
+        step = 6;
+      } else if (s === 'DELIVERED' || s === 'IN_TRANSIT' || s === 'OUTBOUND_DISPATCHED' || fs === 'DELIVERED' || fs === 'IN_TRANSIT' || contract.epodSignedAt || (contract as any).epodDeliveredAt) {
+        step = 5;
+      } else if (s === 'QC_PASSED' || s === 'AT_HUB_QC' || s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || fs === 'HUB_DELIVERED' || (contract as any).hubInboundAt) {
+        step = 4;
+      } else if (s === 'PACKAGING_APPROVED' || s === 'HARVESTED' || fs === 'HARVESTED' || contract.packagingApproved) {
+        step = 3;
+      } else if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || fs === 'HARVESTING' || fs === 'WAITING_HARVEST') {
+        step = 2;
+      } else {
+        step = 1;
+      }
+    }
+    setFulfillmentStep(step);
+    if (step === 6) {
+      setAutoCompleteType('MANUAL');
+      setHoursRemaining(0);
+    }
   }, [contracts, selectedContractId]);
 
   // 3. EPOD STATE
@@ -1249,25 +1277,35 @@ export default function FarmerPostSaleView({
               </div>
 
               <div className="flex items-center gap-2">
-                {fulfillmentStep === 4 ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 shadow-2xs">
-                    <Timer className="w-3.5 h-3.5 text-amber-600 animate-pulse" aria-hidden="true" />
-                    Đã Thu Tiền • Chờ xác nhận (Còn {hoursRemaining}h)
-                  </span>
-                ) : fulfillmentStep === 5 ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 font-bold text-xs rounded-xl border border-blue-200 shadow-2xs">
-                    <UserCheck className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
-                    Khách Hàng Đã Xác Nhận Nghiệm Thu
-                  </span>
-                ) : fulfillmentStep === 6 ? (
+                {fulfillmentStep === 6 ? (
                   <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-200 shadow-2xs">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
                     Đơn Hoàn Tất • Quyết Toán Thành Công
                   </span>
+                ) : fulfillmentStep === 5 ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 font-bold text-xs rounded-xl border border-blue-200 shadow-2xs">
+                    <Truck className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
+                    Đang Giao Hàng Cho Buyer & Ký Nhận ePOD
+                  </span>
+                ) : fulfillmentStep === 4 ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-[#10542C] font-bold text-xs rounded-xl border border-emerald-200 shadow-2xs">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                    Đã Nhập Kho HoNa & Kiểm Định QC Đạt Chuẩn
+                  </span>
+                ) : fulfillmentStep === 3 ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-800 font-bold text-xs rounded-xl border border-purple-200 shadow-2xs">
+                    <Truck className="w-3.5 h-3.5 text-purple-600" aria-hidden="true" />
+                    Xe Lạnh Đang Vận Chuyển Về Trạm Hub
+                  </span>
+                ) : fulfillmentStep === 2 ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 shadow-2xs">
+                    <Package className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" />
+                    Đang Thu Hoạch & Đóng Gói Tại Vườn
+                  </span>
                 ) : (
                   <span className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-800 font-bold text-xs rounded-xl border border-gray-200">
-                    <Package className="w-3.5 h-3.5 text-gray-600" aria-hidden="true" />
-                    Đang chuẩn bị & xuất kho
+                    <Clock className="w-3.5 h-3.5 text-gray-600" aria-hidden="true" />
+                    Chờ Buyer Đặt Cọc 30% Escrow
                   </span>
                 )}
               </div>
@@ -1299,9 +1337,8 @@ export default function FarmerPostSaleView({
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 relative z-10">
                 {/* MỐC 1: ĐÃ TIẾP NHẬN */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 1"
+                  title="Mốc 1: Đã Tiếp Nhận & Nhận Cọc 30%"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
@@ -1316,7 +1353,9 @@ export default function FarmerPostSaleView({
                     <p className={`font-bold text-xs ${fulfillmentStep >= 1 ? 'text-gray-900' : 'text-gray-400'}`}>
                       1. Đã Tiếp Nhận
                     </p>
-                    <p className="text-[11px] text-gray-500 font-mono">10:00 • 28/10</p>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {currentSelectedContract?.depositPaidAt ? formatDateVi(currentSelectedContract.depositPaidAt) : (currentSelectedContract?.createdAt ? formatDateVi(currentSelectedContract.createdAt) : 'Đã cọc 30%')}
+                    </p>
                     <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                       Cọc Escrow 30%
                     </span>
@@ -1325,9 +1364,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 2: ĐÃ ĐÓNG GÓI */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 2"
+                  title="Mốc 2: Đã Thu Hoạch & Đóng Gói"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
@@ -1342,7 +1380,9 @@ export default function FarmerPostSaleView({
                     <p className={`font-bold text-xs ${fulfillmentStep >= 2 ? 'text-gray-900' : 'text-gray-400'}`}>
                       2. Đã Đóng Gói
                     </p>
-                    <p className="text-[11px] text-gray-500 font-mono">11:30 • 28/10</p>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {currentSelectedContract?.harvestedAt ? formatDateVi(currentSelectedContract.harvestedAt) : (fulfillmentStep >= 2 ? 'Đã thu hoạch' : 'Chờ thu hoạch')}
+                    </p>
                     <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                       KCS & Tem QR
                     </span>
@@ -1351,9 +1391,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 3: ĐẾN KHU VẬN CHUYỂN */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 3"
+                  title="Mốc 3: Xe Lạnh Gom Rẫy"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
@@ -1366,62 +1405,64 @@ export default function FarmerPostSaleView({
                   </div>
                   <div>
                     <p className={`font-bold text-xs ${fulfillmentStep >= 3 ? 'text-gray-900' : 'text-gray-400'}`}>
-                      3. Đến Khu Vận Chuyển
+                      3. Xe Gom Rẫy
                     </p>
-                    <p className="text-[11px] text-gray-500 font-mono">13:00 • 28/10</p>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {(currentSelectedContract as any)?.farmPickupSignedAt ? formatDateVi((currentSelectedContract as any).farmPickupSignedAt) : (fulfillmentStep >= 3 ? 'Bàn giao xe gom' : 'Chờ xe gom')}
+                    </p>
                     <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                       Bàn giao xe tải
                     </span>
                   </div>
                 </div>
 
-                {/* MỐC 4: ĐÃ GIAO & THU TIỀN */}
+                {/* MỐC 4: NHẬP KHO & QC ĐẠT */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 4 (Đã giao & thu tiền)"
+                  title="Mốc 4: Nhập Kho HoNa & Kiểm Định QC"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
                       fulfillmentStep >= 4
                         ? 'bg-[#10542C] text-white shadow-md'
                         : 'bg-gray-200 text-gray-500'
-                    } ${fulfillmentStep === 4 ? 'animate-pulse ring-4 ring-amber-300' : ''}`}
+                    } ${fulfillmentStep === 4 ? 'animate-pulse ring-4 ring-emerald-300' : ''}`}
                   >
                     {fulfillmentStep > 4 ? <Check className="w-4 h-4" /> : '4'}
                   </div>
                   <div>
                     <p className={`font-bold text-xs ${fulfillmentStep >= 4 ? 'text-gray-900' : 'text-gray-400'}`}>
-                      4. Đã Giao & Thu Tiền
+                      4. Nhập Kho & QC
                     </p>
-                    <p className="text-[11px] text-gray-500 font-mono">17:45 • 28/10</p>
-                    <span className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                      Đã ký nhận & Thu 100%
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {currentSelectedContract?.hubInboundAt || (currentSelectedContract as any)?.qcPassedAt ? formatDateVi(currentSelectedContract?.hubInboundAt || (currentSelectedContract as any)?.qcPassedAt) : (fulfillmentStep >= 4 ? 'Đạt chuẩn KCS' : 'Chờ nhập kho')}
+                    </p>
+                    <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      Kho mát HoNa
                     </span>
                   </div>
                 </div>
 
-                {/* MỐC 5: KHÁCH XÁC NHẬN */}
+                {/* MỐC 5: GIAO HÀNG & EPOD */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 5 (Khách xác nhận)"
+                  title="Mốc 5: Giao Hàng & Ký ePOD"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
                       fulfillmentStep >= 5
                         ? 'bg-[#10542C] text-white shadow-emerald-900/20'
                         : 'bg-gray-200 text-gray-500'
-                    }`}
+                    } ${fulfillmentStep === 5 ? 'animate-pulse ring-4 ring-blue-300' : ''}`}
                   >
                     {fulfillmentStep > 5 ? <Check className="w-4 h-4" /> : '5'}
                   </div>
                   <div>
                     <p className={`font-bold text-xs ${fulfillmentStep >= 5 ? 'text-gray-900' : 'text-gray-400'}`}>
-                      5. Khách Xác Nhận
+                      5. Giao Hàng & ePOD
                     </p>
                     <p className="text-[11px] text-gray-500 font-mono">
-                      {fulfillmentStep >= 5 ? '18:15 • 28/10' : 'Chờ xác nhận'}
+                      {currentSelectedContract?.epodSignedAt || (currentSelectedContract as any)?.epodDeliveredAt ? formatDateVi(currentSelectedContract?.epodSignedAt || (currentSelectedContract as any)?.epodDeliveredAt) : (fulfillmentStep >= 5 ? 'Đang giao nhận' : 'Chờ xuất bến')}
                     </p>
                     <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                       Nghiệm thu nông sản
@@ -1431,9 +1472,8 @@ export default function FarmerPostSaleView({
 
                 {/* MỐC 6: HOÀN TẤT ĐƠN */}
                 <div
-                  
                   className="flex flex-col items-center text-center gap-2 cursor-default p-2 rounded-2xl transition"
-                  title="Nhấn để xem trạng thái Bước 6 (Đơn Hoàn Tất)"
+                  title="Mốc 6: Hoàn Tất Đơn & Quyết Toán"
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ring-4 ring-white transition-all ${
@@ -1449,7 +1489,7 @@ export default function FarmerPostSaleView({
                       6. Hoàn Tất Đơn
                     </p>
                     <p className="text-[11px] text-gray-500 font-mono">
-                      {fulfillmentStep === 6 ? 'Tất toán thành công' : 'Giải ngân ví'}
+                      {currentSelectedContract?.settledAt || (currentSelectedContract as any)?.remainingPaidAt ? formatDateVi(currentSelectedContract?.settledAt || (currentSelectedContract as any)?.remainingPaidAt) : (fulfillmentStep === 6 ? 'Tất toán thành công' : 'Chờ tất toán')}
                     </p>
                     <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                       Tiền về STK
@@ -1469,36 +1509,34 @@ export default function FarmerPostSaleView({
               {/* TRẠNG THÁI HIỆN TẠI & NÚT MÔ PHỎNG CHO NHÓM ĐỒ ÁN DEMO */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-200/60">
                 <div className="flex items-center gap-2">
-                  {fulfillmentStep === 4 && (
-                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900 bg-amber-100/70 px-3 py-1.5 rounded-xl border border-amber-300">
-                      <Clock className="w-4 h-4 text-amber-700 animate-spin" />
+                  {fulfillmentStep === 6 && (
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-900 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-300">
+                      <Award className="w-4 h-4 text-emerald-700" />
                       <span>
-                        Đồng hồ bảo hộ: Còn <strong>{hoursRemaining} giờ</strong> &bull; Tự động kích hoạt Hoàn Tất nếu người mua quên bấm
+                        Đã hoàn tất hợp đồng thành công theo xác nhận của bên mua &bull; Quyết toán 70% còn lại đã giải ngân về tài khoản ngân hàng nhà vườn.
                       </span>
                     </div>
                   )}
                   {fulfillmentStep === 5 && (
                     <div className="flex items-center gap-2 text-xs font-semibold text-blue-900 bg-blue-100/70 px-3 py-1.5 rounded-xl border border-blue-300">
-                      <UserCheck className="w-4 h-4 text-blue-700" />
+                      <Truck className="w-4 h-4 text-blue-700" />
                       <span>
-                        Người mua đã kiểm tra thực tế và bấm <strong>&quot;Xác nhận nhận hàng đạt chuẩn&quot;</strong>
+                        Xe lạnh Outbound đang giao hàng đến kho người mua. Khách mua kiểm tra và ký nhận biên bản điện tử ePOD.
                       </span>
                     </div>
                   )}
-                  {fulfillmentStep === 6 && (
+                  {fulfillmentStep === 4 && (
                     <div className="flex items-center gap-2 text-xs font-semibold text-emerald-900 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-300">
-                      <Award className="w-4 h-4 text-emerald-700" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700" />
                       <span>
-                        {autoCompleteType === 'AUTO_48H'
-                          ? 'Đã tự động chuyển Hoàn Tất do quá hạn 48 giờ quy định (Người mua không khiếu nại)'
-                          : 'Đã hoàn tất hợp đồng thành công theo xác nhận của bên mua'} &bull; Doanh thu đã vào ví
+                        Nông sản đã nhập kho bảo quản mát HoNa Fresh ({(currentSelectedContract as any)?.hubWarehouseZone || 'Zone A'}) và đạt chứng nhận kiểm định QC (Brix, Nitrat). Sẵn sàng điều xe Outbound giao Buyer.
                       </span>
                     </div>
                   )}
                   {fulfillmentStep < 4 && (
                     <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-300">
                       <Truck className="w-4 h-4 text-gray-600" />
-                      <span>Đơn hàng đang trong tiến trình chuẩn bị nông sản và xuất kho vận chuyển</span>
+                      <span>Đơn hàng đang trong tiến trình chuẩn bị nông sản và thu gom vận chuyển</span>
                     </div>
                   )}
                 </div>
@@ -1584,17 +1622,39 @@ export default function FarmerPostSaleView({
                   )}
 
                   {fulfillmentStep === 4 && (
-                    <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                      <span>Chờ khách mua kiểm tra và ký nhận hàng</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Nông sản đã nhập kho HoNa Fresh & QC kiểm định đạt chuẩn · Chờ điều phối Outbound</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFulfillmentStep(5);
+                          updateContractFulfillmentStep(selectedContractId, 5);
+                          setContracts((prev) =>
+                            prev.map((c) =>
+                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'IN_TRANSIT', fulfillmentStep: 5 } : c
+                            )
+                          );
+                        }}
+                        className="px-3.5 py-1.5 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>Xem Chặng Outbound Giao Buyer (Tiến Mốc 5)</span>
+                      </button>
                     </div>
                   )}
 
                   {fulfillmentStep === 5 && (
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Khách mua đã ký nhận hàng thành công! Đang xử lý chuyển khoản 70% còn lại</span>
+                      <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5 text-blue-600" />
+                        <span>
+                          {currentSelectedContract?.epodSignedAt
+                            ? 'Buyer đã ký nhận biên bản điện tử ePOD thành công! Đang xử lý chuyển khoản 70% còn lại'
+                            : 'Xe lạnh Outbound đang giao hàng đến kho Buyer · Chờ ký biên bản điện tử ePOD'}
+                        </span>
                       </div>
                       <button
                         type="button"
@@ -1603,7 +1663,7 @@ export default function FarmerPostSaleView({
                           updateContractFulfillmentStep(selectedContractId, 6);
                           setContracts((prev) =>
                             prev.map((c) =>
-                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED' } : c
+                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED', fulfillmentStep: 6 } : c
                             )
                           );
                           void updateContractFulfillmentStatusApi(selectedContractId, 'COMPLETED').catch(() => {});
@@ -1611,7 +1671,7 @@ export default function FarmerPostSaleView({
                         className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                       >
                         <Award className="w-4 h-4" />
-                        <span>✓ Xác Nhận Quyết Toán Tiền Về Tài Khoản (Hoàn Tất Đơn Mốc 6)</span>
+                        <span>✓ Xác Nhận Quyết Toán Tiền Về Tài Khoản (Tiến Mốc 6)</span>
                       </button>
                     </div>
                   )}
@@ -1634,7 +1694,7 @@ export default function FarmerPostSaleView({
                   Hình Thức Thu Tiền:
                 </span>
                 <p className="font-bold text-gray-900 mt-0.5 tabular-nums">
-                  {currentSelectedContract?.depositStatus === 'DEPOSIT_PAID'
+                  {currentSelectedContract?.depositStatus === 'DEPOSIT_PAID' || currentSelectedContract?.depositPaidAt
                     ? 'Đã nhận cọc 30% bảo chứng'
                     : 'Chưa xác nhận tiền cọc'}
                 </p>
@@ -1656,7 +1716,9 @@ export default function FarmerPostSaleView({
                   Quyết Toán Về Ví Tiền:
                 </span>
                 <p className="font-bold text-[#10542C] mt-0.5 tabular-nums">
-                  {currentSelectedContract?.settlementId ? 'Đã có quyết toán' : 'Chưa có quyết toán được xác nhận'}
+                  {currentSelectedContract?.settlementId || (currentSelectedContract as any)?.settledAt || (currentSelectedContract as any)?.remainingPaymentStatus === 'PAID' || fulfillmentStep === 6
+                    ? `Đã quyết toán & giải ngân (${formatVnd(currentSelectedContract?.remainingAmount || (currentSelectedContract?.totalAmount ? currentSelectedContract.totalAmount * 0.7 : 0))})`
+                    : `Chờ tất toán sau khi giao hàng (${formatVnd(currentSelectedContract?.remainingAmount || (currentSelectedContract?.totalAmount ? currentSelectedContract.totalAmount * 0.7 : 0))})`}
                 </p>
                 <p className="text-[11px] text-gray-500 mt-0.5">Xem số tiền thực nhận tại mục quyết toán</p>
               </div>

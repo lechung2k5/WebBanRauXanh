@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -109,7 +109,7 @@ import FarmerDashboardView, { formatRfqTimestamp } from './components/FarmerDash
 import FarmerAiChatView from './components/FarmerAiChatView';
 import FarmerPostSaleView from './components/FarmerPostSaleView';
 import FarmerOrderManagementView from './components/FarmerOrderManagementView';
-import { farmerRespondRfq, subscribeB2bSyncEvents, buyerPayDeposit } from '@/services/b2bSyncService';
+import { farmerRespondRfq, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 import { b2bWebSocket } from '@/services/websocketService';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import B2BChatModal from '@/components/chat/B2BChatModal';
@@ -679,6 +679,17 @@ function FarmerPortalContent() {
     }
   };
 
+  const syncDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedLoadPortalData = useCallback(() => {
+    if (syncDebounceTimerRef.current) {
+      clearTimeout(syncDebounceTimerRef.current);
+    }
+    syncDebounceTimerRef.current = setTimeout(() => {
+      void loadPortalData();
+    }, 400);
+  }, []);
+
   useEffect(() => {
     // Tự động xóa các cache giao dịch mock cũ nếu còn tồn đọng trong localStorage của trình duyệt
     if (typeof window !== 'undefined') {
@@ -697,25 +708,26 @@ function FarmerPortalContent() {
     setCurrentUser(getStoredUser());
     loadPortalData();
 
-    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ hoặc Admin duyệt/sửa lô hàng
+    // Tự động đồng bộ ngay khi người mua gửi yêu cầu đàm phán RFQ hoặc Admin duyệt/sửa lô hàng (có debounce để tránh bão request)
     const handleRfqUpdate = (e?: Event) => {
-      console.log('Farmer Portal: Sync event received, reloading data...', e);
-      loadPortalData();
+      console.log('Farmer Portal: Sync event received, debounced reload...', e);
+      debouncedLoadPortalData();
     };
     window.addEventListener('b2b_rfq_updated', handleRfqUpdate);
     window.addEventListener('b2b_lot_updated', handleRfqUpdate);
     window.addEventListener('b2b_sync_event', handleRfqUpdate);
     window.addEventListener('storage', handleRfqUpdate);
     window.addEventListener('focus', handleRfqUpdate);
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        handleRfqUpdate();
+        debouncedLoadPortalData();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // ĐỒNG BỘ REALTIME WEBSOCKET STOMP (Thay thế hoàn toàn setInterval polling gây spam log)
     const unsubWsLots = b2bWebSocket.subscribeLots((payload) => {
-      loadPortalData();
+      debouncedLoadPortalData();
       if (payload?.action === 'LOT_APPROVED' || payload?.action === 'APPROVED') {
         const lotCode = payload?.lot?.lotCode || payload?.lotCode || 'Lô nông sản';
         setRealtimeNotification(`✓ Lô hàng ${lotCode} đã được Quản trị viên duyệt mở bán sỉ thành công!`);
@@ -724,22 +736,17 @@ function FarmerPortalContent() {
     });
 
     const unsubWsRfqs = b2bWebSocket.subscribeRfqs((payload) => {
-      loadPortalData();
+      debouncedLoadPortalData();
       const rfqCode = payload?.rfqCode || payload?.rfq?.rfqCode || '';
       setRealtimeNotification(`📩 Có đề xuất đàm phán giá sỉ (RFQ ${rfqCode}) vừa được gửi đến!`);
       setTimeout(() => setRealtimeNotification(null), 5000);
     });
 
     const unsubWsContracts = b2bWebSocket.subscribeContracts((payload) => {
-      loadPortalData();
+      debouncedLoadPortalData();
       const contractCode = payload?.contractCode || payload?.contract?.contractCode || payload?.contract?.contract_code || '';
       const action = payload?.action || payload?.contract?.status || payload?.contract?.deposit_status || '';
       if (action === 'DEPOSIT_PAID') {
-        if (contractCode) {
-          try {
-            buyerPayDeposit(contractCode);
-          } catch {}
-        }
         setRealtimeNotification(`Thương lái đã nộp cọc 30% cho hợp đồng ${contractCode}! Bạn có thể bắt đầu thu hoạch.`);
       } else if (action === 'EPOD_SIGNED' || action === 'DELIVERED') {
         setRealtimeNotification(`Hợp đồng ${contractCode} đã được ký nhận giao hàng!`);
@@ -755,15 +762,15 @@ function FarmerPortalContent() {
       if (event.type === 'RFQ_CREATED') {
         setRealtimeNotification('Có thương lái vừa gửi yêu cầu đàm phán giá mới!');
         setTimeout(() => setRealtimeNotification(null), 5000);
-        loadPortalData();
+        debouncedLoadPortalData();
       } else if (event.type === 'DEPOSIT_PAID') {
         setRealtimeNotification('Thương lái đã nộp cọc 30% bảo chứng thành công! Bạn có thể bắt đầu thu hoạch.');
         setTimeout(() => setRealtimeNotification(null), 5000);
-        loadPortalData();
+        debouncedLoadPortalData();
       } else if (event.type === 'EPOD_SIGNED') {
         setRealtimeNotification('Thương lái đã ký nhận hàng! Khoản thanh toán 70% đã được giải ngân về ví.');
         setTimeout(() => setRealtimeNotification(null), 5000);
-        loadPortalData();
+        debouncedLoadPortalData();
       } else if (event.type === 'RFQ_ACCEPTED_BY_BUYER' || event.type === 'ACCEPTED') {
         const payload: any = event.payload;
         const acceptedRfq = payload?.rfq;
@@ -817,7 +824,7 @@ function FarmerPortalContent() {
           });
         }
 
-        loadPortalData();
+        debouncedLoadPortalData();
       } else if (event.type === 'LOT_STATUS_UPDATED') {
         const payload: any = event.payload;
         const status = payload?.status || payload?.lot?.status;
@@ -869,10 +876,13 @@ function FarmerPortalContent() {
           setTimeout(() => setRealtimeNotification(null), 6000);
         }
       }
-      loadPortalData();
+      debouncedLoadPortalData();
     });
 
     return () => {
+      if (syncDebounceTimerRef.current) {
+        clearTimeout(syncDebounceTimerRef.current);
+      }
       unsubWsLots();
       unsubWsRfqs();
       unsubWsContracts();
@@ -881,9 +891,10 @@ function FarmerPortalContent() {
       window.removeEventListener('b2b_sync_event', handleRfqUpdate);
       window.removeEventListener('storage', handleRfqUpdate);
       window.removeEventListener('focus', handleRfqUpdate);
+      document.removeEventListener('visibilitychange', handleVisibility);
       unsubscribeSync();
     };
-  }, []);
+  }, [debouncedLoadPortalData]);
 
   // Danh sách các Nông Dân / HTX thực tế trên sàn
   const SAMPLE_FARMERS = [

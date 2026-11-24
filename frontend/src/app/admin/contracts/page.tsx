@@ -429,8 +429,13 @@ export default function AdminContractsPage() {
         );
         const isDepositPaid = Boolean(
           sc?.depositStatus === 'DEPOSIT_PAID' ||
+          (sc?.depositStatus as string) === 'PAID' ||
+          (sc as any)?.isDepositPaid ||
+          str(row.deposit_status) === 'DEPOSIT_PAID' ||
+          str(row.deposit_status) === 'PAID' ||
           str(row.status) === 'DEPOSIT_PAID' ||
-          row.deposit_received
+          Number(row.deposit_received || 0) > 0 ||
+          Boolean(row.deposit_paid_at)
         );
         const isHarvestDone = Boolean(
           (sc as any)?.isHarvestDone ||
@@ -450,10 +455,10 @@ export default function AdminContractsPage() {
           finalStatus = serverStatus || serverFulfillment || row.status;
         } else if (isPkgApproved) {
           finalStatus = 'PACKAGING_APPROVED';
-        } else if (isDepositPaid && str(row.status) === 'AGREED') {
-          finalStatus = 'DEPOSIT_PAID';
-        } else if (isHarvestDone && str(row.status) === 'DEPOSIT_PAID') {
+        } else if (isHarvestDone && (isDepositPaid || str(row.status) === 'DEPOSIT_PAID' || str(row.status) === 'HARVESTED')) {
           finalStatus = 'HARVESTED';
+        } else if (isDepositPaid) {
+          finalStatus = 'DEPOSIT_PAID';
         }
 
         const computedFulfillStep = isServerAdvanced
@@ -464,10 +469,15 @@ export default function AdminContractsPage() {
           ? (row.fulfillment_status || finalStatus)
           : (sc?.fulfillmentStatusName || (isPkgApproved ? 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)' : row.fulfillment_status));
 
+        const resolvedDepositReceived = isDepositPaid
+          ? (Number(row.deposit_received || 0) > 0 ? row.deposit_received : (sc?.depositAmount || row.deposit_30_amount || (row as any).deposit_amount || 0))
+          : (row.deposit_received || 0);
+
         if (sc) {
           return {
             ...row,
-            deposit_received: isDepositPaid ? (row.deposit_received || sc.depositAmount || row.deposit_30_amount) : row.deposit_received,
+            deposit_received: resolvedDepositReceived,
+            deposit_status: isDepositPaid ? 'DEPOSIT_PAID' : (row.deposit_status || sc.depositStatus),
             status: finalStatus,
             fulfillment_step: computedFulfillStep,
             fulfillment_status: computedFulfillStatus,
@@ -485,6 +495,8 @@ export default function AdminContractsPage() {
         }
         return {
           ...row,
+          deposit_received: resolvedDepositReceived,
+          deposit_status: isDepositPaid ? 'DEPOSIT_PAID' : row.deposit_status,
           status: finalStatus,
           packaging_approved: isPkgApproved,
           fulfillment_step: computedFulfillStep,
@@ -529,8 +541,9 @@ export default function AdminContractsPage() {
             shipping_fee: sc.shippingFee || 0,
             total_amount: sc.totalAmount || ((sc.goodsAmount || (sc.quantityKg * sc.agreedPricePerKg)) + (sc.shippingFee || 0)),
             deposit_30_amount: sc.depositAmount,
-            deposit_received: sc.depositStatus === 'DEPOSIT_PAID' ? sc.depositAmount : 0,
-            status: isPkgApproved ? 'PACKAGING_APPROVED' : (isHarvestDone ? 'HARVESTED' : (sc.depositStatus === 'DEPOSIT_PAID' ? 'DEPOSIT_PAID' : 'AGREED')),
+            deposit_received: (sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? sc.depositAmount : 0,
+            deposit_status: (sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+            status: isPkgApproved ? 'PACKAGING_APPROVED' : (isHarvestDone ? 'HARVESTED' : ((sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? 'DEPOSIT_PAID' : 'AGREED')),
             fulfillment_step: sc.fulfillmentStep,
             fulfillment_status: isPkgApproved ? 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)' : (isHarvestDone ? 'HARVESTED' : sc.fulfillmentStep > 2 ? 'IN_TRANSIT' : 'WAITING_HARVEST'),
             actual_harvest_weight_kg: sc.actualHarvestWeightKg,
@@ -992,7 +1005,13 @@ export default function AdminContractsPage() {
                           {(() => {
                             if (str(row.status) === 'SETTLED') return null;
 
-                            const isDepositPaid = str(row.status) === 'DEPOSIT_PAID';
+                            const isDepositPaid = Boolean(
+                              str(row.status) === 'DEPOSIT_PAID' ||
+                              str(row.deposit_status) === 'DEPOSIT_PAID' ||
+                              str(row.deposit_status) === 'PAID' ||
+                              Number(row.deposit_received || 0) > 0 ||
+                              Boolean(row.deposit_paid_at)
+                            );
                             const rawFulfill = String(row.fulfillment_status || '').toUpperCase();
                             const isHarvestDone = Boolean(
                               row.is_harvest_done ||
@@ -1416,6 +1435,17 @@ export default function AdminContractsPage() {
           const deliveryAddr = cleanStr(detail.delivery_address) || cleanStr(sc?.deliveryAddress) || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM';
           const rfqCode = cleanStr(detail.rfq_code) || cleanStr(sc?.rfqCode) || (detail.contract_code ? `RFQ-${String(detail.contract_code).replace(/^HD-/, '')}` : 'RFQ-8915FD6E');
 
+          const isDetailDepositPaid = Boolean(
+            Number(detail.deposit_received || 0) > 0 ||
+            str(detail.deposit_status) === 'DEPOSIT_PAID' ||
+            str(detail.deposit_status) === 'PAID' ||
+            str(sc?.depositStatus) === 'DEPOSIT_PAID' ||
+            str(sc?.depositStatus) === 'PAID' ||
+            (sc as any)?.isDepositPaid ||
+            Boolean(detail.deposit_paid_at) ||
+            ['DEPOSIT_PAID', 'HARVESTED', 'PACKAGING_APPROVED', 'PICKUP_DISPATCHED', 'IN_TRANSIT_HUB', 'AT_HUB_QC', 'OUTBOUND_DISPATCHED', 'DELIVERED', 'SETTLED'].includes(str(detail.status))
+          );
+
           return {
             id: Number(detail.id),
             contractCode: str(detail.contract_code),
@@ -1441,8 +1471,8 @@ export default function AdminContractsPage() {
             shippingOption: str(detail.shipping_option || sc?.shippingOption || 'CROSS_DOCKING_HUB'),
             depositAmount: Number(detail.deposit_30_amount || detail.deposit_amount || sc?.depositAmount || 0),
             remainingAmount: Number(detail.remaining_70_amount || detail.remaining_amount || sc?.remainingAmount || 0),
-            depositStatus: str(detail.deposit_received ? 'DEPOSIT_PAID' : (detail.deposit_status || sc?.depositStatus || detail.status)),
-            isDepositPaid: Boolean(detail.deposit_received || detail.status === 'DEPOSIT_PAID' || detail.status === 'HARVESTED' || detail.status === 'PICKUP_DISPATCHED' || detail.status === 'IN_TRANSIT_HUB'),
+            depositStatus: str(isDetailDepositPaid ? 'DEPOSIT_PAID' : (detail.deposit_status || sc?.depositStatus || detail.status)),
+            isDepositPaid: isDetailDepositPaid,
             status: str(detail.status || sc?.fulfillmentStatusName),
             fulfillmentStatusName: str(detail.fulfillment_status || sc?.fulfillmentStatusName),
             deliveryAddress: deliveryAddr,

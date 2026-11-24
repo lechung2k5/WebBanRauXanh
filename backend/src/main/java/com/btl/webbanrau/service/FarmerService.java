@@ -389,16 +389,21 @@ public class FarmerService {
                     .contractCode(contractCode)
                     .rfq(rfq)
                     .harvestLot(lot)
+                    .accountingLotId(lot.getId())
                     .farmer(lot.getFarmer())
                     .buyer(rfq.getBuyer())
                     .buyerName(rfq.getBuyerName())
                     .buyerPhone(rfq.getBuyerPhone())
                     .quantity(quantity)
                     .quantityKg(BigDecimal.valueOf(quantity))
+                    .offeredWeightKg(BigDecimal.valueOf(quantity))
                     .unitPrice(unitPrice)
                     .agreedPricePerKg(unitPrice)
+                    .offeredPricePerKg(unitPrice)
                     .totalAmount(totalAmount)
+                    .totalGoodsAmount(totalAmount)
                     .depositAmount(depositAmount)
+                    .deposit30Amount(depositAmount)
                     .status("AGREED")
                     .depositStatus("PENDING_DEPOSIT")
                     .fulfillmentStatus("WAITING_HARVEST")
@@ -1002,13 +1007,21 @@ public class FarmerService {
                     .contractCode(contractCode)
                     .rfq(savedRfq)
                     .harvestLot(lot)
+                    .accountingLotId(lot.getId())
                     .farmer(farmer)
                     .buyerName(request.getBuyerName())
                     .buyerPhone(request.getBuyerPhone())
                     .quantity(quantity)
+                    .quantityKg(BigDecimal.valueOf(quantity))
+                    .offeredWeightKg(BigDecimal.valueOf(quantity))
                     .unitPrice(unitPrice)
+                    .agreedPricePerKg(unitPrice)
+                    .offeredPricePerKg(unitPrice)
                     .totalAmount(totalAmount)
+                    .totalGoodsAmount(totalAmount)
                     .depositAmount(depositAmount)
+                    .deposit30Amount(depositAmount)
+                    .status("DEPOSIT_PAID")
                     .depositStatus("DEPOSIT_PAID")
                     .fulfillmentStatus("WAITING_HARVEST")
                     .depositPaidAt(LocalDateTime.now())
@@ -1432,6 +1445,73 @@ public class FarmerService {
                 .build();
     }
 
+    public static int computeFulfillmentStep(String status, String depositStatus, String fulfillmentStatus) {
+        String s = (status != null ? status : "").toUpperCase();
+        String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
+        String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+
+        if (s.equals("COMPLETED") || s.equals("SETTLED") || fs.equals("COMPLETED")) {
+            return 6;
+        }
+        if (s.equals("DELIVERED") || s.equals("IN_TRANSIT") || s.equals("OUTBOUND_DISPATCHED") || fs.equals("DELIVERED") || fs.equals("IN_TRANSIT")) {
+            return 5;
+        }
+        if (s.equals("QC_PASSED") || s.equals("AT_HUB_QC") || s.equals("IN_TRANSIT_HUB") || s.equals("PICKUP_DISPATCHED") || fs.equals("HUB_DELIVERED")) {
+            return 4;
+        }
+        if (s.equals("PACKAGING_APPROVED") || s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+            return 3;
+        }
+        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID") || fs.equals("HARVESTING") || fs.equals("WAITING_HARVEST")) {
+            return 2;
+        }
+        return 1;
+    }
+
+    public static String computeFulfillmentStatusName(String status, String depositStatus, String fulfillmentStatus, Boolean packagingApproved) {
+        String s = (status != null ? status : "").toUpperCase();
+        String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
+        String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+
+        if (s.equals("COMPLETED") || fs.equals("COMPLETED")) {
+            return "Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi";
+        }
+        if (s.equals("SETTLED")) {
+            return "Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân";
+        }
+        if (s.equals("DELIVERED") || fs.equals("DELIVERED")) {
+            return "Đã Giao Tới Kho Buyer · Chờ Buyer Nghiệm Thu và Ký ePOD";
+        }
+        if (s.equals("IN_TRANSIT") || fs.equals("IN_TRANSIT")) {
+            return "Xe Lạnh Đang Vận Chuyển Tới Kho Buyer";
+        }
+        if (s.equals("OUTBOUND_DISPATCHED")) {
+            return "Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)";
+        }
+        if (s.equals("QC_PASSED")) {
+            return "Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất";
+        }
+        if (s.equals("AT_HUB_QC") || fs.equals("HUB_DELIVERED")) {
+            return "Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)";
+        }
+        if (s.equals("IN_TRANSIT_HUB")) {
+            return "Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Trạm Hub";
+        }
+        if (s.equals("PICKUP_DISPATCHED")) {
+            return "Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng";
+        }
+        if (s.equals("PACKAGING_APPROVED") || Boolean.TRUE.equals(packagingApproved)) {
+            return "BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom";
+        }
+        if (s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+            return "Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì";
+        }
+        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID")) {
+            return "Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói";
+        }
+        return "Chờ Buyer Đặt Cọc 30% Escrow";
+    }
+
     private B2bContractResponse mapToContractResponse(B2bContract c) {
         boolean hasQc = qcInspectionRepository.findByContract(c).isPresent();
         User farmer = c.getFarmer();
@@ -1451,6 +1531,9 @@ public class FarmerService {
         String farmerAddress = profile != null && profile.getLocation() != null ? profile.getLocation() : (farmer != null ? farmer.getAddress() : "Đà Lạt, Lâm Đồng");
         String img = c.getHarvestLot() != null ? c.getHarvestLot().getImageUrl() : "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600";
 
+        int step = computeFulfillmentStep(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus());
+        String stepName = computeFulfillmentStatusName(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus(), c.getPackagingApproved());
+
         return B2bContractResponse.builder()
                 .id(c.getId())
                 .contractCode(c.getContractCode())
@@ -1467,8 +1550,11 @@ public class FarmerService {
                 .totalAmount(total)
                 .depositAmount(deposit)
                 .remainingAmount(remaining)
+                .status(c.getStatus())
                 .depositStatus(c.getDepositStatus())
                 .fulfillmentStatus(c.getFulfillmentStatus())
+                .fulfillmentStep(step)
+                .fulfillmentStatusName(stepName)
                 .depositPaidAt(c.getDepositPaidAt())
                 .hubDeliveryDate(c.getHubDeliveryDate())
                 .hubName(c.getHubName())

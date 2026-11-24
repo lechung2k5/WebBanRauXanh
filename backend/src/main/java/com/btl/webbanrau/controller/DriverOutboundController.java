@@ -18,7 +18,7 @@ import java.util.List;
 @RequestMapping("/driver/outbound-trips")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasAnyRole('DRIVER', 'ADMIN')")
+@PreAuthorize("hasRole('DRIVER')")
 public class DriverOutboundController {
 
     private final OutboundDeliveryExecutionService outboundDeliveryExecutionService;
@@ -26,38 +26,35 @@ public class DriverOutboundController {
     @GetMapping("/my-trips")
     public Object getMyTrips() {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        List<OutboundDeliveryTrip> trips = outboundDeliveryExecutionService.getDriverTrips(user.getPhone(), isAdmin);
+        List<OutboundDeliveryTrip> trips = outboundDeliveryExecutionService.getDriverTrips(user.getPhone(), false);
         return ApiResponse.success(trips);
     }
 
     @GetMapping("/{tripId}")
     public Object getTripDetail(@PathVariable Long tripId) {
-        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.getTripDetail(tripId);
+        var user = AuthService.current();
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.getDriverTripDetail(tripId, user.getPhone());
         return ApiResponse.success(trip);
     }
 
     @PostMapping("/{tripId}/depart")
     public Object departTrip(@PathVariable Long tripId) {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.driverDepartTrip(tripId, user.getPhone(), isAdmin);
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.driverDepartTrip(tripId, user.getPhone(), false);
         return ApiResponse.success("Chuyến giao hàng xuất phát thành công", trip);
     }
 
     @PostMapping("/stops/{stopId}/arrive")
     public Object arriveStop(@PathVariable Long stopId) {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverArriveStop(stopId, user.getPhone(), isAdmin);
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverArriveStop(stopId, user.getPhone(), false);
         return ApiResponse.success("Đã xác nhận đến điểm giao hàng", stop);
     }
 
     @PostMapping("/stops/{stopId}/submit-epod")
     public Object submitEpod(@PathVariable Long stopId, @Valid @RequestBody DriverOutboundEpodRequest req) {
         var user = AuthService.current();
-        boolean isAdmin = AuthService.has(user, "ADMIN");
-        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverSubmitEpod(stopId, req, user.getPhone(), isAdmin);
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverSubmitEpod(stopId, req, user.getPhone(), false);
         return ApiResponse.success("Đã nộp biên bản bàn giao ePOD, chờ Buyer xác nhận", stop);
     }
 }

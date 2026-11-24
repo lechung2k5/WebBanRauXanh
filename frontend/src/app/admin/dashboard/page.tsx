@@ -23,6 +23,7 @@ import {
   Leaf,
   Sparkles,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -277,6 +278,27 @@ export default function AdminDashboardPage() {
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 mt-4">
               <span>Đến trang Kiểm Định & Kho Lạnh</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/outbound-dispatch"
+            className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
+          >
+            <div>
+              <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center mb-3">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h4 className="font-bold text-sm text-[#2C3E2E] group-hover:text-red-700 transition-colors">
+                Điều Phối Giao Buyer & Giám Sát Hoàn Tất
+              </h4>
+              <p className="text-xs text-[#6B7280] mt-1">
+                Theo dõi xuất kho, hành trình chuỗi lạnh, phiếu ePOD, Buyer ký nhận và thanh toán quyết toán trên cùng một luồng.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs font-bold text-red-600 mt-4">
+              <span>Đến trang Điều Phối Giao Buyer</span>
               <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>

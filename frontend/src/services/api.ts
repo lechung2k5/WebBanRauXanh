@@ -1005,7 +1005,7 @@ export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
       unitPrice: Number(item.offered_price_per_kg ?? item.unitPrice ?? 0),
       totalAmount: Number(item.total_goods_amount ?? item.totalAmount ?? 0),
       depositAmount,
-      remainingAmount: Math.max(0, Number(item.total_goods_amount ?? item.totalAmount ?? 0) - depositAmount),
+      remainingAmount: Number(item.remaining_amount ?? Math.max(0, Number(item.total_goods_amount ?? item.totalAmount ?? 0) - depositAmount)),
       depositStatus: depositReceived > 0 ? 'DEPOSIT_PAID' : 'PENDING_DEPOSIT',
       fulfillmentStatus,
       hubDeliveryDate: createdAt.slice(0, 10),
@@ -1019,6 +1019,10 @@ export const getBuyerB2bContractsApi = async (): Promise<B2BContract[]> => {
       farmerPhone: String(item.farmer_phone || '0912.345.678'),
       farmerAddress: String(item.farm_pickup_address || item.farmer_address || ''),
       status,
+      finalPaidStatus: String(item.remaining_payment_status || '') === 'PAID' || status === 'SETTLED' ? 'PAID' : 'UNPAID',
+      remainingPaymentStatus: String(item.remaining_payment_status || 'UNPAID'),
+      remainingPaidAt: String(item.remaining_paid_at || ''),
+      settledAt: String(item.settled_at || ''),
       packagingApproved: isPackagingApproved,
       packaging_approved: isPackagingApproved,
       actualHarvestWeightKg: Number(item.actual_harvest_weight_kg ?? item.actualHarvestWeightKg ?? 0),
@@ -1038,7 +1042,12 @@ export const getBuyerTelemetryApi = async (contractId: number): Promise<Array<{ 
   const res = await fetch(`${API_BASE_URL}/buyer/contracts/${contractId}/telemetry`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
   const data: ApiResponse<Array<{ temperature: number; humidity: number; alert: boolean; recordedAt: string }>> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể tải dữ liệu IoT');
-  return data.result || [];
+  return (data.result || []).map((item: any) => ({
+    temperature: Number(item.temperature ?? 0),
+    humidity: Number(item.humidity ?? 0),
+    alert: Boolean(item.alert ?? item.is_alert),
+    recordedAt: String(item.recordedAt || item.recorded_at || ''),
+  }));
 };
 
 export const getBuyerQcReportApi = async (contractId: number): Promise<Array<Record<string, unknown>>> => {
@@ -1108,6 +1117,55 @@ export const confirmBuyerFinalPaymentApi = async (contractId: number) => {
   });
   const data: ApiResponse<Record<string, unknown>> = await res.json();
   if (!res.ok) throw new Error(data.message || 'Không thể xác nhận thanh toán cuối');
+  return data.result;
+};
+
+export interface BuyerClaim {
+  id: number;
+  claimCode: string;
+  contractId: number;
+  contractCode: string;
+  productName: string;
+  damagedWeightKg: number;
+  cause: string;
+  liableParty: string;
+  compensationAmount: number;
+  status: 'OPEN' | 'DISMISSED' | 'COMPENSATED' | 'REFUNDED';
+  resolutionNote?: string;
+  resolutionRef?: string;
+  createdAt: string;
+}
+
+export const getBuyerClaimsApi = async (): Promise<BuyerClaim[]> => {
+  const res = await fetch(`${API_BASE_URL}/buyer/claims`, { cache: 'no-store', credentials: 'include', headers: authHeaders() });
+  const data: ApiResponse<Array<Record<string, unknown>>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể tải danh sách khiếu nại');
+  return (data.result || []).map((item) => ({
+    id: Number(item.id),
+    claimCode: String(item.claim_code || item.claimCode || ''),
+    contractId: Number(item.contract_id || item.contractId || 0),
+    contractCode: String(item.contract_code || item.contractCode || ''),
+    productName: String(item.product_name || item.productName || 'Nông sản'),
+    damagedWeightKg: Number(item.damaged_weight_kg || item.damagedWeightKg || 0),
+    cause: String(item.cause || ''),
+    liableParty: String(item.liable_party || item.liableParty || ''),
+    compensationAmount: Number(item.compensation_amount || item.compensationAmount || 0),
+    status: String(item.status || 'OPEN') as BuyerClaim['status'],
+    resolutionNote: String(item.resolution_note || item.resolutionNote || ''),
+    resolutionRef: String(item.resolution_ref || item.resolutionRef || ''),
+    createdAt: String(item.created_at || item.createdAt || ''),
+  }));
+};
+
+export const createBuyerClaimApi = async (request: { contractId: number; damagedWeightKg: number; cause: string }) => {
+  const res = await fetch(`${API_BASE_URL}/buyer/claims`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  });
+  const data: ApiResponse<Record<string, unknown>> = await res.json();
+  if (!res.ok) throw new Error(data.message || 'Không thể gửi khiếu nại');
   return data.result;
 };
 

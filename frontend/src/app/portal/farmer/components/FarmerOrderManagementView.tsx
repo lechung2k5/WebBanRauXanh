@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -28,6 +28,7 @@ import {
   Printer,
   ExternalLink,
   Edit3,
+  Award,
 } from 'lucide-react';
 import {
   B2bSyncContract,
@@ -36,7 +37,6 @@ import {
   farmerStartHarvest,
   farmerCompleteHarvest,
   farmerVerifyHarvest,
-  buyerPayDeposit,
   replaceSyncContracts,
 } from '@/services/b2bSyncService';
 import { getFarmerContractsFromServer, startFarmerHarvest } from '@/services/farmerApi';
@@ -85,6 +85,39 @@ const parsePickupDetails = (rawStr: unknown) => {
     roadAccess: roadAccess || 'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn',
   };
 };
+
+function computeClientStep(rawStatus?: string, depositStatus?: string, rawFulfillment?: string): number {
+  const s = String(rawStatus || '').trim().toUpperCase();
+  const fs = String(rawFulfillment || '').trim().toUpperCase();
+  const ds = String(depositStatus || '').trim().toUpperCase();
+
+  if (s === 'COMPLETED' || s === 'SETTLED' || fs === 'COMPLETED') return 6;
+  if (s === 'DELIVERED' || s === 'IN_TRANSIT' || s === 'OUTBOUND_DISPATCHED' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
+  if (s === 'QC_PASSED' || s === 'AT_HUB_QC' || s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || fs === 'HUB_DELIVERED') return 4;
+  if (s === 'PACKAGING_APPROVED' || s === 'HARVESTED' || fs === 'HARVESTED') return 3;
+  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || fs === 'HARVESTING' || fs === 'WAITING_HARVEST') return 2;
+  return 1;
+}
+
+function computeClientStepName(rawStatus?: string, depositStatus?: string, rawFulfillment?: string, isApproved?: boolean): string {
+  const s = String(rawStatus || '').trim().toUpperCase();
+  const fs = String(rawFulfillment || '').trim().toUpperCase();
+  const ds = String(depositStatus || '').trim().toUpperCase();
+
+  if (s === 'COMPLETED' || fs === 'COMPLETED') return 'Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi';
+  if (s === 'SETTLED') return 'Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân';
+  if (s === 'DELIVERED' || fs === 'DELIVERED') return 'Đã Giao Tới Kho Buyer · Chờ Buyer Nghiệm Thu và Ký ePOD';
+  if (s === 'IN_TRANSIT' || fs === 'IN_TRANSIT') return 'Xe Lạnh Đang Vận Chuyển Tới Kho Buyer';
+  if (s === 'OUTBOUND_DISPATCHED') return 'Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)';
+  if (s === 'QC_PASSED') return 'Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất';
+  if (s === 'AT_HUB_QC' || fs === 'HUB_DELIVERED') return 'Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)';
+  if (s === 'IN_TRANSIT_HUB') return 'Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Trạm Hub';
+  if (s === 'PICKUP_DISPATCHED') return 'Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng';
+  if (s === 'PACKAGING_APPROVED' || isApproved) return 'BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom';
+  if (s === 'HARVESTED' || fs === 'HARVESTED') return 'Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì';
+  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID') return 'Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói';
+  return 'Chờ Buyer Đặt Cọc 30% Escrow';
+}
 
 export default function FarmerOrderManagementView({
   onNavigateToPostSale,
@@ -164,184 +197,133 @@ export default function FarmerOrderManagementView({
   };
 
   // Load contracts from sync service and backend API
+  const isReloadingRef = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedReloadContracts = useCallback((delay = 600) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      void reloadContracts();
+    }, delay);
+  }, []);
+
   const reloadContracts = async () => {
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
     setRefreshing(true);
     try {
       const apiContracts = await getFarmerContractsFromServer().catch(() => []);
-      const localSync: B2bSyncContract[] = getSyncContracts();
       const map = new Map<string, B2bSyncContract>();
 
-      // 1. Nạp từ local storage trước làm nền tảng
-      for (const lc of localSync) {
-        if (lc && lc.contractCode) {
-          map.set(lc.contractCode.trim().toUpperCase(), {
-            ...lc,
-            quantityKg: Number(lc.quantityKg) || 0,
-            agreedPricePerKg: Number(lc.agreedPricePerKg) || 0,
-            totalAmount: Number(lc.totalAmount) || 0,
-            depositAmount: Number(lc.depositAmount) || 0,
-          });
-        }
-      }
-
-      // 2. Đồng bộ với Backend API (Server database là thẩm quyền tối cao cho cọc Escrow & trạng thái vận hành)
-      let hasLocalChanges = false;
-      for (const ac of apiContracts) {
-        if (ac && ac.contractCode) {
+      // 1. Nếu Backend API có trả về dữ liệu -> Server là thẩm quyền tuyệt đối!
+      if (apiContracts && apiContracts.length > 0) {
+        for (const ac of apiContracts) {
+          if (!ac || !ac.contractCode) continue;
           const key = ac.contractCode.trim().toUpperCase();
-          const rawStatus = ((ac as any).status || ac.depositStatus || '').toUpperCase();
-          const rawFulfillment = (ac.fulfillmentStatus || (ac as any).fulfillment_status || '').toUpperCase();
-          const isDepositPaid =
-            rawStatus === 'DEPOSIT_PAID' ||
+          const rawStatus = String((ac as any).status || ac.depositStatus || '').toUpperCase();
+          const rawFulfillment = String(ac.fulfillmentStatus || (ac as any).fulfillment_status || '').toUpperCase();
+          const isDepositPaid = rawStatus === 'DEPOSIT_PAID' || ac.depositStatus === 'DEPOSIT_PAID' || Boolean(ac.depositPaidAt) || rawStatus === 'ACTIVE';
+          const isApproved = Boolean(
+            (ac as any).packagingApproved ||
+            (ac as any).packaging_approved ||
+            rawStatus === 'PACKAGING_APPROVED' ||
+            rawStatus === 'PICKUP_DISPATCHED' ||
+            rawStatus === 'IN_TRANSIT_HUB' ||
             rawStatus === 'AT_HUB_QC' ||
+            rawStatus === 'QC_PASSED' ||
+            rawStatus === 'OUTBOUND_DISPATCHED' ||
             rawStatus === 'IN_TRANSIT' ||
             rawStatus === 'DELIVERED' ||
             rawStatus === 'SETTLED' ||
-            ac.depositStatus === 'DEPOSIT_PAID';
+            rawStatus === 'COMPLETED'
+          );
+          const isHarvestDone = Boolean(
+            (ac as any).is_harvest_done ||
+            Boolean((ac as any).actualHarvestWeightKg) ||
+            Boolean((ac as any).actual_harvest_weight_kg) ||
+            isApproved ||
+            rawStatus === 'HARVESTED'
+          );
 
-          if (map.has(key)) {
-            const existing = map.get(key)!;
-            const mergedDepositPaid = isDepositPaid || existing.depositStatus === 'DEPOSIT_PAID';
-            const fStep =
-              rawFulfillment === 'COMPLETED' ? 6 :
-              rawFulfillment === 'IN_TRANSIT' ? 3 :
-              rawFulfillment === 'HUB_DELIVERED' ? 4 :
-              rawFulfillment === 'HARVESTING' ? 2 :
-              (mergedDepositPaid && (existing.fulfillmentStep <= 1 || !existing.fulfillmentStep) ? 2 : existing.fulfillmentStep || 1);
-            const isApproved = Boolean(
-              (existing as any).packagingApproved ||
-              (ac as any).packagingApproved ||
-              (ac as any).packaging_approved ||
-              rawStatus === 'PACKAGING_APPROVED' ||
-              rawStatus === 'PICKUP_DISPATCHED' ||
-              rawStatus === 'IN_TRANSIT' ||
-              rawStatus === 'AT_HUB_QC' ||
-              rawStatus === 'DELIVERED' ||
-              rawStatus === 'SETTLED' ||
-              Boolean(existing.pickupTruckPlate)
-            );
-            const isHarvestDone = Boolean(
-              (existing as any).isHarvestDone ||
-              (ac as any).is_harvest_done ||
-              Boolean((ac as any).actualHarvestWeightKg) ||
-              Boolean((ac as any).actual_harvest_weight_kg) ||
-              Boolean(existing.actualHarvestWeightKg) ||
-              isApproved ||
-              fStep > 2
-            );
+          const fStep = (ac as any).fulfillmentStep || computeClientStep(rawStatus, ac.depositStatus, rawFulfillment);
+          const fName = (ac as any).fulfillmentStatusName || computeClientStepName(rawStatus, ac.depositStatus, rawFulfillment, isApproved);
 
-            const fName =
-              mergedDepositPaid && fStep === 2 && (!existing.fulfillmentStatusName || existing.fulfillmentStatusName === 'Chờ Buyer Đặt Cọc 30% Escrow')
-                ? (isApproved
-                    ? 'BQT Đã Duyệt Đóng Gói (Chờ Xe Lạnh Đến Lấy)'
-                    : isHarvestDone
-                    ? 'Đã Nộp Nghiệm Thu · Chờ BQT Duyệt Đóng Gói'
-                    : 'Đã Đóng Cọc 30% · Chờ Thu Hoạch & Đóng Gói')
-                : (ac.fulfillmentStatus || existing.fulfillmentStatusName);
+          const item: B2bSyncContract = {
+            id: ac.id,
+            contractCode: ac.contractCode,
+            rfqCode: ac.rfqCode || `RFQ-${ac.id}`,
+            lotId: ac.harvestLotId,
+            lotCode: ac.lotCode || 'LOT-2026-DL-001',
+            productName: ac.productName || 'Nông sản VietGAP',
+            buyerName: ac.buyerName || 'Khách mua sỉ',
+            buyerPhone: ac.buyerPhone || '0901234567',
+            buyerCompany: ac.buyerName || 'Khách mua sỉ',
+            farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            farmerPhone: ac.farmerPhone || '0912345678',
+            farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            quantityKg: Number(ac.quantity) || 0,
+            agreedPricePerKg: Number(ac.unitPrice) || 0,
+            totalAmount: Number(ac.totalAmount) || 0,
+            depositAmount: Number(ac.depositAmount) || 0,
+            remainingAmount: Number(ac.remainingAmount) || (Number(ac.totalAmount || 0) - Number(ac.depositAmount || 0)),
+            status: rawStatus,
+            depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
+            depositPaidAt: ac.depositPaidAt,
+            fulfillmentStatus: rawFulfillment,
+            fulfillmentStep: fStep,
+            fulfillmentStatusName: fName,
+            truckLicensePlate: ac.pickupTruckPlate || ac.truckType || '49C-198.86 (Xe Thùng Lạnh)',
+            truckDriverName: ac.pickupDriverName || 'Tài xế HoNa Fresh',
+            truckDriverPhone: ac.pickupDriverPhone || '0944556677',
+            truckTempCurrent: 4.0,
+            deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
+            deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
+            finalPaidStatus: (ac.settlementId || (ac as any).settledAt || (ac as any).remainingPaymentStatus === 'PAID' || rawStatus === 'SETTLED' || rawStatus === 'COMPLETED' || fStep === 6) ? 'PAID' : 'UNPAID',
+            epodSignedAt: (ac as any).epodDeliveredAt || (ac as any).epodSignedAt || ((ac as any).epodSignatureUrl ? ((ac as any).epodDeliveredAt || new Date().toISOString()) : undefined),
+            epodDeliveredWeightKg: (ac as any).epodDeliveredWeightKg || ac.quantity,
+            hubWarehouseZone: (ac as any).hubWarehouseZone || (ac as any).hub_warehouse_zone,
+            hubRackBin: (ac as any).hubRackBin || (ac as any).hub_rack_bin,
+            hubInboundAt: (ac as any).hubInboundAt || (ac as any).hub_inbound_at,
+            qcStatus: (ac as any).qcStatus || (ac as any).qc_status,
+            qcPassedAt: (ac as any).qcPassedAt || (ac as any).qc_passed_at,
+            outboundTruckPlate: (ac as any).outboundTruckPlate || (ac as any).outbound_truck_plate,
+            outboundDriverName: (ac as any).outboundDriverName || (ac as any).outbound_driver_name,
+            settledAt: (ac as any).settledAt || (ac as any).settled_at,
+            remainingPaymentStatus: (ac as any).remainingPaymentStatus || (ac as any).remaining_payment_status,
+            packagingApproved: isApproved,
+            isHarvestDone: isHarvestDone,
+            actualHarvestWeightKg: (ac as any).actual_harvest_weight_kg || (ac as any).actualHarvestWeightKg,
+            grade1Ratio: (ac as any).grade1_ratio || (ac as any).grade1Ratio || 96,
+            packageCount: (ac as any).package_count || (ac as any).packageCount,
+            packageType: (ac as any).package_type || (ac as any).packageType,
+            harvestProofImageUrl: (ac as any).harvest_proof_image_url || (ac as any).harvestProofImageUrl,
+            qrCodeData: (ac as any).qr_code_data || (ac as any).qrCodeData,
+            farmPickupAddress: (ac as any).farm_pickup_address || (ac as any).farmPickupAddress,
+            notes: (ac as any).notes || (ac as any).harvest_notes,
+            createdAt: ac.createdAt || new Date().toISOString(),
+          } as any;
 
-            const updatedItem: B2bSyncContract = {
-              ...existing,
-              id: ac.id || existing.id,
-              depositStatus: mergedDepositPaid ? 'DEPOSIT_PAID' : existing.depositStatus,
-              depositPaidAt: ac.depositPaidAt || existing.depositPaidAt || (mergedDepositPaid ? new Date().toISOString() : undefined),
-              fulfillmentStep: fStep,
-              fulfillmentStatusName: fName,
-              remainingAmount: Number(ac.remainingAmount) || existing.remainingAmount,
-              finalPaidStatus: ac.settlementId ? 'PAID' : existing.finalPaidStatus,
-              packagingApproved: isApproved,
-              isHarvestDone: isHarvestDone,
-              actualHarvestWeightKg: (ac as any).actual_harvest_weight_kg || (ac as any).actualHarvestWeightKg || existing.actualHarvestWeightKg,
-              grade1Ratio: (ac as any).grade1_ratio || (ac as any).grade1Ratio || (existing as any).grade1Ratio || 96,
-              packageCount: (ac as any).package_count || (ac as any).packageCount || existing.packageCount,
-              packageType: (ac as any).package_type || (ac as any).packageType || existing.packageType,
-              harvestProofImageUrl: (ac as any).harvest_proof_image_url || (ac as any).harvestProofImageUrl || existing.harvestProofImageUrl,
-              qrCodeData: (ac as any).qr_code_data || (ac as any).qrCodeData || existing.qrCodeData,
-              farmPickupAddress: (ac as any).farm_pickup_address || (ac as any).farmPickupAddress || existing.farmPickupAddress,
-              notes: (ac as any).notes || (ac as any).harvest_notes || (existing as any).notes,
-            } as any;
-
-            if (existing.depositStatus !== updatedItem.depositStatus || existing.fulfillmentStep !== updatedItem.fulfillmentStep || (existing as any).packagingApproved !== isApproved) {
-              hasLocalChanges = true;
-            }
-            map.set(key, updatedItem);
-          } else {
-            const fStep =
-              rawFulfillment === 'COMPLETED' ? 6 :
-              rawFulfillment === 'IN_TRANSIT' ? 3 :
-              rawFulfillment === 'HUB_DELIVERED' ? 4 :
-              rawFulfillment === 'HARVESTING' ? 2 :
-              (isDepositPaid ? 2 : 1);
-            const isApproved = Boolean(
-              (ac as any).packagingApproved ||
-              (ac as any).packaging_approved ||
-              rawStatus === 'PACKAGING_APPROVED' ||
-              rawStatus === 'PICKUP_DISPATCHED' ||
-              rawStatus === 'IN_TRANSIT' ||
-              rawStatus === 'AT_HUB_QC' ||
-              rawStatus === 'DELIVERED' ||
-              rawStatus === 'SETTLED'
-            );
-            const isHarvestDone = Boolean(
-              (ac as any).is_harvest_done ||
-              Boolean((ac as any).actualHarvestWeightKg) ||
-              Boolean((ac as any).actual_harvest_weight_kg) ||
-              isApproved ||
-              fStep > 2
-            );
-
-            const newItem: any = {
-              id: ac.id,
-              contractCode: ac.contractCode,
-              rfqCode: ac.rfqCode || `RFQ-${ac.id}`,
-              lotId: ac.harvestLotId,
-              lotCode: ac.lotCode || 'LOT-2026-DL-001',
-              productName: ac.productName || 'Nông sản VietGAP',
-              buyerName: ac.buyerName || 'Khách mua',
-              buyerPhone: ac.buyerPhone || '0901234567',
-              buyerCompany: ac.buyerName || 'Khách mua sỉ',
-              farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-              farmerPhone: ac.farmerPhone || '0912345678',
-              farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-              quantityKg: Number(ac.quantity) || 0,
-              agreedPricePerKg: Number(ac.unitPrice) || 0,
-              totalAmount: Number(ac.totalAmount) || 0,
-              depositAmount: Number(ac.depositAmount) || 0,
-              remainingAmount: Number(ac.remainingAmount) || (Number(ac.totalAmount || 0) - Number(ac.depositAmount || 0)),
-              depositStatus: isDepositPaid ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
-              depositPaidAt: ac.depositPaidAt,
-              fulfillmentStep: fStep,
-              fulfillmentStatusName: isDepositPaid ? 'Đã Đóng Cọc 30% · Chờ Thu Hoạch & Đóng Gói' : (ac.fulfillmentStatus || 'Chờ Buyer Đặt Cọc 30% Escrow'),
-              truckLicensePlate: ac.truckType || '49C-198.86 (Xe Thùng Lạnh)',
-              truckDriverName: 'Tài xế Nguyễn Văn Tài',
-              truckDriverPhone: '0944556677',
-              truckTempCurrent: 4.0,
-              deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
-              deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
-              finalPaidStatus: ac.settlementId ? 'PAID' : 'UNPAID',
-              packagingApproved: isApproved,
-              isHarvestDone: isHarvestDone,
-              actualHarvestWeightKg: (ac as any).actual_harvest_weight_kg || (ac as any).actualHarvestWeightKg,
-              packageCount: (ac as any).package_count || (ac as any).packageCount,
-              packageType: (ac as any).package_type || (ac as any).packageType,
-              harvestProofImageUrl: (ac as any).harvest_proof_image_url || (ac as any).harvestProofImageUrl,
-              qrCodeData: (ac as any).qr_code_data || (ac as any).qrCodeData,
-              farmPickupAddress: (ac as any).farm_pickup_address || (ac as any).farmPickupAddress,
-              createdAt: ac.createdAt || new Date().toISOString(),
-            };
-            map.set(key, newItem);
-            hasLocalChanges = true;
+          map.set(key, item);
+        }
+      } else {
+        // Fallback local nếu server không có dữ liệu
+        const localSync: B2bSyncContract[] = getSyncContracts();
+        for (const lc of localSync) {
+          if (lc && lc.contractCode) {
+            map.set(lc.contractCode.trim().toUpperCase(), lc);
           }
         }
       }
 
       const mergedList = Array.from(map.values());
       setContracts(mergedList);
-      if (hasLocalChanges) {
-        replaceSyncContracts(mergedList);
-      }
-    } catch (error) {
-      setActionSuccessMsg(error instanceof Error ? error.message : 'Không thể làm mới hợp đồng');
+      replaceSyncContracts(mergedList, false);
+    } catch (err) {
+      console.error('Lỗi tải danh sách hợp đồng Farmer:', err);
     } finally {
+      isReloadingRef.current = false;
       setRefreshing(false);
     }
   };
@@ -410,9 +392,6 @@ export default function FarmerOrderManagementView({
           return prev;
         });
       } else if (isDepositPaid && code) {
-        try {
-          buyerPayDeposit(code);
-        } catch {}
         setContracts((prev) =>
           prev.map((c) => {
             if (c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()) {
@@ -432,32 +411,30 @@ export default function FarmerOrderManagementView({
         setActionSuccessMsg(`Hợp đồng ${code || ''} vừa được cập nhật thời gian thực!`);
       }
       setTimeout(() => setActionSuccessMsg(null), 5000);
-      void reloadContracts();
+      debouncedReloadContracts(600);
     });
 
     // Lắng nghe sự kiện đồng bộ từ tab Buyer hoặc các tab khác
     const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (!event || event.type === 'CONTRACTS_SYNCED' || event.type === 'CONTRACTS_STORAGE_SYNC' || event.type === 'LOT_UPDATED' || event.type === 'PRODUCT_UPDATED') {
+        return;
+      }
       if (event?.type === 'ADMIN_APPROVED_PACKAGING') {
         const c = event?.payload as any;
         setActionSuccessMsg(`Ban Quản Trị HoNa vừa phê duyệt quy cách đóng gói cho Hợp đồng ${c?.contractCode || ''}! Đang phân công xe lạnh đến rẫy.`);
         setTimeout(() => setActionSuccessMsg(null), 5000);
       }
-      void reloadContracts();
+      debouncedReloadContracts(600);
     });
-    const handleCustomSync = () => {
-      void reloadContracts();
-    };
-    window.addEventListener('b2b_sync_event', handleCustomSync);
-    window.addEventListener('b2b_contract_updated', handleCustomSync);
-    window.addEventListener('storage', handleCustomSync);
+
     return () => {
       unsubContracts();
       unsubscribe();
-      window.removeEventListener('b2b_sync_event', handleCustomSync);
-      window.removeEventListener('b2b_contract_updated', handleCustomSync);
-      window.removeEventListener('storage', handleCustomSync);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
-  }, []);
+  }, [debouncedReloadContracts]);
 
   // Filter & Search
   const filteredContracts = useMemo(() => {
@@ -859,6 +836,75 @@ export default function FarmerOrderManagementView({
                         >
                           <Eye className="w-3 h-3 text-[#10542C]" /> Xem lại ảnh & tem đã nộp
                         </button>
+                      </div>
+                    ) : contract.fulfillmentStep === 4 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Đã Nhập Kho HoNa & QC Đạt Chuẩn</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Khu vực lưu:</span>
+                          <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                            {(contract as any).hubWarehouseZone || 'Zone A (Lạnh mát 2-6°C)'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Tọa độ kệ:</span>
+                          <span className="font-mono font-bold text-gray-800">
+                            {(contract as any).hubRackBin || 'Kệ R-02 Ô B-04'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
+                          <span>Nhiệt độ kho:</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            4.0°C (Chuẩn 2-6°C)
+                          </span>
+                        </div>
+                      </div>
+                    ) : contract.fulfillmentStep === 5 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-blue-800 bg-blue-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-blue-200">
+                          <Truck className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span>Xe Lạnh Outbound Đang Giao Buyer</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Biển số xe:</span>
+                          <span className="font-mono font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                            {(contract as any).outboundTruckPlate || contract.truckLicensePlate || '51D-921.34'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Tài xế phụ trách:</span>
+                          <span className="font-bold text-gray-800 truncate max-w-[150px]">
+                            {(contract as any).outboundDriverName || 'Tài xế Outbound HoNa'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
+                          <span>Nhiệt độ thùng:</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            4.0°C (Chuẩn 2-6°C)
+                          </span>
+                        </div>
+                      </div>
+                    ) : contract.fulfillmentStep === 6 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
+                          <Award className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <span>Giao Nhận Hoàn Tất & Đã Quyết Toán</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Biên bản ePOD:</span>
+                          <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Đã nghiệm thu đạt chuẩn
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Quyết toán:</span>
+                          <span className="font-bold text-emerald-700">
+                            Đã giải ngân 100% tiền tươi
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-1.5 py-0.5">

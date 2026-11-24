@@ -27,8 +27,11 @@ public class B2bContractResponse {
     private BigDecimal totalAmount;
     private BigDecimal depositAmount;
     private BigDecimal remainingAmount;
+    private String status;
     private String depositStatus;
     private String fulfillmentStatus;
+    private Integer fulfillmentStep;
+    private String fulfillmentStatusName;
     private LocalDateTime depositPaidAt;
     private LocalDate hubDeliveryDate;
     private String hubName;

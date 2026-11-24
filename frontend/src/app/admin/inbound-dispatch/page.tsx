@@ -59,7 +59,7 @@ import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 // =========================================================================
 // 1. MẠNG LƯỚI 5 HUB TRUNG CHUYỂN VẬN HÀNH THỰC TẾ
 // =========================================================================
-export const DEFAULT_OFFICIAL_HUBS: WarehouseHubDto[] = [
+const DEFAULT_OFFICIAL_HUBS: WarehouseHubDto[] = [
   {
     id: 1,
     hubCode: 'HUB-CU-CHI',
