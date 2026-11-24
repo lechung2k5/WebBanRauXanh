@@ -77,6 +77,16 @@ public class BuyerController {
         return ApiResponse.success("Gửi RFQ thành công", buyer.createRfq(request));
     }
 
+    @PutMapping("/rfq/{id}")
+    public ApiResponse<Map<String, Object>> updateRfq(@PathVariable Long id, @Valid @RequestBody BuyerRfqRequest request) {
+        return ApiResponse.success("Cập nhật đơn đàm phán thành công", buyer.updateRfq(id, request));
+    }
+
+    @DeleteMapping("/rfq/{id}")
+    public ApiResponse<Map<String, Object>> cancelRfq(@PathVariable Long id) {
+        return ApiResponse.success("Hủy đơn đàm phán thành công", buyer.cancelRfq(id));
+    }
+
     @PatchMapping("/rfq/{id}/respond")
     public ApiResponse<Map<String, Object>> respondToRfq(@PathVariable Long id, @Valid @RequestBody BuyerRfqActionRequest request) {
         return ApiResponse.success("Đã cập nhật phiên đàm phán", buyer.respondToRfq(id, request));

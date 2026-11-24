@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { api, portalFor } from '@/services/auth';
-import { LayoutDashboard, Users, Sprout, Handshake, Warehouse, Thermometer, Truck, Receipt, LogOut, Plus, RefreshCw, X, Search, Menu } from 'lucide-react';
+import { LayoutDashboard, Users, Sprout, Handshake, Warehouse, Receipt, LogOut, Plus, RefreshCw, X, Search, Menu } from 'lucide-react';
 import ImageUploadField from '../ImageUploadField';
+import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 
 export type Row = Record<string, unknown>;
 export type Field = { name: string; label: string; type?: string; options?: string[]; value?: string | number; optional?: boolean; min?: number; max?: number; hint?: string };
@@ -151,18 +152,10 @@ export function DataTable({ rows, columns, actions }: { rows: Row[]; columns: [s
 
   const renderBadge = (val: unknown) => {
     const text = str(val);
-    const positive = ['OPEN', 'NORMAL', 'VERIFIED', 'ACTIVE', 'IN_TRANSIT', 'true'].includes(text);
-    const negative = ['TEMP_WARNING', 'REJECTED', 'MAINTENANCE', 'LOCKED', 'false'].includes(text);
-    const warning = ['PENDING', 'WARNING'].includes(text);
-
-    let colorClass = 'bg-gray-100 text-gray-700 border-gray-200';
-    if (positive) colorClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
-    else if (negative) colorClass = 'bg-rose-50 text-rose-800 border-rose-200';
-    else if (warning) colorClass = 'bg-amber-50 text-amber-800 border-amber-200';
-
+    const meta = formatStatusVi(text);
     return (
-      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${colorClass}`}>
-        {text}
+      <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${meta.badgeClass}`}>
+        {meta.label}
       </span>
     );
   };
@@ -187,6 +180,8 @@ export function DataTable({ rows, columns, actions }: { rows: Row[]; columns: [s
                 <td key={key} className="py-3 px-3.5 max-w-[260px] break-words text-[#2C3E2E]">
                   {key === 'status' || key === 'kycStatus'
                     ? renderBadge(row[key])
+                    : ['harvest_date', 'expiry_date', 'created_at', 'updated_at', 'deposit_paid_at'].includes(key)
+                    ? formatDateVi(row[key] as any)
                     : str(row[key], String(row.asset_code || row.username || ''))}
                 </td>
               ))}
@@ -224,7 +219,7 @@ export function FormDialog({ value, onClose, onDone }: { value: DialogState; onC
 
 export const lotFields: Field[] = [f('productName', 'Tên nông sản'), f('category', 'Ngành hàng'), f('pucCode', 'Mã vùng trồng PUC'), f('certification', 'Tiêu chuẩn', 'text', 'VietGAP'), f('harvestDate', 'Ngày thu hoạch', 'date'), f('expiryDate', 'Ngày hết hạn', 'date'), f('totalWeightKg', 'Sản lượng (kg), tối thiểu 100', 'number', 2000), f('basePricePerKg', 'Giá cơ sở (đ/kg)', 'number', 15000), { name: 'tierPricing', label: 'Bảng giá theo sản lượng', type: 'json', value: '[{"minKg":500,"price":15000},{"minKg":2000,"price":13500}]', hint: 'Mỗi bậc gồm minKg (kg) và price (đ/kg).' }, f('tempMin', 'Nhiệt độ thấp nhất (°C)', 'number', 2), f('tempMax', 'Nhiệt độ cao nhất (°C)', 'number', 6), { ...f('imageUrl', 'Ảnh lô nông sản (URL)', 'url'), optional: true }];
 export const epodFields: Field[] = [f('deliveredWeightKg', 'Khối lượng đạt chuẩn thực nhận (kg)', 'number'), f('damagedWeightKg', 'Khối lượng hư hỏng (kg)', 'number', 0), f('signatureName', 'Họ tên người ký nhận'), { name: 'photoUrl', label: 'Ảnh hiện trạng giao hàng', type: 'photo' }, { name: 'signatureData', label: 'Chữ ký xác nhận', type: 'signature' }];
-const modules = [{ id: 'overview', label: 'Tổng quan', icon: LayoutDashboard }, { id: 'users', label: 'Tài khoản & KYC', icon: Users }, { id: 'lots', label: 'Nguồn cung & danh mục', icon: Sprout }, { id: 'contracts', label: 'Hợp đồng & ký quỹ', icon: Handshake }, { id: 'qc', label: 'Trạm QC & FEFO', icon: Warehouse }, { id: 'iot', label: 'Giám sát chuỗi lạnh', icon: Thermometer }, { id: 'shipments', label: 'Vận tải & ePOD', icon: Truck }, { id: 'accounting', label: 'Kế toán & cài đặt', icon: Receipt }];
+const modules = [{ id: 'overview', label: 'Tổng quan', icon: LayoutDashboard }, { id: 'users', label: 'Tài khoản & KYC', icon: Users }, { id: 'lots', label: 'Nguồn cung & danh mục', icon: Sprout }, { id: 'contracts', label: 'Hợp đồng & ký quỹ', icon: Handshake }, { id: 'qc', label: 'Trạm QC & FEFO', icon: Warehouse }, { id: 'accounting', label: 'Kế toán & cài đặt', icon: Receipt }];
 
 export default function AdminConsole() {
   const { currentUser, authLoading, logout } = useApp(); const router = useRouter();

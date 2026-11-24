@@ -12,8 +12,6 @@ import {
   Sprout,
   Handshake,
   Warehouse,
-  Thermometer,
-  Truck,
   Receipt,
   LogOut,
   Menu,
@@ -22,6 +20,8 @@ import {
   ShieldCheck,
   Activity,
   Loader2,
+  Route,
+  Navigation,
 } from 'lucide-react';
 
 export default function AdminLayout({
@@ -90,22 +90,22 @@ export default function AdminLayout({
       icon: Handshake,
     },
     {
+      id: 'inbound-dispatch',
+      name: 'Điều phối lấy hàng rẫy',
+      href: '/admin/inbound-dispatch',
+      icon: Route,
+    },
+    {
       id: 'qc',
       name: 'Trạm QC & FEFO',
       href: '/admin/qc',
       icon: Warehouse,
     },
     {
-      id: 'iot',
-      name: 'Giám sát chuỗi lạnh',
-      href: '/admin/iot',
-      icon: Thermometer,
-    },
-    {
-      id: 'shipments',
-      name: 'Vận tải & Phiếu giao hàng',
-      href: '/admin/shipments',
-      icon: Truck,
+      id: 'outbound-dispatch',
+      name: 'Điều phối giao Buyer',
+      href: '/admin/outbound-dispatch',
+      icon: Navigation,
     },
     {
       id: 'accounting',

@@ -36,8 +36,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Một số thư viện/tiện ích trình duyệt bổ sung class vào html trước khi
+  // React hydrate; suppressHydrationWarning chỉ bỏ qua thuộc tính ngoài ứng dụng.
   return (
-    <html lang="vi" className="scroll-smooth">
+    <html lang="vi" className="scroll-smooth" suppressHydrationWarning>
       <head>
         <meta name="referrer" content="no-referrer" />
         <link rel="icon" href="/assets/logo/logo_rutGon.png" type="image/png" />

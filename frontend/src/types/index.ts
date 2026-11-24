@@ -88,6 +88,8 @@ export interface HarvestLot {
   warehouseLocation?: string;
   hubLocation?: string;
   region?: string;
+  shippingMethod?: 'DIRECT_FARM_TO_BUYER' | 'CROSS_DOCKING_HUB' | 'BUYER_SELF_TRANSPORT';
+  estimatedShippingFee?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -114,6 +116,8 @@ export interface HarvestLotRequest {
   auditNote?: string;
   warehouseLocation?: string;
   region?: string;
+  shippingMethod?: 'DIRECT_FARM_TO_BUYER' | 'CROSS_DOCKING_HUB' | 'BUYER_SELF_TRANSPORT';
+  estimatedShippingFee?: number;
 }
 
 export interface HarvestLotStatusUpdateRequest {
@@ -156,6 +160,10 @@ export interface Product {
   moq?: number; // Minimum Order Quantity in kg
   totalLotVolume?: number; // Total lot volume in kg
   availableVolume?: number; // Remaining volume in kg
+  farmerId?: number;
+  farmerName?: string;
+  lotCode?: string;
+  harvestLotId?: number;
   farmName?: string;
   farmLocation?: string;
   region?: string;
@@ -169,6 +177,11 @@ export interface Product {
   storageCondition?: string;
   shippingTerms?: string;
   farmContactPhone?: string;
+  farmOwner?: string;
+  farmArea?: string;
+  isVerifiedFarm?: boolean;
+  farmAvatarUrl?: string;
+  farmDescription?: string;
 }
 
 export interface B2BRFQNegotiation {
@@ -176,6 +189,9 @@ export interface B2BRFQNegotiation {
   productId: string | number;
   productName: string;
   productImageUrl?: string;
+  farmerId?: number;
+  farmerName?: string;
+  lotCode?: string;
   farmName: string;
   traderName: string;
   traderPhone: string;
@@ -186,6 +202,7 @@ export interface B2BRFQNegotiation {
   deliveryDate: string;
   shippingOption: 'farm_pickup' | 'farm_delivery' | 'cold_storage_truck';
   notes?: string;
+  coldHubAddress?: string;
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
@@ -353,6 +370,9 @@ export interface RfqItem {
   rejectReason?: string;
   deliveryDate: string;
   hubLocation: string;
+  shippingOption?: string;
+  notes?: string;
+  coldHubAddress?: string;
   status: 'WAITING_FARMER' | 'WAITING_BUYER' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING' | 'COUNTER_OFFER';
   statusLabel?: string;
   nextActor?: 'BUYER' | 'FARMER' | 'NONE';
@@ -362,6 +382,7 @@ export interface RfqItem {
   contractStatus?: string;
   depositStatus?: string;
   depositAmount?: number;
+  syncSource?: 'BACKEND' | 'LOCAL';
   createdAt: string;
 }
 
@@ -381,6 +402,7 @@ export interface B2BContract {
   totalAmount: number;
   depositAmount: number;
   remainingAmount?: number;
+  status?: string;
   depositStatus: 'PENDING_DEPOSIT' | 'DEPOSIT_PAID';
   fulfillmentStatus: 'WAITING_HARVEST' | 'HARVESTING' | 'HUB_DELIVERED' | 'IN_TRANSIT' | 'COMPLETED';
   depositPaidAt?: string;
@@ -396,6 +418,37 @@ export interface B2BContract {
   farmerPhone?: string;
   farmerAddress?: string;
   settlementId?: number;
+  actualHarvestWeightKg?: number;
+  grade1Ratio?: number;
+  packageCount?: number;
+  packageType?: string;
+  packagingApproved?: boolean;
+  packaging_approved?: boolean;
+  qrCodeData?: string;
+  farmPickupAddress?: string;
+  harvestProofImageUrl?: string;
+  harvestedAt?: string;
+  fulfillmentStep?: number;
+  fulfillmentStatusName?: string;
+  pickupTruckPlate?: string;
+  pickupDriverName?: string;
+  pickupDriverPhone?: string;
+  truckLicensePlate?: string;
+  truckDriverName?: string;
+  truckDriverPhone?: string;
+  truckTempCurrent?: number;
+  farmHandoverTemp?: number;
+  hubWarehouseZone?: string;
+  hubRackBin?: string;
+  qcStatus?: string;
+  qcBrix?: number;
+  qcNitratePpm?: number;
+  outboundTruckPlate?: string;
+  outboundDriverName?: string;
+  outboundManifestCode?: string;
+  epodSignedAt?: string;
+  epodDeliveredWeightKg?: number;
+  epodSignatureUrl?: string;
 }
 
 export interface QcInspection {

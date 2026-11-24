@@ -13,6 +13,8 @@ import {
   Sparkles,
   ArrowRight,
   TrendingUp,
+  CheckCircle2,
+  PhoneCall,
 } from 'lucide-react';
 
 interface ProductCardProps {
@@ -98,21 +100,30 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* CỘT 2: Nội dung lô hàng & TẤT CẢ BADGE HIỂN THỊ TRONG CARD */}
       <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between space-y-3">
         <div>
-          {/* Hàng 1: Nguồn gốc Hợp Tác Xã & Vùng trồng */}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B7280] mb-2">
-            <span className="inline-flex items-center gap-1.5 font-bold text-[#10542C] bg-[#10542C]/8 px-2.5 py-1 rounded-lg border border-[#10542C]/15">
-              <Building2 className="w-3.5 h-3.5 text-[#4CAF50]" />
-              <span className="truncate max-w-[220px]">{product.farmName || 'HTX Nông Nghiệp Đơn Dương'}</span>
+          {/* Hàng 1: Nguồn gốc Nông Trại Thật & Vùng Trồng Đã Xác Thực */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#6B7280] mb-2">
+            <span
+              className="inline-flex items-center gap-1.5 font-bold text-[#10542C] bg-[#10542C]/8 px-2.5 py-1 rounded-lg border border-[#10542C]/15 shadow-2xs"
+              title={`Nông trại: ${product.farmName || product.farmerName || 'Nông trại HoNa Fresh'}`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-[#4CAF50] shrink-0" />
+              <span className="truncate max-w-[200px]">{product.farmName || product.farmerName || 'Nông trại HoNa Fresh'}</span>
             </span>
 
-            <span className="inline-flex items-center gap-1 text-[#4B5563] bg-gray-50 px-2 py-1 rounded-lg border border-gray-200">
-              <MapPin className="w-3 h-3 text-[#8BC34A]" />
-              <span>{product.farmLocation || 'Lâm Đồng'}</span>
+            {/* Huy hiệu Nông Trại Thật Xác Thực */}
+            <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300 shadow-2xs">
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span>Nông Trại Thật</span>
+            </span>
+
+            <span className="inline-flex items-center gap-1 text-[#4B5563] bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-200">
+              <MapPin className="w-3 h-3 text-[#8BC34A] shrink-0" />
+              <span className="truncate max-w-[150px]">{product.farmLocation || 'Lâm Đồng'}</span>
             </span>
 
             {product.pucCode && (
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#2C3E2E] bg-gray-100 px-2 py-1 rounded-lg border border-gray-200">
-                Mã PUC: <strong className="text-[#10542C]">{product.pucCode}</strong>
+              <span className="inline-flex items-center gap-1 font-mono text-[10.5px] text-[#2C3E2E] bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200">
+                PUC: <strong className="text-[#10542C]">{product.pucCode}</strong>
               </span>
             )}
           </div>

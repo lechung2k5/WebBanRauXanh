@@ -28,6 +28,7 @@ public class HarvestLotService {
 
     private final HarvestLotRepository harvestLotRepository;
     private final com.btl.webbanrau.repository.UserRepository userRepository;
+    private final B2bRealtimeService b2bRealtimeService;
 
     @Transactional(readOnly = true)
     public PageResponse<HarvestLotResponse> getLots(
@@ -39,9 +40,13 @@ public class HarvestLotService {
             String sortBy,
             String sortDir
     ) {
-        Sort sort = sortDir.equalsIgnoreCase("ASC")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
+        Sort.Direction direction = sortDir.equalsIgnoreCase("ASC")
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        // Thêm id làm tiêu chí phụ để các bản ghi cùng createdAt/giá luôn có
+        // thứ tự ổn định, tránh trùng hoặc bỏ sót lô giữa hai trang.
+        Sort sort = Sort.by(direction, sortBy)
+                .and(Sort.by(Sort.Direction.DESC, "id"));
 
         Pageable pageable = PageRequest.of(page, size, sort);
         Page<HarvestLot> lotPage = harvestLotRepository.searchLots(keyword, status, category, pageable);
@@ -136,7 +141,9 @@ public class HarvestLotService {
                 .region(request.getRegion())
                 .build();
 
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_CREATED", response);
+        return response;
     }
 
     @Transactional
@@ -180,7 +187,9 @@ public class HarvestLotService {
         if (request.getWarehouseLocation() != null) lot.setWarehouseLocation(request.getWarehouseLocation());
         if (request.getRegion() != null) lot.setRegion(request.getRegion());
 
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_UPDATED", response);
+        return response;
     }
 
     @Transactional
@@ -200,7 +209,9 @@ public class HarvestLotService {
         }
 
         log.info("Cập nhật trạng thái Lô {} -> {} (Lý do: {})", lot.getLotCode(), newStatus, request.getRejectionReason());
-        return mapToResponse(harvestLotRepository.save(lot));
+        HarvestLotResponse response = mapToResponse(harvestLotRepository.save(lot));
+        b2bRealtimeService.notifyLotUpdated("LOT_STATUS_CHANGED", response);
+        return response;
     }
 
     @Transactional
@@ -209,6 +220,7 @@ public class HarvestLotService {
             throw new IllegalArgumentException("Không tìm thấy lô nông sản với ID: " + id);
         }
         harvestLotRepository.deleteById(id);
+        b2bRealtimeService.notifyLotUpdated("LOT_DELETED", Map.of("id", id));
     }
 
     @Transactional(readOnly = true)

@@ -11,6 +11,7 @@ public final class RfqStatus {
     public static final String ACCEPTED = "ACCEPTED";
     public static final String REJECTED = "REJECTED";
     public static final String EXPIRED = "EXPIRED";
+    public static final String CANCELLED = "CANCELLED";
 
     private RfqStatus() {
     }
@@ -43,6 +44,7 @@ public final class RfqStatus {
             case ACCEPTED -> "Đã chốt đàm phán";
             case REJECTED -> "Đã từ chối";
             case EXPIRED -> "Đã hết hạn";
+            case CANCELLED -> "Đã hủy đơn đàm phán";
             default -> status == null ? "Không xác định" : status;
         };
     }

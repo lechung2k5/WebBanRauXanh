@@ -80,6 +80,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final B2bRealtimeService b2bRealtimeService;
 
     @Transactional(readOnly = true)
     public PageResponse<ProductResponse> getProducts(
@@ -236,7 +237,9 @@ public class ProductService {
                 .category(category)
                 .build();
 
-        return mapToResponse(productRepository.save(product));
+        ProductResponse response = mapToResponse(productRepository.save(product));
+        b2bRealtimeService.notifyProductUpdated("PRODUCT_CREATED", response);
+        return response;
     }
 
     @Transactional
@@ -268,13 +271,16 @@ public class ProductService {
         if (request.getIsFeatured() != null) product.setIsFeatured(request.getIsFeatured());
         if (request.getIsActive() != null) product.setIsActive(request.getIsActive());
 
-        return mapToResponse(productRepository.save(product));
+        ProductResponse response = mapToResponse(productRepository.save(product));
+        b2bRealtimeService.notifyProductUpdated("PRODUCT_UPDATED", response);
+        return response;
     }
 
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public void deleteProduct(Long id) {
         productRepository.deleteById(id);
+        b2bRealtimeService.notifyProductUpdated("PRODUCT_DELETED", Map.of("id", id));
     }
 
     public ProductResponse mapToResponse(Product p) {

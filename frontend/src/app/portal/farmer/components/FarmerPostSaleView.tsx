@@ -2,7 +2,7 @@
 
 import { getSyncContracts, updateContractFulfillmentStep, subscribeB2bSyncEvents, autoCompleteContractAfterTimeout, B2bSyncContract } from '@/services/b2bSyncService';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Truck,
   Thermometer,
@@ -57,6 +57,9 @@ import {
   getColdChainTelemetryApi,
   getDeliveryProofApi,
   getLotTraceApi,
+  getFarmerContractsFromServer,
+  startFarmerHarvest,
+  updateContractFulfillmentStatusApi,
 } from '@/services/farmerApi';
 
 interface FarmerPostSaleViewProps {
@@ -68,10 +71,62 @@ interface FarmerPostSaleViewProps {
 
 export default function FarmerPostSaleView({
   lots,
-  contracts,
+  contracts: initialContracts,
   formatVnd,
   initialContractId,
 }: FarmerPostSaleViewProps) {
+  const [contracts, setContracts] = useState(initialContracts);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const [startingHarvest, setStartingHarvest] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refreshContracts = async () => {
+    setRefreshing(true);
+    try {
+      const serverContracts = await getFarmerContractsFromServer().catch(() => []);
+      const syncList = getSyncContracts();
+      const syncMap = new Map<string, B2bSyncContract>();
+      for (const sc of syncList) {
+        if (sc?.contractCode) syncMap.set(sc.contractCode.trim().toUpperCase(), sc);
+      }
+
+      const merged = serverContracts.map((sc) => {
+        const syncItem = syncMap.get(sc.contractCode?.trim().toUpperCase());
+        if (syncItem && syncItem.fulfillmentStep) {
+          const stepMap: Record<number, B2BContract['fulfillmentStatus']> = {
+            1: 'WAITING_HARVEST',
+            2: 'HARVESTING',
+            3: 'IN_TRANSIT',
+            4: 'HUB_DELIVERED',
+            6: 'COMPLETED',
+          };
+          const mappedStatus = stepMap[syncItem.fulfillmentStep];
+          return {
+            ...sc,
+            fulfillmentStatus: mappedStatus || sc.fulfillmentStatus,
+          };
+        }
+        return sc;
+      });
+
+      setContracts(merged.length > 0 ? merged : serverContracts);
+      setRefreshVersion((value) => value + 1);
+      setRefreshError('');
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Không thể làm mới dữ liệu');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  useEffect(() => {
+    void refreshContracts();
+    const unsub = subscribeB2bSyncEvents(() => {
+      void refreshContracts();
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
   const [subTab, setSubTab] = useState<'allocation' | 'coldchain' | 'epod' | 'trace'>('allocation');
 
   // 1. ALLOCATION STATE
@@ -147,23 +202,23 @@ export default function FarmerPostSaleView({
       setSelectedContractId(initialContractId);
       setEpodContractId(initialContractId);
       setSubTab('coldchain');
+      setTimeout(() => {
+        const el = document.getElementById('b2b-fulfillment-timeline');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
     }
   }, [initialContractId]);
 
   useEffect(() => {
-    const list: B2bSyncContract[] = getSyncContracts();
-    const matched = list.find((c: B2bSyncContract) => c.id === selectedContractId);
-    if (matched) {
-      setFulfillmentStep(matched.fulfillmentStep);
-    }
-    const unsub = subscribeB2bSyncEvents(() => {
-      const refreshed = getSyncContracts().find((c: B2bSyncContract) => c.id === selectedContractId);
-      if (refreshed) {
-        setFulfillmentStep(refreshed.fulfillmentStep);
-      }
-    });
-    return () => unsub();
-  }, [selectedContractId]);
+    const contract = contracts.find((item) => item.id === selectedContractId) || contracts[0];
+    const steps: Record<string, number> = {
+      WAITING_HARVEST: 1, HARVESTING: 2, IN_TRANSIT: 3,
+      HUB_DELIVERED: 4, COMPLETED: 6,
+    };
+    setFulfillmentStep(contract ? steps[contract.fulfillmentStatus] || 1 : 1);
+  }, [contracts, selectedContractId]);
 
   // 3. EPOD STATE
   const [epodContractId, setEpodContractId] = useState<number>(contracts[0]?.id || 1);
@@ -178,8 +233,12 @@ export default function FarmerPostSaleView({
   const [copiedTraceUrl, setCopiedTraceUrl] = useState(false);
   const [labelSize, setLabelSize] = useState<'DECAL_100X75' | 'A4_SHEET'>('DECAL_100X75');
 
-  const currentSelectedContract = contracts.find((c) => c.id === selectedContractId) || contracts[0];
-  const currentEpodContract = contracts.find((c) => c.id === epodContractId) || contracts[0];
+  // Hợp nhất danh sách Hợp đồng từ props và đồng bộ B2B Realtime
+  // Parent refreshes these contracts from the Farmer API. Do not overwrite
+  // payment status with another browser's stale localStorage snapshot.
+  const effectiveContracts = contracts;
+  const currentSelectedContract = effectiveContracts.find((c: B2BContract) => c.id === selectedContractId) || effectiveContracts[0];
+  const currentEpodContract = effectiveContracts.find((c: B2BContract) => c.id === epodContractId) || effectiveContracts[0];
   const currentTraceLot = lots.find((l) => l.lotCode === traceLotCode) || lots[0];
 
   // Fetch Allocation when selectedLotId changes
@@ -252,7 +311,7 @@ export default function FarmerPostSaleView({
             setTelemetry(data);
           } else {
             // Fallback mock
-            const c = contracts.find((x) => x.id === selectedContractId) || contracts[0];
+            const c = effectiveContracts.find((x: B2BContract) => x.id === selectedContractId) || effectiveContracts[0];
             setTelemetry({
               contractId: selectedContractId,
               contractCode: c?.contractCode || 'HD-2026-DL-001',
@@ -322,7 +381,7 @@ export default function FarmerPostSaleView({
           if (data) {
             setDeliveryProof(data);
           } else {
-            const c = contracts.find((x) => x.id === epodContractId) || contracts[0];
+            const c = effectiveContracts.find((x: B2BContract) => x.id === epodContractId) || effectiveContracts[0];
             const loaded = c?.quantity || 5000;
             const shrinkage = Math.round(loaded * 0.012); // 1.2%
             const delivered = loaded - shrinkage;
@@ -400,7 +459,7 @@ export default function FarmerPostSaleView({
     return () => {
       isMounted = false;
     };
-  }, [traceLotCode, lots]);
+  }, [traceLotCode, lots, refreshVersion]);
 
   const handleCopyTraceLink = () => {
     if (typeof window === 'undefined') return;
@@ -448,41 +507,28 @@ export default function FarmerPostSaleView({
         </div>
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-3xl">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Farmer Portal v2.0 • Post-Sale Supply Chain
-              </span>
-              <span className="text-emerald-300 text-xs flex items-center gap-1 font-semibold">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
-                IoT Telemetry Bất Biến & Minh Bạch
-              </span>
-            </div>
-
-            <h2 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-white">
-              Theo Dõi Lô Hàng Sau Bán & Chuỗi Lạnh Xe Lạnh
+          <div className="space-y-1.5 max-w-3xl">
+            <h2 className="text-xl sm:text-2xl font-black font-heading tracking-tight text-white flex items-center gap-2.5">
+              <Truck className="w-6 h-6 text-[#8BC34A]" aria-hidden="true" />
+              <span>Theo Dõi Lô Hàng & Vận Chuyển Xe Lạnh</span>
             </h2>
 
-            <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed">
-              Minh bạch hóa toàn bộ dòng lưu chuyển nông sản sau khi xuất vườn: Phân bổ sản lượng theo hợp đồng, giám sát nhiệt độ xe lạnh bảo vệ quyền lợi nông dân, lưu trữ biên bản giao nhận điện tử và tem mã QR truy xuất nguồn gốc.
+            <p className="text-emerald-100/80 text-xs sm:text-sm">
+              Quản lý phân bổ sản lượng, theo dõi hành trình giao nhận, biên bản ePOD và mã QR truy xuất.
             </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                if (subTab === 'allocation') setSelectedLotId((prev) => prev);
-                if (subTab === 'coldchain') setSelectedContractId((prev) => prev);
-                if (subTab === 'epod') setEpodContractId((prev) => prev);
-                if (subTab === 'trace') setTraceLotCode((prev) => prev);
-              }}
+              onClick={() => void refreshContracts()}
+              disabled={refreshing}
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-white/60 active:scale-[0.98]"
             >
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>Làm mới dữ liệu</span>
             </button>
+            {refreshError && <p role="alert" className="text-sm text-white">{refreshError}</p>}
           </div>
         </div>
 
@@ -498,7 +544,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <Layers className="w-4 h-4" aria-hidden="true" />
-            <span>1. Cây Phân Bổ Sản Lượng</span>
+            <span>1. Phân Bổ Sản Lượng</span>
           </button>
 
           <button
@@ -511,7 +557,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <Truck className="w-4 h-4" aria-hidden="true" />
-            <span>2. Tiến Trình Giao Nhận & Chuỗi Lạnh</span>
+            <span>2. Tiến Trình Giao Nhận & Quyết Toán</span>
           </button>
 
           <button
@@ -524,7 +570,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <FileCheck2 className="w-4 h-4" aria-hidden="true" />
-            <span>3. Biên Bản Nhận Hàng & Hao Hụt</span>
+            <span>3. Biên Bản Giao Nhận (ePOD)</span>
           </button>
 
           <button
@@ -537,7 +583,7 @@ export default function FarmerPostSaleView({
             }`}
           >
             <QrCode className="w-4 h-4" aria-hidden="true" />
-            <span>4. Tem QR Truy Xuất Nguồn Gốc</span>
+            <span>4. Tem Mã QR Truy Xuất</span>
           </button>
         </div>
       </div>
@@ -736,7 +782,7 @@ export default function FarmerPostSaleView({
                   <span className="text-sm font-normal text-gray-500">kg</span>
                 </p>
                 <p className="text-[11px] text-gray-500">
-                  Sẵn sàng tiếp nhận thêm đơn RFQ & cọc từ các hệ thống siêu thị / chợ đầu mối
+                  Sản lượng còn lại sẵn sàng nhận đơn
                 </p>
               </div>
             </div>
@@ -747,11 +793,8 @@ export default function FarmerPostSaleView({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-black text-gray-900 font-heading">
-                  Cây Phân Bổ Hợp Đồng B2B ({allocation?.allocations?.length || 0} Hợp đồng)
+                  Hợp Đồng Tiêu Thụ ({allocation?.allocations?.length || 0} Hợp đồng)
                 </h3>
-                <p className="text-xs text-gray-500">
-                  Chi tiết từng đối tác thương lái và hệ thống phân phối đang nhận hàng từ lô này
-                </p>
               </div>
 
               {/* FILTER PILLS */}
@@ -785,11 +828,11 @@ export default function FarmerPostSaleView({
                 <thead>
                   <tr className="bg-[#F8F9FA] border-b border-gray-200 text-gray-600 font-bold uppercase text-[11px] tracking-wider">
                     <th className="p-3">Mã Hợp Đồng</th>
-                    <th className="p-3">Bên Mua (Doanh Nghiệp / Thương Lái)</th>
+                    <th className="p-3">Bên Mua (Thương Lái)</th>
                     <th className="p-3 text-right">Khối Lượng</th>
                     <th className="p-3 text-right">Đơn Giá</th>
                     <th className="p-3 text-right">Thành Tiền</th>
-                    <th className="p-3 text-center">Bảo Chứng Cọc</th>
+                    <th className="p-3 text-center">Tiền Cọc</th>
                     <th className="p-3 text-center">Vận Chuyển</th>
                     <th className="p-3 text-center">Thao Tác</th>
                   </tr>
@@ -953,12 +996,12 @@ export default function FarmerPostSaleView({
                         Danh Sách Hợp Đồng & Chuyến Xe Giao Vận
                       </span>
                       <span className="text-[10.5px] font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                        {contracts.length} Chuyến Xe
+                        {effectiveContracts.length} Chuyến Xe
                       </span>
                     </div>
 
                     <div className="space-y-1 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
-                      {contracts.map((c) => {
+                      {effectiveContracts.map((c: B2BContract) => {
                         const isSelected = c.id === selectedContractId;
 
                         return (
@@ -1030,78 +1073,26 @@ export default function FarmerPostSaleView({
                 </span>
               </div>
 
-              {/* NÚT MÔ PHỎNG TEST VI PHẠM NHIỆT ĐỘ */}
-              <button
-                type="button"
-                onClick={() => setIsSimulatingBreach(!isSimulatingBreach)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-                  isSimulatingBreach
-                    ? 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
-                }`}
-                title="Thử nghiệm phản ứng hệ thống khi nhiệt độ thùng xe vượt ngưỡng an toàn"
-              >
-                <Zap className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>
-                  {isSimulatingBreach
-                    ? 'Tắt Mô Phỏng (Về Bình Thường)'
-                    : '⚡ Test Cảnh Báo Đứt Gãy Chuỗi Lạnh'}
-                </span>
-              </button>
             </div>
           </div>
 
-          {/* CẢNH BÁO VI PHẠM ĐỨT GÃY CHUỖI LẠNH HOẶC CHỨNG CHỈ ĐẠT CHUẨN */}
+          {/* TRẠNG THÁI NHIỆT ĐỘ BẢO QUẢN THÙNG XE */}
           {effectiveTelemetry?.isBreachAlert ? (
-            <div className="bg-red-50 border-2 border-red-300 rounded-3xl p-5 text-red-950 flex items-start gap-4 shadow-sm">
-              <ShieldAlert className="w-7 h-7 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-heading font-black text-sm text-red-900 uppercase tracking-wide">
-                    ⚠️ Cảnh Báo Vi Phạm Chuỗi Lạnh IoT — Bảo Vệ Quyền Lợi Nông Dân
-                  </h4>
-                  <span className="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                    Đã Khóa Bằng Chứng Bất Biến
-                  </span>
-                </div>
-                <p className="text-xs text-red-800 leading-relaxed">
-                  Cảm biến viễn trắc xe lạnh phát hiện nhiệt độ thùng đạt{' '}
-                  <strong className="font-black text-red-900 underline">
-                    {effectiveTelemetry.currentTemp}°C
-                  </strong>
-                  , vượt ngưỡng cam kết an toàn ({effectiveTelemetry.targetTempMin}°C -{' '}
-                  {effectiveTelemetry.targetTempMax}°C). Hệ thống HoNa Fresh đã tự động ghi nhận mã băm
-                  thời gian thực làm bằng chứng pháp lý xác định lỗi thuộc về đơn vị logistics (máy lạnh
-                  hỏng hoặc tài xế tắt máy).
-                </p>
-                <div className="p-2.5 bg-red-100/80 rounded-xl text-[11px] font-bold text-red-900 flex items-center gap-2 border border-red-200">
-                  <ShieldCheck className="w-4 h-4 text-red-700 shrink-0" aria-hidden="true" />
-                  <span>
-                    Chính Sách HoNa Fresh: Hợp tác xã/Nông dân được miễn trừ 100% phạt hao hụt chất lượng,
-                    được thanh toán đủ 100% tiền hàng từ quỹ ký quỹ logistics!
-                  </span>
-                </div>
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-900 flex items-center gap-3 shadow-2xs">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" aria-hidden="true" />
+              <div className="text-xs">
+                <span className="font-bold block">Cảnh báo nhiệt độ thùng xe: {effectiveTelemetry.currentTemp}°C</span>
+                <span className="text-red-700">Vượt ngưỡng an toàn ({effectiveTelemetry.targetTempMin}°C - {effectiveTelemetry.targetTempMax}°C). Đơn vị vận chuyển đang kiểm tra xử lý.</span>
               </div>
             </div>
           ) : (
-            <div className="bg-emerald-50/90 border border-emerald-200 rounded-3xl p-4.5 text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                  <ShieldCheck className="w-5 h-5" aria-hidden="true" />
-                </div>
-                <div className="text-xs">
-                  <p className="font-black text-emerald-900 font-heading text-sm">
-                    Chuỗi Lạnh Xe Lạnh Vận Hành Hoàn Hảo (100% Đạt Chuẩn)
-                  </p>
-                  <p className="text-emerald-800 mt-0.5">
-                    Nhiệt độ thùng xe duy trì tối ưu ở mức{' '}
-                    <strong className="text-[#10542C]">{effectiveTelemetry?.currentTemp}°C</strong> (chuẩn
-                    2°C - 6°C), độ ẩm 94.2% giữ nguyên độ tươi giòn và lớp phấn tự nhiên của rau củ.
-                  </p>
-                </div>
+            <div className="bg-emerald-50/90 border border-emerald-200 rounded-2xl p-3.5 text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2.5 text-xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span>Nhiệt độ thùng xe ổn định: <strong className="text-[#10542C] font-mono">{effectiveTelemetry?.currentTemp}°C</strong> (Tiêu chuẩn: {effectiveTelemetry?.targetTempMin || 2}°C - {effectiveTelemetry?.targetTempMax || 6}°C)</span>
               </div>
-              <span className="text-[11px] font-black bg-[#10542C] text-white px-3 py-1 rounded-full shrink-0 shadow-xs text-center">
-                LÔ HÀNG ĐƯỢC BẢO VỆ
+              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-0.5 rounded-full self-start sm:self-auto">
+                Đạt tiêu chuẩn
               </span>
             </div>
           )}
@@ -1245,7 +1236,7 @@ export default function FarmerPostSaleView({
           </div>
 
           {/* TIẾN TRÌNH GIAO NHẬN & QUYẾT TOÁN ĐƠN HÀNG (ORDER FULFILLMENT & AUTO-SETTLEMENT TIMELINE) */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-2xs space-y-5">
+          <div id="b2b-fulfillment-timeline" className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-2xs space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-black text-gray-900 font-heading flex items-center gap-2">
@@ -1253,7 +1244,7 @@ export default function FarmerPostSaleView({
                   Tiến Trình Giao Nhận & Quyết Toán Đơn Hàng B2B
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Quy trình 6 mốc vận hành minh bạch • Kèm cơ chế tự động chuyển thành Hoàn Tất sau 48h nếu người mua quên xác nhận
+                  Tiến trình vận chuyển và quyết toán 6 mốc
                 </p>
               </div>
 
@@ -1468,22 +1459,11 @@ export default function FarmerPostSaleView({
               </div>
             </div>
 
-            {/* KHỐI QUY ĐỊNH BẢO HỘ 48H & BẢNG ĐIỀU KHIỂN MÔ PHỎNG NGHIỆP VỤ */}
-            <div className="bg-gradient-to-r from-emerald-50/70 via-[#F8FAF7] to-amber-50/50 rounded-2xl p-4 sm:p-5 border border-emerald-200/80 space-y-3.5">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-emerald-100/80 text-[#10542C] rounded-xl shrink-0 mt-0.5">
-                    <ShieldCheck className="w-5 h-5" aria-hidden="true" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-2">
-                      Quy Định Khiếu Nại Đổi Trả & Cơ Chế Tự Động Hoàn Tất (Auto-Settlement)
-                    </h4>
-                    <p className="text-[11px] sm:text-xs text-gray-600 leading-relaxed mt-1">
-                      Kể từ khi giao hàng thành công & đã thu tiền (<strong>Mốc 4</strong>), người mua có <strong>48 giờ</strong> để kiểm tra nông sản. Nếu khách hàng hài lòng bấm xác nhận hoặc <strong>quên bấm xác nhận sau 48 giờ</strong> (không phát sinh khiếu nại đổi trả), hệ thống sàn sẽ <strong>tự động chuyển thành Hoàn Tất (Mốc 6)</strong> và giải ngân ngay về ví tiền người bán.
-                    </p>
-                  </div>
-                </div>
+            {/* THỜI HẠN NGHIỆM THU ĐƠN HÀNG */}
+            <div className="bg-gray-50/80 rounded-2xl p-3.5 border border-gray-200 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs text-gray-700">
+                <Clock className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>Thời hạn kiểm hàng: <strong>48 giờ</strong> kể từ khi giao nhận. Đơn hàng tự động quyết toán giải ngân nếu bên mua không có khiếu nại.</span>
               </div>
 
               {/* TRẠNG THÁI HIỆN TẠI & NÚT MÔ PHỎNG CHO NHÓM ĐỒ ÁN DEMO */}
@@ -1528,21 +1508,28 @@ export default function FarmerPostSaleView({
                   {fulfillmentStep === 1 && (
                     <>
                       {(() => {
-                        const syncContracts = getSyncContracts();
-                        const activeC = syncContracts.find((c: any) => c.id === selectedContractId) || syncContracts[0];
+                        const activeC = currentSelectedContract;
                         const isPaid = (activeC?.depositStatus as string) === 'DEPOSIT_PAID' || (activeC?.depositStatus as string) === 'PAID';
                         if (isPaid) {
                           return (
                             <button
                               type="button"
                               onClick={() => {
-                                setFulfillmentStep(2);
-                                updateContractFulfillmentStep(selectedContractId, 2);
+                                if (!currentSelectedContract || startingHarvest) return;
+                                setStartingHarvest(true);
+                                void startFarmerHarvest(currentSelectedContract.id)
+                                  .then(async () => {
+                                    await refreshContracts();
+                                  })
+                                  .catch((error) => {
+                                    setRefreshError(error instanceof Error ? error.message : 'Không thể bắt đầu thu hoạch');
+                                  })
+                                  .finally(() => setStartingHarvest(false));
                               }}
                               className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                             >
                               <Sprout className="w-4 h-4" />
-                              <span>✓ Bắt Đầu Thu Hoạch & Đóng Gói (Tiến Mốc 2)</span>
+                              <span>{startingHarvest ? 'Đang lưu tiến trình...' : '✓ Bắt Đầu Thu Hoạch & Đóng Gói (Tiến Mốc 2)'}</span>
                             </button>
                           );
                         }
@@ -1562,6 +1549,12 @@ export default function FarmerPostSaleView({
                       onClick={() => {
                         setFulfillmentStep(3);
                         updateContractFulfillmentStep(selectedContractId, 3);
+                        setContracts((prev) =>
+                          prev.map((c) =>
+                            c.id === selectedContractId ? { ...c, fulfillmentStatus: 'IN_TRANSIT' } : c
+                          )
+                        );
+                        void updateContractFulfillmentStatusApi(selectedContractId, 'IN_TRANSIT').catch(() => {});
                       }}
                       className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                     >
@@ -1576,6 +1569,12 @@ export default function FarmerPostSaleView({
                       onClick={() => {
                         setFulfillmentStep(4);
                         updateContractFulfillmentStep(selectedContractId, 4);
+                        setContracts((prev) =>
+                          prev.map((c) =>
+                            c.id === selectedContractId ? { ...c, fulfillmentStatus: 'HUB_DELIVERED' } : c
+                          )
+                        );
+                        void updateContractFulfillmentStatusApi(selectedContractId, 'HUB_DELIVERED').catch(() => {});
                       }}
                       className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                     >
@@ -1585,24 +1584,9 @@ export default function FarmerPostSaleView({
                   )}
 
                   {fulfillmentStep === 4 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                        <span>Chờ khách mua ký nhận hàng (Hệ thống tự động cập nhật khi đã ký)</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          autoCompleteContractAfterTimeout(selectedContractId);
-                          setFulfillmentStep(6);
-                          setAutoCompleteType('AUTO_48H');
-                        }}
-                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
-                        title="Kích hoạt tự động hoàn tất sau 48h nếu khách mua chưa bấm ký nhận"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>⚡ Quá Hạn 48h (Tự Động Ký Nhận Hàng & Chuyển Tiền)</span>
-                      </button>
+                    <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                      <span>Chờ khách mua kiểm tra và ký nhận hàng</span>
                     </div>
                   )}
 
@@ -1617,6 +1601,12 @@ export default function FarmerPostSaleView({
                         onClick={() => {
                           setFulfillmentStep(6);
                           updateContractFulfillmentStep(selectedContractId, 6);
+                          setContracts((prev) =>
+                            prev.map((c) =>
+                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED' } : c
+                            )
+                          );
+                          void updateContractFulfillmentStatusApi(selectedContractId, 'COMPLETED').catch(() => {});
                         }}
                         className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                       >
@@ -1644,9 +1634,11 @@ export default function FarmerPostSaleView({
                   Hình Thức Thu Tiền:
                 </span>
                 <p className="font-bold text-gray-900 mt-0.5 tabular-nums">
-                  Đã thu đủ 100% (30% Tiền Cọc Bảo Chứng + 70% Thanh Toán Còn Lại)
+                  {currentSelectedContract?.depositStatus === 'DEPOSIT_PAID'
+                    ? 'Đã nhận cọc 30% bảo chứng'
+                    : 'Chưa xác nhận tiền cọc'}
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Biên bản nhận hàng số: KCS-08491</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">Hợp đồng: {currentSelectedContract?.contractCode || 'Chưa chọn'}</p>
               </div>
               <div>
                 <span className="text-gray-500 font-semibold flex items-center gap-1">
@@ -1664,20 +1656,20 @@ export default function FarmerPostSaleView({
                   Quyết Toán Về Ví Tiền:
                 </span>
                 <p className="font-bold text-[#10542C] mt-0.5 tabular-nums">
-                  {formatVnd ? formatVnd(58425000) : '58.425.000 đ'} &bull; Sẵn Sàng Rút
+                  {currentSelectedContract?.settlementId ? 'Đã có quyết toán' : 'Chưa có quyết toán được xác nhận'}
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Tự động cộng vào Số Dư Khả Dụng</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">Xem số tiền thực nhận tại mục quyết toán</p>
               </div>
             </div>
           </div>
 
-          {/* BẢNG LOG VIỄN TRẮC IOT (TIME-SERIES SENSOR LOG) */}
+          {/* BẢNG NHẬT KÝ NHIỆT ĐỘ & ĐỘ ẨM */}
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-gray-900 font-heading">
-                Nhật Ký Viễn Trắc Cảm Biến IoT Theo Thời Gian Thực
+                Nhật Ký Nhiệt Độ & Độ Ẩm Xe Lạnh
               </h3>
-              <span className="text-[11px] text-gray-500 font-mono">Tần suất ghi nhận: 15 phút / lần</span>
+              <span className="text-[11px] text-gray-500 font-mono">Tần suất: 15 phút/lần</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -1687,8 +1679,8 @@ export default function FarmerPostSaleView({
                     <th className="p-3">Thời Gian Ghi Nhận</th>
                     <th className="p-3 text-right">Nhiệt Độ Thùng (°C)</th>
                     <th className="p-3 text-right">Độ Ẩm (%)</th>
-                    <th className="p-3 text-center">Đánh Giá Ngưỡng</th>
-                    <th className="p-3">Ghi Chú Hành Trình</th>
+                    <th className="p-3 text-center">Đánh Giá</th>
+                    <th className="p-3">Ghi Chú</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -1696,11 +1688,7 @@ export default function FarmerPostSaleView({
                     effectiveTelemetry.logs.map((log, idx) => (
                       <tr
                         key={idx}
-                        className={
-                          log.isAlert || (isSimulatingBreach && idx === 0)
-                            ? 'bg-red-50/60'
-                            : 'hover:bg-gray-50 transition'
-                        }
+                        className={log.isAlert ? 'bg-red-50/60' : 'hover:bg-gray-50 transition'}
                       >
                         <td className="p-3 font-mono font-bold text-gray-800 flex items-center gap-1.5 tabular-nums">
                           <Clock className="w-3.5 h-3.5 text-gray-400" aria-hidden="true" />
@@ -1708,20 +1696,18 @@ export default function FarmerPostSaleView({
                         </td>
                         <td
                           className={`p-3 text-right font-black tabular-nums ${
-                            log.isAlert || (isSimulatingBreach && idx === 0)
-                              ? 'text-red-700 font-heading text-sm'
-                              : 'text-emerald-800'
+                            log.isAlert ? 'text-red-700 font-heading text-sm' : 'text-emerald-800'
                           }`}
                         >
-                          {isSimulatingBreach && idx === 0 ? '9.2' : log.temperature.toFixed(1)}°C
+                          {log.temperature.toFixed(1)}°C
                         </td>
                         <td className="p-3 text-right font-bold text-blue-700 tabular-nums">
                           {log.humidity.toFixed(1)}%
                         </td>
                         <td className="p-3 text-center">
-                          {log.isAlert || (isSimulatingBreach && idx === 0) ? (
+                          {log.isAlert ? (
                             <span className="bg-red-100 text-red-800 font-bold px-2.5 py-0.5 rounded-full text-[10px]">
-                              ⚠️ Vi Phạm
+                              ⚠️ Vượt ngưỡng
                             </span>
                           ) : (
                             <span className="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full text-[10px]">
@@ -1730,9 +1716,7 @@ export default function FarmerPostSaleView({
                           )}
                         </td>
                         <td className="p-3 text-gray-700 text-[11px]">
-                          {isSimulatingBreach && idx === 0
-                            ? 'Máy phát xe lạnh sụt điện áp tạm thời, hệ thống tự kích hoạt bảo vệ nông dân'
-                            : log.note}
+                          {log.note || 'Hệ thống vận hành ổn định'}
                         </td>
                       </tr>
                     ))
@@ -1810,12 +1794,12 @@ export default function FarmerPostSaleView({
                         Danh Sách Hợp Đồng Có Biên Bản Giao Nhận
                       </span>
                       <span className="text-[10.5px] font-bold text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                        {contracts.length} Hồ Sơ
+                        {effectiveContracts.length} Hồ Sơ
                       </span>
                     </div>
 
                     <div className="space-y-1 max-h-[280px] overflow-y-auto custom-scrollbar pr-1">
-                      {contracts.map((c) => {
+                      {effectiveContracts.map((c: B2BContract) => {
                         const isSelected = c.id === epodContractId;
 
                         return (

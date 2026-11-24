@@ -1,0 +1,836 @@
+// ==============================================================================
+// HONA FRESH B2B PLATFORM - DATABASE SCHEMA (DBML FOR DBDIAGRAM.IO)
+// Copy toan bo noi dung file nay va dan truc tiep vao dbdiagram.io
+// ==============================================================================
+
+Project HONA_FRESH {
+  database_type: "PostgreSQL"
+  Note: "HONA FRESH - B2B Agriculture Marketplace and Cold Chain Logistics Ecosystem"
+}
+
+Table auth_audit {
+  id bigint [pk, increment]
+  actor_id bigint
+  target_id bigint
+  action varchar(255)
+  created_at timestamptz [not null]
+}
+
+Table b2b_chat_messages {
+  id bigint [pk, increment]
+  content text
+  created_at timestamp [not null]
+  image_url varchar(1000)
+  message_type varchar(20) [not null]
+  rfq_code varchar(50) [not null]
+  rfq_id bigint [not null]
+  sender_id bigint [not null]
+  sender_name varchar(150) [not null]
+  sender_role varchar(30) [not null]
+}
+
+Table b2b_contracts {
+  id bigint [pk, increment]
+  contract_code varchar(50) [not null]
+  lot_id bigint [not null]
+  farmer_id bigint [not null]
+  buyer_id bigint
+  offered_weight_kg numeric(38,2)
+  offered_price_per_kg numeric(38,2)
+  total_goods_amount numeric(38,2)
+  deposit_30_amount numeric(38,2)
+  platform_fee_rate numeric(5,2)
+  platform_fee_amount numeric(18,2)
+  logistics_fee_amount numeric(18,2) [not null]
+  service_vat_rate numeric(5,2) [not null]
+  delivery_address varchar(255)
+  status varchar(30) [not null]
+  deposit_ref varchar(100)
+  balance_ref varchar(100)
+  payout_ref varchar(100)
+  deposit_received numeric(18,2) [not null]
+  balance_received numeric(18,2) [not null]
+  payout_amount numeric(18,2) [not null]
+  refund_amount numeric(18,2) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  rfq_id bigint
+  harvest_lot_id bigint
+  buyer_name varchar(150)
+  buyer_phone varchar(20)
+  quantity double
+  unit_price numeric(15,2)
+  total_amount numeric(15,2)
+  deposit_amount numeric(15,2)
+  deposit_status varchar(30)
+  fulfillment_status varchar(30)
+  deposit_paid_at timestamptz
+  hub_delivery_date date
+  hub_name varchar(200)
+  delivery_time_slot varchar(50)
+  truck_type varchar(100)
+  delivery_notes text
+  agreed_price_per_kg numeric(12,2)
+  quantity_kg numeric(12,2)
+  actual_harvest_weight_kg numeric(12,2)
+  bank_transfer_ref varchar(100)
+  epod_damaged_weight_kg numeric(12,2)
+  epod_delivered_at timestamp
+  epod_delivered_weight_kg numeric(12,2)
+  epod_signature_url text
+  farm_handover_temp numeric(5,2)
+  farm_pickup_address text
+  farm_pickup_signed_at timestamp
+  farmer_bank_account varchar(50)
+  farmer_bank_name varchar(100)
+  farmer_bank_owner varchar(100)
+  farmer_payout_amount numeric(18,2)
+  grade1_ratio numeric(5,2)
+  harvest_proof_image_url text
+  harvested_at timestamp
+  hub_inbound_at timestamp
+  hub_rack_bin varchar(50)
+  hub_warehouse_zone varchar(50)
+  inbound_gross_weight_kg numeric(12,2)
+  inbound_net_weight_kg numeric(12,2)
+  inbound_tare_weight_kg numeric(12,2)
+  max_storage_days integer
+  outbound_dispatched_at timestamp
+  outbound_driver_name varchar(100)
+  outbound_manifest_code varchar(100)
+  outbound_truck_plate varchar(50)
+  package_count integer
+  package_type varchar(100)
+  pickup_driver_name varchar(100)
+  pickup_driver_phone varchar(20)
+  pickup_truck_plate varchar(50)
+  qc_brix numeric(5,2)
+  qc_cert_url text
+  qc_nitrate_ppm numeric(7,2)
+  qc_passed_at timestamp
+  qc_pesticide_safe boolean
+  qc_status varchar(30)
+  qr_code_data varchar(255)
+  remaining_amount numeric(18,2)
+  remaining_paid_at timestamp
+  remaining_payment_status varchar(30)
+  settled_at timestamp
+  packaging_approved boolean
+  packaging_approved_at timestamptz
+}
+
+Table b2b_reviews {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  reviewer_id bigint [not null]
+  reviewer_role varchar(20) [not null]
+  rating integer [not null]
+  comment text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table business_audit {
+  id bigint [pk, increment]
+  actor_id bigint [not null]
+  action varchar(100) [not null]
+  entity_id bigint
+  created_at timestamptz [not null]
+}
+
+Table buyer_profiles {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  buyer_tier varchar(30) [not null]
+  company_name varchar(200)
+  contact_name varchar(100)
+  contact_phone varchar(20)
+  credit_limit numeric(15,2) [not null]
+  reputation_score numeric(3,2) [not null]
+  tax_code varchar(50)
+  user_id bigint [not null]
+}
+
+Table buyer_rfqs {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  counter_price_per_kg numeric(12,2)
+  delivery_location varchar(255) [not null]
+  desired_delivery_date date [not null]
+  notes text
+  proposed_price_per_kg numeric(12,2) [not null]
+  quantity_kg numeric(12,2) [not null]
+  rfq_code varchar(40) [not null]
+  shipping_option varchar(40)
+  status varchar(30) [not null]
+  buyer_id bigint [not null]
+  harvest_lot_id bigint [not null]
+}
+
+Table buyer_warehouses {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  address varchar(255) [not null]
+  default_warehouse boolean [not null]
+  name varchar(150) [not null]
+  phone varchar(20)
+  buyer_profile_id bigint [not null]
+}
+
+Table categories {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  description text
+  image_url varchar(500)
+  name varchar(100) [not null]
+  slug varchar(120) [not null]
+  display_order integer
+  image_public_id varchar(255)
+}
+
+Table cold_assets {
+  id bigint [pk, increment]
+  asset_code varchar(60) [not null]
+  asset_type varchar(40) [not null]
+  asset_name varchar(150) [not null]
+  capacity_kg numeric(12,2) [not null]
+  driver_id bigint
+  current_temp numeric(5,2) [not null]
+  current_humidity numeric(5,2) [not null]
+  target_temp_min numeric(5,2) [not null]
+  target_temp_max numeric(5,2) [not null]
+  status varchar(30) [not null]
+}
+
+Table email_otp_verifications {
+  id bigint [pk, increment]
+  email varchar(255) [not null]
+  otp_type varchar(255) [not null]
+  otp_code_hash varchar(255) [not null]
+  expires_at timestamptz [not null]
+  attempts integer [not null]
+  used boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table farmer_profiles {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  farm_name varchar(200) [not null]
+  farmer_type varchar(50) [not null]
+  puc_code varchar(100)
+  certifications varchar(255)
+  cert_expiry_date date
+  cert_image_url varchar(500)
+  tax_code varchar(50)
+  id_card_number varchar(50)
+  bank_account varchar(50)
+  bank_account_name varchar(100)
+  bank_name varchar(100)
+  location varchar(255)
+  cultivated_area varchar(100)
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table fleet_drivers {
+  id bigint [pk, increment]
+  warehouse_id bigint [not null]
+  driver_code varchar(30) [not null]
+  full_name varchar(100) [not null]
+  phone varchar(20) [not null]
+  license_number varchar(30) [not null]
+  license_class varchar(10) [not null]
+  status varchar(30) [not null]
+  experience_years integer
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table fleet_vehicles {
+  id bigint [pk, increment]
+  warehouse_id bigint [not null]
+  plate_number varchar(20) [not null]
+  vehicle_model varchar(100) [not null]
+  vehicle_type varchar(50) [not null]
+  capacity_kg numeric(10,2) [not null]
+  volume_m3 numeric(10,2) [not null]
+  min_temp numeric(4,1)
+  max_temp numeric(4,1)
+  status varchar(30) [not null]
+  notes text
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table gl_journal_entries {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  event varchar(50) [not null]
+  reference varchar(100) [not null]
+  created_at timestamptz [not null]
+}
+
+Table gl_journal_lines {
+  id bigint [pk, increment]
+  entry_id bigint [not null]
+  account varchar(10) [not null]
+  debit numeric(18,2) [not null]
+  credit numeric(18,2) [not null]
+}
+
+Table harvest_lots {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  audit_note text
+  available_weight_kg numeric(12,2) [not null]
+  base_price_per_kg numeric(12,2) [not null]
+  category varchar(50) [not null]
+  category_id bigint
+  certification varchar(100)
+  expiry_date date [not null]
+  farmer_id bigint
+  farmer_name varchar(150)
+  harvest_date date [not null]
+  image_url text
+  lot_code varchar(50) [not null]
+  product_name varchar(100) [not null]
+  puc_code varchar(50) [not null]
+  region varchar(100)
+  rejection_reason text
+  req_temp_max numeric(4,1)
+  req_temp_min numeric(4,1)
+  status varchar(30)
+  tier_pricing_json jsonb
+  total_weight_kg numeric(12,2) [not null]
+  warehouse_location varchar(100)
+  review_note text
+  image_public_id varchar(255)
+}
+
+Table hub_inspections {
+  id bigint [pk, increment]
+  inspection_code varchar(64) [not null]
+  contract_id bigint [not null]
+  cold_room_id bigint [not null]
+  received_weight_kg numeric(12,2) [not null]
+  qualified_weight_kg numeric(12,2) [not null]
+  rejected_weight_kg numeric(12,2) [not null]
+  brix_degree numeric(4,1)
+  moisture_pct numeric(4,1)
+  qc_staff_id bigint [not null]
+  qc_note varchar(500)
+  inspected_at timestamptz [not null]
+  created_at timestamp
+  updated_at timestamp
+  moisture_percent numeric(4,1)
+}
+
+Table iot_sensor_logs {
+  id bigint [pk, increment]
+  asset_id bigint [not null]
+  temperature numeric(4,2) [not null]
+  humidity numeric(5,2) [not null]
+  is_alert boolean [not null]
+  alert_message text
+  simulated boolean [not null]
+  recorded_at timestamptz [not null]
+  alert boolean [not null]
+  contract_id bigint [not null]
+}
+
+Table order_items {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  quantity integer [not null]
+  total_price numeric(15,2) [not null]
+  unit_price numeric(15,2) [not null]
+  order_id bigint [not null]
+  product_id bigint [not null]
+}
+
+Table orders {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  is_paid boolean [not null]
+  note varchar(500)
+  order_code varchar(50) [not null]
+  payment_method varchar(50) [not null]
+  recipient_name varchar(100) [not null]
+  recipient_phone varchar(20) [not null]
+  shipping_address varchar(255) [not null]
+  status varchar(30) [not null]
+  total_amount numeric(15,2) [not null]
+  user_id bigint
+}
+
+Table outbound_delivery_stops {
+  id bigint [pk, increment]
+  trip_id bigint [not null]
+  contract_id bigint [not null]
+  buyer_warehouse_id bigint
+  stop_sequence integer [not null]
+  delivery_address_snapshot varchar(255) [not null]
+  contact_name_snapshot varchar(100)
+  contact_phone_snapshot varchar(50)
+  expected_weight_kg numeric(10,2) [not null]
+  status varchar(30) [not null]
+  arrived_at timestamp
+  driver_submitted_at timestamp
+  buyer_confirmed_at timestamp
+  actual_delivered_weight_kg numeric(10,2)
+  rejected_weight_kg numeric(10,2)
+  rejection_reason varchar(255)
+  driver_signature_data text
+  driver_notes text
+  buyer_signer_name varchar(100)
+  buyer_signer_phone varchar(50)
+  buyer_signature_data text
+  buyer_notes text
+  handover_photo_url text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table outbound_delivery_trips {
+  id bigint [pk, increment]
+  trip_code varchar(50) [not null]
+  hub_id bigint [not null]
+  vehicle_id bigint [not null]
+  driver_id bigint [not null]
+  status varchar(30) [not null]
+  planned_departure_at timestamp
+  departed_at timestamp
+  completed_at timestamp
+  total_loaded_weight_kg numeric(10,2) [not null]
+  total_volume_m3 numeric(10,2) [not null]
+  total_stops integer [not null]
+  notes text
+  created_by varchar(100)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table payment_transactions {
+  id bigint [pk, increment]
+  provider varchar(50) [not null]
+  transaction_id varchar(100) [not null]
+  contract_id bigint
+  order_id bigint
+  amount numeric(15,2) [not null]
+  payment_type varchar(50) [not null]
+  payload text
+  created_at timestamp [not null]
+}
+
+Table pickup_trip_stops {
+  id bigint [pk, increment]
+  trip_id bigint [not null]
+  contract_id bigint [not null]
+  stop_order integer [not null]
+  farmer_name varchar(100)
+  pickup_address varchar(255) [not null]
+  contact_phone varchar(50)
+  weight_kg numeric(10,2) [not null]
+  volume_m3 numeric(10,2) [not null]
+  package_count integer [not null]
+  status varchar(30) [not null]
+  arrived_at timestamp
+  loaded_at timestamp
+  notes text
+  created_at timestamp
+  actual_weight_kg numeric(10,2)
+  actual_package_count integer
+  handover_photo_url text
+  handover_signature_data text
+  issue_reason varchar(100)
+  issue_notes text
+}
+
+Table pickup_trips {
+  id bigint [pk, increment]
+  trip_code varchar(50) [not null]
+  warehouse_id bigint [not null]
+  vehicle_id bigint [not null]
+  driver_id bigint [not null]
+  status varchar(30) [not null]
+  total_weight_kg numeric(10,2) [not null]
+  total_volume_m3 numeric(10,2) [not null]
+  total_packages integer [not null]
+  total_stops integer [not null]
+  departure_time timestamp
+  completion_time timestamp
+  cancellation_reason text
+  created_by varchar(100)
+  created_at timestamp
+  updated_at timestamp
+  acknowledged_at timestamp
+  returning_time timestamp
+  arrived_warehouse_time timestamp
+  actual_total_weight_kg numeric(10,2)
+  actual_total_packages integer
+  receiving_staff_id bigint
+  receiving_notes text
+}
+
+Table platform_settings {
+  id integer [pk, increment]
+  platform_fee_rate numeric(5,2) [not null]
+  deposit_rate numeric(5,2) [not null]
+  temp_min numeric(5,2) [not null]
+  temp_max numeric(5,2) [not null]
+  service_vat_rate numeric(5,2) [not null]
+}
+
+Table products {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  brand varchar(100)
+  category_slug varchar(100)
+  description text
+  discount_percent integer
+  image_url varchar(500)
+  is_active boolean [not null]
+  is_featured boolean [not null]
+  is_organic boolean [not null]
+  name varchar(200) [not null]
+  origin varchar(100)
+  original_price numeric(15,2)
+  price numeric(15,2) [not null]
+  rating double
+  review_count integer
+  slug varchar(250) [not null]
+  stock_quantity integer [not null]
+  unit varchar(50)
+  category_id bigint
+  embedding vector
+  image_public_id varchar(255)
+}
+
+Table qc_inspections {
+  id bigint [pk, increment]
+  contract_id bigint [not null]
+  gross_weight double [not null]
+  net_qualified_weight double [not null]
+  rejected_weight double [not null]
+  qualified_percent double [not null]
+  brix_score double [not null]
+  moisture_percent double [not null]
+  inspector_name varchar(100)
+  qc_notes varchar(500)
+  sample_photo_url varchar(500)
+  inspected_at timestamptz [not null]
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table refresh_tokens {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  token_hash varchar(64) [not null]
+  family_id varchar(255) [not null]
+  expires_at timestamptz [not null]
+  revoked boolean [not null]
+  remember_me boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table rfq_negotiation_events {
+  id bigint [pk, increment]
+  rfq_id bigint [not null]
+  actor_id bigint
+  actor_role varchar(30) [not null]
+  action varchar(30) [not null]
+  status_from varchar(30)
+  status_to varchar(30) [not null]
+  quantity_kg numeric(12,2)
+  price_per_kg numeric(15,2)
+  message text
+  created_at timestamptz [not null]
+}
+
+Table rfq_negotiations {
+  id bigint [pk, increment]
+  rfq_code varchar(50) [not null]
+  harvest_lot_id bigint [not null]
+  buyer_name varchar(150) [not null]
+  buyer_phone varchar(20)
+  buyer_company varchar(200)
+  requested_quantity double [not null]
+  target_price numeric(15,2) [not null]
+  counter_price numeric(15,2)
+  counter_quantity double
+  reject_reason varchar(500)
+  delivery_date date [not null]
+  hub_location varchar(200)
+  status varchar(30) [not null]
+  created_at timestamptz
+  updated_at timestamptz
+  buyer_id bigint
+  shipping_option varchar(40)
+  notes text
+  expires_at timestamptz [not null]
+}
+
+Table roles {
+  id bigint [pk, increment]
+  description varchar(255)
+  name varchar(50) [not null]
+}
+
+Table settlements {
+  id bigint [pk, increment]
+  settlement_code varchar(50) [not null]
+  contract_id bigint [not null]
+  farmer_id bigint [not null]
+  qualified_weight double [not null]
+  unit_price numeric(15,2) [not null]
+  gross_amount numeric(15,2) [not null]
+  platform_fee_percent double [not null]
+  platform_fee numeric(15,2) [not null]
+  payout_amount numeric(15,2) [not null]
+  bank_account varchar(50)
+  bank_name varchar(100)
+  bank_account_name varchar(100)
+  bank_reference varchar(100)
+  is_paid boolean [not null]
+  paid_at timestamptz
+  tax_form_type varchar(50) [not null]
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table shipments {
+  id bigint [pk, increment]
+  shipment_code varchar(60) [not null]
+  contract_id bigint [not null]
+  truck_id bigint [not null]
+  driver_id bigint [not null]
+  loaded_weight_kg numeric(12,2) [not null]
+  delivered_weight_kg numeric(12,2)
+  damaged_weight_kg numeric(12,2) [not null]
+  natural_shrinkage_kg numeric(12,2) [not null]
+  epod_signature_name varchar(100)
+  epod_photo_url text
+  epod_signature_data text
+  departed_at timestamptz
+  delivered_at timestamptz
+  status varchar(30) [not null]
+}
+
+Table spoilage_claims {
+  id bigint [pk, increment]
+  claim_code varchar(60) [not null]
+  contract_id bigint [not null]
+  damaged_weight_kg numeric(12,2) [not null]
+  cause text [not null]
+  liable_party varchar(30) [not null]
+  compensation_amount numeric(18,2) [not null]
+  status varchar(30) [not null]
+  resolution_note text
+  resolution_ref varchar(100)
+  created_at timestamptz [not null]
+}
+
+Table uploaded_assets {
+  id bigint [pk, increment]
+  asset_id varchar(64) [not null]
+  public_id varchar(255) [not null]
+  secure_url varchar(1000) [not null]
+  resource_type varchar(50) [not null]
+  delivery_type varchar(50) [not null]
+  format varchar(20)
+  file_size bigint
+  width integer
+  height integer
+  purpose varchar(50) [not null]
+  user_id bigint
+  ip_address varchar(45)
+  is_linked boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table users {
+  id bigint [pk, increment]
+  created_at timestamp [not null]
+  updated_at timestamp
+  address varchar(255)
+  email varchar(100) [not null]
+  enabled boolean [not null]
+  full_name varchar(100) [not null]
+  password varchar(100) [not null]
+  phone varchar(20)
+  username varchar(50) [not null]
+  email_verified boolean [not null]
+  google_id varchar(100)
+  auth_provider varchar(255)
+  company_name varchar(255)
+  tax_code varchar(255)
+  household_farmer boolean [not null]
+  bank_account_no varchar(255)
+  bank_name varchar(255)
+  warehouse_address varchar(255)
+  puc_code varchar(255)
+  certification varchar(255)
+  certification_url varchar(500)
+  kyc_status varchar(255)
+  kyc_note varchar(255)
+  token_version bigint [not null]
+  individual_buyer boolean [not null]
+  certification_public_id varchar(255)
+}
+
+Table users_roles {
+  user_id bigint [pk]
+  role_id bigint [pk]
+}
+
+Table warehouse_hubs {
+  id bigint [pk, increment]
+  hub_code varchar(50) [not null]
+  hub_name varchar(150) [not null]
+  region varchar(50) [not null]
+  address varchar(255) [not null]
+  latitude numeric(10,7)
+  longitude numeric(10,7)
+  hotline varchar(20)
+  manager_name varchar(100)
+  is_active boolean
+  created_at timestamp
+  updated_at timestamp
+}
+
+// ==============================================================================
+// RELATIONSHIPS (FOREIGN KEYS)
+// ==============================================================================
+
+Ref: order_items.order_id > orders.id
+Ref: order_items.product_id > products.id
+Ref: orders.user_id > users.id
+Ref: products.category_id > categories.id
+Ref: users_roles.role_id > roles.id
+Ref: users_roles.user_id > users.id
+Ref: refresh_tokens.user_id > users.id
+Ref: b2b_contracts.lot_id > harvest_lots.id
+Ref: b2b_contracts.farmer_id > users.id
+Ref: b2b_contracts.buyer_id > users.id
+Ref: cold_assets.driver_id > users.id
+Ref: hub_inspections.contract_id > b2b_contracts.id
+Ref: hub_inspections.cold_room_id > cold_assets.id
+Ref: hub_inspections.qc_staff_id > users.id
+Ref: shipments.contract_id > b2b_contracts.id
+Ref: shipments.truck_id > cold_assets.id
+Ref: shipments.driver_id > users.id
+Ref: iot_sensor_logs.asset_id > cold_assets.id
+Ref: spoilage_claims.contract_id > b2b_contracts.id
+Ref: gl_journal_entries.contract_id > b2b_contracts.id
+Ref: gl_journal_lines.entry_id > gl_journal_entries.id
+Ref: business_audit.actor_id > users.id
+Ref: uploaded_assets.user_id > users.id
+Ref: farmer_profiles.user_id > users.id
+Ref: rfq_negotiations.harvest_lot_id > harvest_lots.id
+Ref: b2b_contracts.rfq_id > rfq_negotiations.id
+Ref: b2b_contracts.harvest_lot_id > harvest_lots.id
+Ref: qc_inspections.contract_id > b2b_contracts.id
+Ref: settlements.contract_id > b2b_contracts.id
+Ref: settlements.farmer_id > users.id
+Ref: harvest_lots.farmer_id > users.id
+Ref: rfq_negotiations.buyer_id > users.id
+Ref: rfq_negotiation_events.rfq_id > rfq_negotiations.id
+Ref: rfq_negotiation_events.actor_id > users.id
+Ref: b2b_reviews.contract_id > b2b_contracts.id
+Ref: b2b_reviews.reviewer_id > users.id
+Ref: buyer_profiles.user_id > users.id
+Ref: buyer_rfqs.buyer_id > users.id
+Ref: buyer_rfqs.harvest_lot_id > harvest_lots.id
+Ref: buyer_warehouses.buyer_profile_id > buyer_profiles.id
+Ref: iot_sensor_logs.contract_id > b2b_contracts.id
+Ref: fleet_vehicles.warehouse_id > warehouse_hubs.id
+Ref: fleet_drivers.warehouse_id > warehouse_hubs.id
+Ref: pickup_trips.warehouse_id > warehouse_hubs.id
+Ref: pickup_trips.vehicle_id > fleet_vehicles.id
+Ref: pickup_trips.driver_id > fleet_drivers.id
+Ref: pickup_trip_stops.trip_id > pickup_trips.id
+Ref: pickup_trip_stops.contract_id > b2b_contracts.id
+Ref: pickup_trips.receiving_staff_id > users.id
+Ref: outbound_delivery_trips.hub_id > warehouse_hubs.id
+Ref: outbound_delivery_trips.vehicle_id > fleet_vehicles.id
+Ref: outbound_delivery_trips.driver_id > fleet_drivers.id
+Ref: outbound_delivery_stops.trip_id > outbound_delivery_trips.id
+Ref: outbound_delivery_stops.contract_id > b2b_contracts.id
+Ref: outbound_delivery_stops.buyer_warehouse_id > buyer_warehouses.id
+Ref: payment_transactions.contract_id > b2b_contracts.id
+Ref: payment_transactions.order_id > orders.id
+
+// ==============================================================================
+// TABLE GROUPS
+// ==============================================================================
+
+TableGroup Identity_and_Auth {
+  users
+  roles
+  users_roles
+  farmer_profiles
+  buyer_profiles
+  buyer_warehouses
+  refresh_tokens
+  email_otp_verifications
+  auth_audit
+}
+
+TableGroup B2B_Marketplace_and_RFQ {
+  categories
+  products
+  harvest_lots
+  rfq_negotiations
+  rfq_negotiation_events
+  b2b_chat_messages
+  buyer_rfqs
+}
+
+TableGroup Contracts_and_Escrow {
+  b2b_contracts
+  payment_transactions
+  settlements
+  b2b_reviews
+  spoilage_claims
+}
+
+TableGroup Inbound_Fleet_and_Pickup {
+  fleet_vehicles
+  fleet_drivers
+  warehouse_hubs
+  pickup_trips
+  pickup_trip_stops
+  shipments
+}
+
+TableGroup Hub_QC_and_Outbound_Delivery {
+  outbound_delivery_trips
+  outbound_delivery_stops
+  hub_inspections
+  qc_inspections
+}
+
+TableGroup Cold_Chain_and_IoT {
+  cold_assets
+  iot_sensor_logs
+}
+
+TableGroup Accounting_and_Audit {
+  gl_journal_entries
+  gl_journal_lines
+  business_audit
+  uploaded_assets
+  platform_settings
+  orders
+  order_items
+}

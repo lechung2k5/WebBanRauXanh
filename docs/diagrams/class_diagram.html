@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Sơ Đồ Lớp (UML Class Diagram) - Nền Tảng B2B HONA FRESH</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      color: #1e293b;
+    }
+    .header p {
+      margin: 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      padding: 24px;
+      overflow-x: auto;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+    .btn-bar {
+      text-align: center;
+      margin-top: 16px;
+    }
+    .btn {
+      background-color: #0284c7;
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .btn:hover {
+      background-color: #0369a1;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>3.2 SƠ ĐỒ LỚP CHI TIẾT (UML CLASS DIAGRAM) — NỀN TẢNG B2B HONA FRESH</h1>
+    <p>Mô hình hóa các lớp thực thể (Spring Boot Entity Classes), thuộc tính, phương thức và các mối quan hệ nghiệp vụ</p>
+  </div>
+
+  <div class="card">
+    <div class="mermaid">
+classDiagram
+    %% PACKAGE 1: IDENTITY & PROFILE
+    class User {
+        -Long id
+        -String email
+        -String password
+        -String fullName
+        -String phone
+        -String role
+        -String status
+        -String kycStatus
+        -Boolean emailVerified
+        +register()
+        +login()
+        +updateProfile()
+        +verifyKyc()
+    }
+
+    class Role {
+        -Long id
+        -String name
+        -String description
+    }
+
+    class FarmerProfile {
+        -Long id
+        -String farmName
+        -String farmAddress
+        -String province
+        -String vietgapCertNumber
+        -String pucCode
+        -Boolean verified
+        +uploadCertification()
+        +updateFarmInfo()
+    }
+
+    class BuyerProfile {
+        -Long id
+        -String companyName
+        -String taxCode
+        -String businessLicense
+        -BigDecimal ratingAvg
+        +updateCompanyProfile()
+    }
+
+    class BuyerWarehouse {
+        -Long id
+        -String name
+        -String address
+        -String phone
+        -Boolean defaultWarehouse
+        +getDeliveryAddress()
+    }
+
+    %% PACKAGE 2: MARKETPLACE & RFQ
+    class Category {
+        -Long id
+        -String name
+        -String slug
+        -String description
+    }
+
+    class Product {
+        -Long id
+        -String name
+        -String unit
+        -BigDecimal basePrice
+    }
+
+    class HarvestLot {
+        -Long id
+        -String title
+        -BigDecimal expectedWeightKg
+        -BigDecimal availableWeightKg
+        -BigDecimal unitPrice
+        -String status
+        -LocalDateTime harvestedAt
+        -Integer maxStorageDays
+        +openForTrading()
+        +reserveQuantity(kg)
+        +closeLot()
+    }
+
+    class RfqNegotiation {
+        -Long id
+        -String rfqCode
+        -BigDecimal targetPrice
+        -BigDecimal targetQuantity
+        -BigDecimal counterPrice
+        -BigDecimal counterQuantity
+        -Integer roundNumber
+        -String status
+        -LocalDateTime expiresAt
+        +sendCounterOffer(price, qty)
+        +acceptPrice()
+        +rejectRfq()
+    }
+
+    class B2bChatMessage {
+        -Long id
+        -Long rfqId
+        -String rfqCode
+        -String senderRole
+        -String messageType
+        -String content
+        -LocalDateTime createdAt
+    }
+
+    %% PACKAGE 3: CONTRACT & ESCROW
+    class B2bContract {
+        -Long id
+        -String contractCode
+        -BigDecimal unitPrice
+        -BigDecimal totalAmount
+        -BigDecimal depositAmount
+        -String depositStatus
+        -String fulfillmentStatus
+        -String status
+        -BigDecimal actualHarvestWeightKg
+        -String outboundTruckPlate
+        +signContract()
+        +recordDeposit()
+        +recordRemainingPayment()
+        +closeContract()
+    }
+
+    class PaymentTransaction {
+        -Long id
+        -BigDecimal amount
+        -String paymentType
+        -String paymentMethod
+        -String status
+        -String bankReference
+        +confirmTransaction()
+    }
+
+    class Settlement {
+        -Long id
+        -String settlementCode
+        -BigDecimal qualifiedWeight
+        -BigDecimal unitPrice
+        -BigDecimal grossAmount
+        -BigDecimal platformFee
+        -BigDecimal netPayout
+        -Boolean isPaid
+        -LocalDateTime paidAt
+        +calculateFee()
+        +payoutToFarmer()
+    }
+
+    %% PACKAGE 4: LOGISTICS & COLD CHAIN
+    class WarehouseHub {
+        -Long id
+        -String hubCode
+        -String hubName
+        -String address
+        -String region
+        -BigDecimal capacityTons
+    }
+
+    class FleetVehicle {
+        -Long id
+        -String plateNumber
+        -String vehicleType
+        -BigDecimal maxPayloadKg
+        -Boolean isRefrigerated
+    }
+
+    class FleetDriver {
+        -Long id
+        -String fullName
+        -String phone
+        -String licenseNumber
+    }
+
+    class PickupTrip {
+        -Long id
+        -String tripCode
+        -String status
+        -LocalDateTime departedAt
+        -LocalDateTime arrivedAt
+        +startTrip()
+        +completeInbound()
+    }
+
+    class PickupTripStop {
+        -Long id
+        -Integer stopSequence
+        -BigDecimal actualWeightKg
+        -BigDecimal handoverTemp
+        -String status
+        +confirmFarmHandover()
+    }
+
+    class QcInspection {
+        -Long id
+        -BigDecimal qcBrix
+        -BigDecimal qcNitratePpm
+        -Boolean qcPesticideSafe
+        -BigDecimal grade1Ratio
+        -String status
+        +performQc()
+    }
+
+    class OutboundDeliveryTrip {
+        -Long id
+        -String tripCode
+        -String status
+        -LocalDateTime departedAt
+        -LocalDateTime completedAt
+        +dispatchTrip()
+    }
+
+    class OutboundDeliveryStop {
+        -Long id
+        -Integer stopSequence
+        -BigDecimal expectedWeightKg
+        -BigDecimal actualDeliveredWeightKg
+        -BigDecimal rejectedWeightKg
+        -String buyerSignatureData
+        -String status
+        +submitDriverDelivery()
+        +buyerConfirmEpod()
+    }
+
+    class IotSensorLog {
+        -Long id
+        -Long assetId
+        -BigDecimal temperatureC
+        -BigDecimal humidityPercent
+        -LocalDateTime recordedAt
+    }
+
+    %% MỐI QUAN HỆ GIỮA CÁC LỚP (RELATIONSHIPS)
+    User "1" *-- "0..1" FarmerProfile : has
+    User "1" *-- "0..1" BuyerProfile : has
+    BuyerProfile "1" o-- "*" BuyerWarehouse : owns
+    User "*" o-- "*" Role : assigned
+
+    Category "1" o-- "*" Product : classifies
+    Category "1" o-- "*" HarvestLot : classifies
+    User "1" o-- "*" HarvestLot : creates
+
+    HarvestLot "1" o-- "*" RfqNegotiation : negotiates
+    User "1" o-- "*" RfqNegotiation : requests
+    RfqNegotiation "1" o-- "*" B2bChatMessage : contains
+
+    RfqNegotiation "1" -- "0..1" B2bContract : generates
+    HarvestLot "1" -- "*" B2bContract : references
+    User "1" -- "*" B2bContract : parties
+
+    B2bContract "1" *-- "*" PaymentTransaction : deposits
+    B2bContract "1" *-- "0..1" Settlement : settles
+    User "1" -- "*" Settlement : receives
+
+    WarehouseHub "1" o-- "*" FleetVehicle : bases
+    WarehouseHub "1" o-- "*" FleetDriver : assigns
+
+    WarehouseHub "1" o-- "*" PickupTrip : dispatches
+    FleetVehicle "1" -- "*" PickupTrip : vehicle
+    FleetDriver "1" -- "*" PickupTrip : driver
+    PickupTrip "1" *-- "*" PickupTripStop : stops
+    B2bContract "1" -- "0..1" PickupTripStop : contracts
+
+    B2bContract "1" -- "0..1" QcInspection : inspects
+
+    WarehouseHub "1" o-- "*" OutboundDeliveryTrip : dispatches
+    FleetVehicle "1" -- "*" OutboundDeliveryTrip : vehicle
+    FleetDriver "1" -- "*" OutboundDeliveryTrip : driver
+    OutboundDeliveryTrip "1" *-- "*" OutboundDeliveryStop : stops
+    B2bContract "1" -- "0..1" OutboundDeliveryStop : contracts
+    BuyerWarehouse "1" -- "*" OutboundDeliveryStop : destination
+
+    B2bContract "1" -- "*" IotSensorLog : monitors
+    </div>
+  </div>
+
+  <div class="btn-bar">
+    <button class="btn" onclick="window.print()">In hoặc Lưu PDF Sơ đồ</button>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default', maxTextSize: 100000 });
+  </script>
+</body>
+</html>

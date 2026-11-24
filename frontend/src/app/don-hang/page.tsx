@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
-import { getOrderByCode } from '@/services/api';
+import { confirmBuyerDepositApi, getBuyerB2bContractsApi, getOrderByCode } from '@/services/api';
 import {
   trackB2bContractsApi,
   getContractQcApi,
@@ -38,6 +38,7 @@ import {
   QrCode,
 } from 'lucide-react';
 import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
+import { buyerPayDeposit, getSyncContracts } from '@/services/b2bSyncService';
 
 function OrderTrackingContent() {
   const searchParams = useSearchParams();
@@ -94,8 +95,14 @@ function OrderTrackingContent() {
       }
     } catch {}
 
-    // Load B2B history
-    getFarmerContractsApi().then((cts) => {
+    // Load B2B history. Buyer API được ưu tiên để ID hợp đồng luôn thuộc
+    // đúng tài khoản đang đăng nhập; endpoint public Farmer chỉ là fallback.
+    Promise.resolve()
+      .then(async () => {
+        const buyerContracts = await getBuyerB2bContractsApi().catch(() => []);
+        return buyerContracts.length > 0 ? buyerContracts : getFarmerContractsApi();
+      })
+      .then((cts) => {
       setLocalB2bHistory(cts);
       if (
         (initialCode.toUpperCase().startsWith('HD-') || initialCode.toUpperCase().startsWith('RFQ-')) &&
@@ -106,8 +113,20 @@ function OrderTrackingContent() {
         setSelectedContract(cts[0]);
         setB2bQuery(cts[0].contractCode);
       }
-    });
+      });
   }, [initialCode]);
+
+  const confirmContractDeposit = async (contract: B2BContract) => {
+    const localFallbackApplied = false;
+    await confirmBuyerDepositApi(Number(contract.id), contract.contractCode);
+    // Phản chiếu trạng thái sang Farmer/Admin ngay cả khi backend đã xác nhận.
+    if (!localFallbackApplied) {
+      const localContract = getSyncContracts().find(
+        (item) => item.contractCode.trim().toUpperCase() === contract.contractCode.trim().toUpperCase(),
+      );
+      if (localContract) buyerPayDeposit(localContract.contractCode);
+    }
+  };
 
   // Handle Search B2C
   const handleSearchB2c = async (codeToSearch: string, fallbackHistory?: OrderResponse[]) => {
@@ -143,7 +162,15 @@ function OrderTrackingContent() {
     setErrorB2b(null);
 
     try {
-      const res = await trackB2bContractsApi(query);
+      const buyerContracts = await getBuyerB2bContractsApi().catch(() => []);
+      const normalized = query.toLowerCase();
+      const buyerMatches = buyerContracts.filter((contract) =>
+        contract.contractCode.toLowerCase().includes(normalized) ||
+        contract.lotCode.toLowerCase().includes(normalized) ||
+        contract.productName.toLowerCase().includes(normalized) ||
+        contract.buyerPhone.includes(query)
+      );
+      const res = buyerMatches.length > 0 ? buyerMatches : await trackB2bContractsApi(query);
       if (res && res.length > 0) {
         setB2bContracts(res);
         setSelectedContract(res[0]);
@@ -928,6 +955,7 @@ function OrderTrackingContent() {
             code={paymentModalContract.contractCode}
             amount={paymentModalContract.depositAmount}
             title="Quét Mã VietQR Nộp Cọc 30% Hợp Đồng Sỉ"
+            onManualConfirm={() => confirmContractDeposit(paymentModalContract)}
             onSuccess={() => {
               setSelectedContract((prev) => (prev ? { ...prev, depositStatus: 'DEPOSIT_PAID' } : null));
               setPaymentModalContract(null);

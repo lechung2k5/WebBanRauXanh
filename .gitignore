@@ -10,7 +10,9 @@ backend/target/
 # Frontend build & dependencies
 frontend/.next/
 frontend/node_modules/
+node_modules/
 frontend/out/
+*.tsbuildinfo
 
 # IDE & Editor
 .idea/
@@ -24,6 +26,12 @@ Thumbs.db
 scratch/
 tools/
 *.exe
+*.bak
+~$*
+doc/*_UPDATED.docx
+doc/*_FINAL.docx
+__pycache__/
+*.pyc
 
 # Secrets & Environment Configurations
 .gemini_api_key

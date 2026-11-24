@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, LockKeyhole, Save, UserRound } from 'lucide-react';
 import { getBuyerProfileApi, updateBuyerProfileApi, type BuyerProfile, type BuyerProfileUpdate } from '@/services/api';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
 
 const emptyForm: BuyerProfileUpdate = { companyName: '', fullName: '', taxCode: '', contactName: '', phone: '', address: '', warehouseAddress: '', contactPhone: '' };
 
@@ -50,7 +51,26 @@ export default function BuyerProfilePanel() {
         <label className="text-sm font-bold text-slate-700">Tên công ty / cửa hàng *<input required value={form.companyName} onChange={(e) => setField('companyName', e.target.value)} className={`${inputClass} mt-2`} /></label>
         <label className="text-sm font-bold text-slate-700">Mã số thuế<input value={form.taxCode || ''} onChange={(e) => setField('taxCode', e.target.value)} className={`${inputClass} mt-2`} /></label>
         <label className="text-sm font-bold text-slate-700 md:col-span-2">Địa chỉ cá nhân / địa chỉ liên hệ<textarea rows={2} value={form.address || ''} onChange={(e) => setField('address', e.target.value)} className={`${inputClass} mt-2 resize-none`} /></label>
-        <label className="text-sm font-bold text-slate-700 md:col-span-2">Địa chỉ kho nhận mặc định<textarea rows={2} value={form.warehouseAddress || ''} onChange={(e) => setField('warehouseAddress', e.target.value)} className={`${inputClass} mt-2 resize-none`} /></label>
+        <div className="md:col-span-2 space-y-1">
+          <label className="text-sm font-bold text-slate-700">
+            Địa chỉ kho tiếp nhận mặc định ngoài thực tế (Gợi ý Goong Maps):
+          </label>
+          <div className="mt-1">
+            <AddressAutocomplete
+              value={form.warehouseAddress || ''}
+              onChange={(val) => setField('warehouseAddress', val)}
+              onSelectAddress={(data) => {
+                if (data.address) setField('warehouseAddress', data.address);
+              }}
+              placeholder="Nhập số nhà, tên đường, kho bãi thực tế ngoài đời..."
+              showCurrentLocationBtn={true}
+              className={`${inputClass}`}
+            />
+          </div>
+          <span className="text-[11px] font-normal text-slate-400 block">
+            Địa chỉ cụ thể ngoài đời thực để hệ thống Goong Maps định tuyến xe tải lạnh giao hàng tận kho.
+          </span>
+        </div>
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-5"><p className="text-xs text-slate-500">Trạng thái KYC: <b className={profile?.kycStatus === 'VERIFIED' ? 'text-emerald-700' : 'text-amber-700'}>{profile?.kycStatus || 'PENDING'}</b></p><button disabled={saving} type="submit" className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-sky-700 text-white font-bold text-sm hover:bg-sky-800 disabled:opacity-60"><Save className="w-4 h-4" />{saving ? 'Đang lưu...' : 'Lưu thông tin'}</button></div>
     </form>

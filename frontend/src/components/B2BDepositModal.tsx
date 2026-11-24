@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
   ShieldCheck,
@@ -15,6 +15,7 @@ import {
   Sparkles,
   PhoneCall,
   AlertCircle,
+  AlertTriangle,
   Copy,
   Check,
 } from 'lucide-react';
@@ -24,6 +25,16 @@ import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import { DEFAULT_BANK_INFO, generateVietQrUrl } from '@/services/sepayService';
 import { useApp } from '@/context/AppContext';
 import { getStoredUser } from '@/services/api';
+import {
+  calculateLogisticsEstimates,
+  COLD_STORAGE_HUBS_NATIONWIDE,
+  findColdHubInfo,
+  calculateHaversineDistanceKm,
+  ColdHubInfo,
+} from '@/utils/logisticsCalculator';
+import { getRouteDirections, geocodeAddress } from '@/services/goongMapService';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
+import DatePickerVi from '@/components/common/DatePickerVi';
 
 interface B2BDepositModalProps {
   product: Product | null;
@@ -48,10 +59,14 @@ export default function B2BDepositModal({
   const [traderName, setTraderName] = useState('');
   const [traderPhone, setTraderPhone] = useState('');
   const [traderCompany, setTraderCompany] = useState('');
-  const [deliveryLocation, setDeliveryLocation] = useState('Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng');
+  const [deliveryLocation, setDeliveryLocation] = useState('Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM');
   const [deliveryDate, setDeliveryDate] = useState(
     new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString().split('T')[0]
   );
+  const [shippingOption, setShippingOption] = useState<
+    'cold_storage_truck' | 'farm_delivery' | 'farm_pickup'
+  >('farm_delivery');
+  const [agreeSelfTransportPolicy, setAgreeSelfTransportPolicy] = useState(false);
   const [notes, setNotes] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,18 +74,98 @@ export default function B2BDepositModal({
   const [generatedContractCode, setGeneratedContractCode] = useState('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
+  // Kho HoNa xuất phát phụ trách kiểm định chất lượng (QC) cho lô hàng
+  const originHub = useMemo<ColdHubInfo>(() => {
+    return findColdHubInfo(
+      (product as any)?.hubLocation ||
+        (product as any)?.warehouseLocation ||
+        product.origin ||
+        'Lâm Đồng'
+    );
+  }, [product]);
+
+  const [distanceKm, setDistanceKm] = useState<number>(300);
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState<boolean>(false);
+
+  // Tính cự ly đường bộ qua Goong Map API hoặc tọa độ GPS
+  const updateDistanceToBuyerLocation = useCallback(
+    async (locAddress: string, destCoords?: { lat?: number; lng?: number }) => {
+      if (!locAddress || !locAddress.trim()) return;
+      if (locAddress.includes('Nhận hàng tại Kho') || locAddress.includes('tại kho HoNa')) {
+        setDistanceKm(0);
+        return;
+      }
+      setIsCalculatingDistance(true);
+      try {
+        const originCoord = { lat: originHub.lat, lng: originHub.lng };
+        let targetCoords =
+          destCoords?.lat && destCoords?.lng
+            ? { lat: destCoords.lat, lng: destCoords.lng }
+            : null;
+
+        if (!targetCoords) {
+          if (locAddress.includes('Thủ Đức')) {
+            targetCoords = { lat: 10.8658, lng: 106.7454 };
+          } else if (locAddress.includes('Hóc Môn')) {
+            targetCoords = { lat: 10.8783, lng: 106.5936 };
+          } else if (locAddress.includes('Bình Điền')) {
+            targetCoords = { lat: 10.7027, lng: 106.6214 };
+          } else {
+            targetCoords = await geocodeAddress(locAddress);
+          }
+        }
+
+        if (targetCoords) {
+          const route = await getRouteDirections(originCoord, targetCoords, 'truck');
+          if (route && route.distanceKm > 0) {
+            setDistanceKm(Math.round(route.distanceKm));
+          } else {
+            const fallbackKm = calculateHaversineDistanceKm(originCoord, targetCoords);
+            setDistanceKm(fallbackKm);
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi tính cự ly Goong Maps (Deposit):', err);
+      } finally {
+        setIsCalculatingDistance(false);
+      }
+    },
+    [originHub]
+  );
+
   // Tự động điền thông tin tài khoản thương lái đang đăng nhập
   useEffect(() => {
     const user = currentUser || getStoredUser();
+    let initialAddr = deliveryLocation || 'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM';
     if (user) {
       if (user.fullName) setTraderName(user.fullName);
       if (user.phone) setTraderPhone(user.phone);
       if (user.companyName) setTraderCompany(user.companyName);
       if (user.warehouseAddress || user.address) {
-        setDeliveryLocation(user.warehouseAddress || user.address || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng');
+        initialAddr = (user.warehouseAddress || user.address) || '';
+        setDeliveryLocation(initialAddr);
       }
     }
-  }, [currentUser, isOpen]);
+    updateDistanceToBuyerLocation(initialAddr);
+  }, [currentUser, isOpen, updateDistanceToBuyerLocation]);
+
+  // Tính toán dự toán cước phí logistics chuỗi lạnh theo số lượng mua & km thực tế
+  const logisticsCalculations = useMemo(() => {
+    return calculateLogisticsEstimates({
+      weightKg: quantity || 1000,
+      distanceKm: distanceKm,
+      minTemp: (product as any)?.minTemp,
+      maxTemp: (product as any)?.maxTemp,
+    });
+  }, [quantity, distanceKm, (product as any)?.minTemp, (product as any)?.maxTemp]);
+
+  const currentShippingEst =
+    shippingOption === 'cold_storage_truck'
+      ? logisticsCalculations.DIRECT_FARM_TO_BUYER
+      : shippingOption === 'farm_pickup'
+      ? logisticsCalculations.BUYER_SELF_TRANSPORT
+      : logisticsCalculations.CROSS_DOCKING_HUB;
+  const shippingFee = currentShippingEst.estimatedFee;
 
   // Tính giá theo sản lượng (Tier Pricing)
   const getUnitPrice = (qty: number) => {
@@ -80,9 +175,14 @@ export default function B2BDepositModal({
   };
 
   const unitPrice = getUnitPrice(quantity);
-  const totalAmount = quantity * unitPrice;
-  const depositAmount = Math.round(totalAmount * 0.3); // 30% Cọc
-  const remainingAmount = totalAmount - depositAmount; // 70% còn lại
+  const goodsAmount = quantity * unitPrice;
+  const grandTotal = goodsAmount + shippingFee;
+
+  // Nếu chọn PA3 (Buyer tự vận chuyển): BẮT BUỘC THANH TOÁN 100% TIỀN HÀNG TRƯỚC KHI BỐC LÊN XE
+  // Nếu chọn PA1 hoặc PA2: Cọc 30% bảo chứng Escrow sàn HoNa Fresh
+  const isFullPaymentRequired = shippingOption === 'farm_pickup';
+  const depositAmount = isFullPaymentRequired ? grandTotal : Math.round(grandTotal * 0.3);
+  const remainingAmount = grandTotal - depositAmount;
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
@@ -103,6 +203,13 @@ export default function B2BDepositModal({
       return;
     }
 
+    if (isFullPaymentRequired && !agreeSelfTransportPolicy) {
+      alert(
+        'Đối với phương án Khách tự lấy tại Kho HoNa, quý khách vui lòng tích chọn cam kết nghiệm thu QC, thanh toán 100% tiền hàng trước khi xuất kho và tự chịu trách nhiệm chuỗi lạnh chặng sau!'
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     const contractCode = `HD-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     setGeneratedContractCode(contractCode);
@@ -118,11 +225,15 @@ export default function B2BDepositModal({
         requestedQuantity: quantity,
         targetPrice: unitPrice,
         depositAmount,
-        isDepositPaid: true, // Đã chuyển cọc 30% Escrow
+        isDepositPaid: true, // Đã chuyển cọc/thanh toán Escrow
         deliveryDate,
         hubLocation: deliveryLocation,
-        shippingOption: 'cold_storage_truck',
-        notes: notes || 'Thương lái đã thanh toán cọc 30% qua VietQR Escrow HoNa Fresh',
+        shippingOption,
+        notes:
+          notes ||
+          (isFullPaymentRequired
+            ? 'Khách tự điều xe nhận tại Kho HoNa, thanh toán 100% tất toán trước khi xuất kho'
+            : 'Thương lái đã thanh toán cọc 30% qua VietQR Escrow HoNa Fresh'),
       });
 
       setIsSuccess(true);
@@ -194,7 +305,7 @@ export default function B2BDepositModal({
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#6B7280]">Tổng giá trị hợp đồng:</span>
-                <span className="font-bold text-gray-900">{formatVND(totalAmount)}</span>
+                <span className="font-bold text-gray-900">{formatVND(grandTotal)}</span>
               </div>
               <div className="flex justify-between items-center bg-emerald-50 p-2 rounded-xl text-emerald-900 font-bold">
                 <span>Tiền cọc bảo chứng đã nộp (30%):</span>
@@ -323,23 +434,157 @@ export default function B2BDepositModal({
               </div>
 
               {/* Bảng tính chi phí */}
-              <div className="bg-[#F9F9F5] p-3 rounded-2xl border border-gray-200 text-xs space-y-1.5">
+              <div className="bg-[#F9F9F5] p-3.5 rounded-2xl border border-gray-200 text-xs space-y-1.5">
                 <div className="flex justify-between text-[#6B7280]">
                   <span>Đơn giá áp dụng:</span>
                   <span className="font-bold text-[#10542C]">{formatVND(unitPrice)} / kg</span>
                 </div>
                 <div className="flex justify-between text-[#6B7280]">
-                  <span>Tổng tiền hàng:</span>
-                  <span className="font-bold text-gray-900">{formatVND(totalAmount)}</span>
+                  <span>Tiền hàng ({quantity >= 1000 ? `${quantity / 1000} Tấn` : `${quantity} kg`}):</span>
+                  <span className="font-bold text-gray-900">{formatVND(goodsAmount)}</span>
                 </div>
-                <div className="flex justify-between items-center pt-1.5 border-t border-gray-200 text-xs font-bold text-[#10542C]">
-                  <span>SỐ TIỀN CỌC 30% PHẢI NỘP:</span>
+                <div className="flex justify-between text-[#6B7280]">
+                  <span>Cước vận chuyển chuỗi lạnh:</span>
+                  <span className="font-bold text-[#10542C]">
+                    {shippingOption === 'farm_pickup' ? '0 đ (Khách nhận tại Kho HoNa)' : `+ ${formatVND(shippingFee)}`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-gray-700 font-bold pt-1 border-t border-gray-200">
+                  <span>Tổng giá trị hợp đồng:</span>
+                  <span className="font-black text-gray-900 text-sm">{formatVND(grandTotal)}</span>
+                </div>
+                <div className={`flex justify-between items-center p-2 rounded-xl text-xs font-bold ${
+                  isFullPaymentRequired ? 'bg-rose-100 text-rose-950 border border-rose-300' : 'bg-emerald-100/80 text-[#10542C]'
+                }`}>
+                  <span>{isFullPaymentRequired ? 'SỐ TIỀN THANH TOÁN 100% (TẤT TOÁN):' : 'SỐ TIỀN CỌC 30% BẢO CHỨNG:'}</span>
                   <span className="text-sm font-black text-[#E53935]">{formatVND(depositAmount)}</span>
                 </div>
                 <div className="text-[10px] text-gray-500 italic">
-                  * 70% còn lại ({formatVND(remainingAmount)}) thanh toán khi xe lạnh giao đến kho.
+                  {isFullPaymentRequired
+                    ? '* Phương án tự lấy tại Kho HoNa bắt buộc tất toán 100% tiền hàng trước khi xe xuất kho.'
+                    : `* 70% còn lại (${formatVND(remainingAmount)}) thanh toán sau khi xe lạnh giao hàng và kiểm định QC.`}
                 </div>
               </div>
+            </div>
+
+            {/* PHƯƠNG THỨC VẬN CHUYỂN & CHUỖI LẠNH (BUYER LỰA CHỌN) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-[#2C3E2E]">
+                  Phương thức vận chuyển & Logistics chuỗi lạnh (3 Phương Án Xuất Kho HoNa) *
+                </label>
+                <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  {shippingOption === 'farm_pickup'
+                    ? 'PA3: Khách nhận tại kho HoNa (0 đ cước giao)'
+                    : shippingOption === 'farm_delivery'
+                    ? `PA2: Giao tiêu chuẩn từ kho (~${currentShippingEst.ratePerKg.toLocaleString('vi-VN')} đ/kg)`
+                    : `PA1: Giao hỏa tốc bao xe từ kho (~${currentShippingEst.ratePerKg.toLocaleString('vi-VN')} đ/kg)`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* PA1: Giao hỏa tốc từ kho HoNa */}
+                <button
+                  type="button"
+                  onClick={() => setShippingOption('cold_storage_truck')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    shippingOption === 'cold_storage_truck'
+                      ? 'border-amber-600 bg-amber-50/50 ring-1 ring-amber-500'
+                      : 'border-[#EAECE8] bg-white hover:bg-[#F9F9F5]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="font-bold text-xs text-amber-900">PA1: Giao hỏa tốc</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-bold shrink-0">Bao trọn xe sau QC</span>
+                    </div>
+                    <div className="text-[10px] text-[#6B7280] leading-snug">
+                      Gom về kho HoNa kiểm định QC ➔ Xe lạnh riêng chở thẳng từ kho tới khách hàng (~{distanceKm} km).
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-amber-200/60 flex items-baseline justify-between text-[11px]">
+                    <span className="text-gray-500 text-[10px]">Cước trọn gói:</span>
+                    <strong className="text-amber-900 font-bold">
+                      {logisticsCalculations.DIRECT_FARM_TO_BUYER.estimatedFee.toLocaleString('vi-VN')} đ
+                    </strong>
+                  </div>
+                </button>
+
+                {/* PA2: Giao tiêu chuẩn từ kho HoNa */}
+                <button
+                  type="button"
+                  onClick={() => setShippingOption('farm_delivery')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    shippingOption === 'farm_delivery'
+                      ? 'border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-600 shadow-xs'
+                      : 'border-[#EAECE8] bg-white hover:bg-[#F9F9F5]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="font-bold text-xs text-emerald-900">PA2: Giao tiêu chuẩn</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-bold shrink-0">⭐ Tiết kiệm</span>
+                    </div>
+                    <div className="text-[10px] text-[#6B7280] leading-snug">
+                      Gom về kho HoNa kiểm định QC ➔ Xe lạnh HoNa Fresh chở thẳng từ kho tới tận tay khách hàng (~{distanceKm} km).
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-emerald-200/60 flex items-baseline justify-between text-[11px]">
+                    <span className="text-gray-500 text-[10px]">Cước trọn gói:</span>
+                    <strong className="text-emerald-900 font-bold">
+                      {logisticsCalculations.CROSS_DOCKING_HUB.estimatedFee.toLocaleString('vi-VN')} đ
+                    </strong>
+                  </div>
+                </button>
+
+                {/* PA3: Khách tự lấy tại kho HoNa */}
+                <button
+                  type="button"
+                  onClick={() => setShippingOption('farm_pickup')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    shippingOption === 'farm_pickup'
+                      ? 'border-rose-600 bg-rose-50/50 ring-1 ring-rose-500'
+                      : 'border-[#EAECE8] bg-white hover:bg-[#F9F9F5]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="font-bold text-xs text-rose-900">PA3: Nhận tại kho</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-bold shrink-0">Lấy tại kho HoNa</span>
+                    </div>
+                    <div className="text-[10px] text-[#6B7280] leading-snug">
+                      Gom về kho HoNa kiểm định QC đạt chuẩn ➔ Khách tự điều xe đến Kho HoNa nhận hàng (Thanh toán 100%).
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-rose-200/60 flex items-baseline justify-between text-[11px]">
+                    <span className="text-gray-500 text-[10px]">Cước giao hàng:</span>
+                    <strong className="text-rose-900 font-bold">0 đ (Tự túc)</strong>
+                  </div>
+                </button>
+              </div>
+
+              {/* Điều khoản chuyển giao rủi ro cho PA3 */}
+              {shippingOption === 'farm_pickup' && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 space-y-2 text-xs animate-fade-in">
+                  <div className="flex items-start gap-2 text-rose-900 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span>Quy định Nghiệm Thu QC & Tất Toán 100% Tại Kho HoNa Fresh:</span>
+                  </div>
+                  <p className="text-rose-800 text-[11px] leading-relaxed">
+                    Nông sản được gom về Kho HoNa Fresh và kiểm định chất lượng QC đạt chuẩn trước khi xuất kho. Quý khách tự điều xe tải lạnh đến Kho HoNa Fresh nhận hàng, nghiệm thu biên bản QC và <strong>bắt buộc thanh toán 100% giá trị lô hàng trước khi bốc hàng lên xe</strong>. Sau khi xe lăn bánh rời cổng Kho HoNa Fresh, khách hàng tự chịu trách nhiệm về nhiệt độ chuỗi lạnh trên đường vận chuyển.
+                  </p>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-rose-950 pt-1">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={agreeSelfTransportPolicy}
+                      onChange={(e) => setAgreeSelfTransportPolicy(e.target.checked)}
+                      className="w-4 h-4 text-rose-600 rounded border-rose-300 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span>Tôi xác nhận nghiệm thu QC, thanh toán 100% tiền hàng tại Kho HoNa và tự chịu trách nhiệm chuỗi lạnh chặng sau.</span>
+                  </label>
+                </div>
+              )}
             </div>
 
             {/* Thông tin đại diện Thương lái */}
@@ -390,40 +635,45 @@ export default function B2BDepositModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-[#2C3E2E] mb-1">
-                  Trạm nhận hàng / Điểm trung chuyển *
+                  Địa điểm nhận hàng (Kho thực tế của bạn) *
                 </label>
-                <select
+                <AddressAutocomplete
                   value={deliveryLocation}
-                  onChange={(e) => setDeliveryLocation(e.target.value)}
+                  onChange={(val) => {
+                    setDeliveryLocation(val);
+                    if (val.trim().length > 6) {
+                      updateDistanceToBuyerLocation(val);
+                    }
+                  }}
+                  onSelectAddress={(data) => {
+                    if (data.address) {
+                      setDeliveryLocation(data.address);
+                      updateDistanceToBuyerLocation(data.address, { lat: data.lat, lng: data.lng });
+                    }
+                  }}
+                  placeholder="Nhập số nhà, tên đường, kho bãi (Gợi ý Goong Maps)..."
+                  showCurrentLocationBtn={true}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
-                >
-                  {deliveryLocation && ![
-                    'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng',
-                    'Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM',
-                    'Chợ Đầu Mối Hóc Môn, TP.HCM',
-                    'Chợ Đầu Mối Bình Điền, TP.HCM',
-                    'Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)',
-                    'Kho lạnh riêng của thương lái',
-                  ].includes(deliveryLocation) && (
-                    <option value={deliveryLocation}>{deliveryLocation} (Kho theo tài khoản)</option>
-                  )}
-                  <option value="Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng">Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng</option>
-                  <option value="Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM">Chợ Đầu Mối Nông Sản Thủ Đức, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Hóc Môn, TP.HCM">Chợ Đầu Mối Hóc Môn, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Bình Điền, TP.HCM">Chợ Đầu Mối Bình Điền, TP.HCM</option>
-                  <option value="Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)">Chợ Đầu Mối Phía Nam (Hoàng Mai, Hà Nội)</option>
-                  <option value="Kho lạnh riêng của thương lái">Kho lạnh riêng của thương lái</option>
-                </select>
+                />
+
+                {/* Badge cự ly vận chuyển Goong Maps động */}
+                <div className="mt-1 flex items-center gap-1 text-[10px] text-[#10542C] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <MapPin className="w-3 h-3 text-emerald-700 shrink-0" />
+                  <span className="truncate">
+                    Xuất từ: <strong>{originHub.name.split('-')[0]}</strong> ➔ Kho nhận:{' '}
+                    <strong>{distanceKm > 0 ? `~${distanceKm} km` : 'Tại kho xuất phát'}</strong>
+                    {isCalculatingDistance && ' (Đang tính tuyến Goong...)'}
+                  </span>
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-[#2C3E2E] mb-1">
                   Ngày nhận hàng mong muốn *
                 </label>
-                <input
-                  type="date"
+                <DatePickerVi
                   value={deliveryDate}
-                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  onChange={(val) => setDeliveryDate(val)}
                   className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E] focus:outline-none focus:border-[#10542C]"
                   required
                 />
@@ -431,16 +681,22 @@ export default function B2BDepositModal({
             </div>
 
             {/* Khối quét mã VietQR Escrow */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200">
+            <div className={`p-4 rounded-2xl border ${
+              isFullPaymentRequired
+                ? 'bg-gradient-to-r from-rose-50 to-amber-50 border-rose-300'
+                : 'bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200'
+            }`}>
               <div className="flex items-center gap-2 mb-3">
-                <QrCode className="w-4 h-4 text-[#10542C]" />
-                <span className="font-heading font-black text-xs text-[#10542C]">
-                  QUÉT VIETQR CHUYỂN KÝ QUỸ CỌC 30% (BẢO CHỨNG ESCROW)
+                <QrCode className={`w-4 h-4 ${isFullPaymentRequired ? 'text-rose-700' : 'text-[#10542C]'}`} />
+                <span className={`font-heading font-black text-xs ${isFullPaymentRequired ? 'text-rose-900' : 'text-[#10542C]'}`}>
+                  {isFullPaymentRequired
+                    ? 'QUÉT VIETQR THANH TOÁN TẤT TOÁN 100% TIỀN HÀNG (KHO HONA FRESH)'
+                    : 'QUÉT VIETQR CHUYỂN KÝ QUỸ CỌC 30% (BẢO CHỨNG ESCROW)'}
                 </span>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-4">
-                <div className="bg-white p-2 rounded-xl shadow-xs shrink-0 border border-emerald-300">
+                <div className={`bg-white p-2 rounded-xl shadow-xs shrink-0 border ${isFullPaymentRequired ? 'border-rose-300' : 'border-emerald-300'}`}>
                   <img
                     src={qrUrl}
                     alt="VietQR Escrow Deposit"
@@ -471,8 +727,10 @@ export default function B2BDepositModal({
                     <span>Chủ tài khoản:</span>
                     <strong className="text-gray-900">{DEFAULT_BANK_INFO.accountName}</strong>
                   </div>
-                  <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                    <span>Số tiền cọc 30%:</span>
+                  <div className={`flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border ${
+                    isFullPaymentRequired ? 'border-rose-300' : 'border-emerald-200'
+                  }`}>
+                    <span>{isFullPaymentRequired ? 'Số tiền thanh toán 100%:' : 'Số tiền cọc 30%:'}</span>
                     <strong className="text-sm font-black text-[#E53935]">{formatVND(depositAmount)}</strong>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-[#6B7280]">
@@ -497,11 +755,19 @@ export default function B2BDepositModal({
 
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="px-7 py-3 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-black text-xs rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                disabled={isSubmitting || (isFullPaymentRequired && !agreeSelfTransportPolicy)}
+                className={`px-7 py-3 text-white font-heading font-black text-xs rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 ${
+                  isFullPaymentRequired ? 'bg-rose-700 hover:bg-rose-800' : 'bg-[#10542C] hover:bg-[#0C3E20]'
+                }`}
               >
                 <ShieldCheck className="w-4 h-4 text-[#8BC34A]" />
-                <span>{isSubmitting ? 'Đang xác thực...' : 'Xác Nhận Đã Chuyển Cọc 30% (Ký Hợp Đồng)'}</span>
+                <span>
+                  {isSubmitting
+                    ? 'Đang xác thực...'
+                    : isFullPaymentRequired
+                    ? 'Xác Nhận Đã Thanh Toán 100% (Nhận Tại Kho HoNa)'
+                    : 'Xác Nhận Đã Chuyển Cọc 30% (Ký Hợp Đồng)'}
+                </span>
               </button>
             </div>
           </form>

@@ -15,6 +15,7 @@ import {
   Droplets,
   Scale,
   Printer,
+  QrCode,
   Star,
   BadgeCheck,
 } from 'lucide-react';
@@ -24,7 +25,8 @@ import {
   ColdChainTelemetry,
   DeliveryProof,
 } from '@/types';
-import { getBuyerB2bContractsApi } from '@/services/api';
+import { confirmBuyerDepositApi, confirmBuyerFinalPaymentApi, getBuyerB2bContractsApi } from '@/services/api';
+import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import {
   getFarmerContractsApi,
   getContractQcApi,
@@ -35,12 +37,15 @@ import {
   FALLBACK_CONTRACTS,
   FALLBACK_QC_MAP,
 } from '@/services/farmerApi';
+import { getSyncContracts, buyerPayDeposit, buyerPayFinalSettlement } from '@/services/b2bSyncService';
 import { useApp } from '@/context/AppContext';
 
 export interface OrderTrackingModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultQuery?: string;
+  // Dữ liệu hợp đồng đã được Buyer console tổng hợp từ backend và kênh đồng bộ.
+  initialContracts?: B2BContract[];
 }
 
 const DEFAULT_TELEMETRY: ColdChainTelemetry = {
@@ -83,6 +88,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose,
   defaultQuery = '',
+  initialContracts = [],
 }) => {
   const { currentUser } = useApp();
 
@@ -105,6 +111,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   const [selectedProof, setSelectedProof] = useState<DeliveryProof | null>(null);
   const [ratingStars, setRatingStars] = useState(5);
   const [buyerFeedback, setBuyerFeedback] = useState('Nông sản tươi ngon, độ ngọt đạt chuẩn, nhiệt độ lạnh bảo quản rất tốt.');
+  const [paymentModalContract, setPaymentModalContract] = useState<B2BContract | null>(null);
 
   // Sync initial tab if requested
   useEffect(() => {
@@ -124,14 +131,31 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
     setLoading(true);
     try {
       // Nạp đúng dữ liệu B2B theo vai trò đang đăng nhập. Buyer không dùng dữ liệu Farmer/fallback.
-      const contractList = currentUser?.roles?.includes('ROLE_BUYER')
-        ? await getBuyerB2bContractsApi()
-        : currentUser?.roles?.some((role) => ['ROLE_FARMER', 'ROLE_COOPERATIVE'].includes(role))
-        ? await getFarmerContractsApi()
-        : [];
+      let apiContracts: B2BContract[] = [];
+      try {
+        apiContracts = currentUser?.roles?.includes('ROLE_BUYER')
+          ? await getBuyerB2bContractsApi()
+          : currentUser?.roles?.some((role) => ['ROLE_FARMER', 'ROLE_COOPERATIVE'].includes(role))
+          ? await getFarmerContractsApi()
+          : [];
+      } catch (error) {
+        console.warn('Không tải được hợp đồng trực tiếp, dùng dữ liệu đã đồng bộ từ Buyer console:', error);
+      }
+      const contractMap = new Map<string, B2BContract>();
+      for (const contract of initialContracts) {
+        if (contract?.contractCode) contractMap.set(contract.contractCode.trim().toUpperCase(), contract);
+      }
+      for (const contract of apiContracts) {
+        if (contract?.contractCode) contractMap.set(contract.contractCode.trim().toUpperCase(), contract);
+      }
+      const contractList = Array.from(contractMap.values());
       setContracts(contractList);
-      if (contractList.length > 0 && selectedContractId === null) {
-        setSelectedContractId(contractList[0].id);
+      if (contractList.length > 0) {
+        const query = defaultQuery.trim().toLowerCase();
+        const requestedContract = query
+          ? contractList.find((contract) => contract.contractCode.toLowerCase() === query)
+          : undefined;
+        setSelectedContractId(requestedContract?.id || contractList[0].id);
       }
 
       // Màn hình này chỉ theo dõi hợp đồng B2B; không nạp đơn hàng tiêu dùng/localStorage.
@@ -305,6 +329,38 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
       default:
         return 0;
     }
+  };
+
+  const confirmContractPayment = async (contract: B2BContract) => {
+    const isFinalPayment = contract.depositStatus === 'DEPOSIT_PAID';
+    const localFallbackApplied = false;
+    if (isFinalPayment) {
+      await confirmBuyerFinalPaymentApi(Number(contract.id));
+    } else {
+      await confirmBuyerDepositApi(Number(contract.id), contract.contractCode);
+    }
+    // Đồng bộ trạng thái local/shared sau cả hai trường hợp: backend xác nhận
+    // thành công hoặc hợp đồng đang chạy ở chế độ giả lập local.
+    if (!localFallbackApplied) {
+      const localContract = getSyncContracts().find(
+        (item) => item.contractCode.trim().toUpperCase() === contract.contractCode.trim().toUpperCase(),
+      );
+      if (localContract) {
+        if (isFinalPayment) buyerPayFinalSettlement(localContract.contractCode);
+        else buyerPayDeposit(localContract.contractCode);
+      }
+    }
+
+    // Cập nhật ngay danh sách đang hiển thị; không chờ API/localStorage reload
+    // để modal không quay lại trạng thái “chưa thanh toán”.
+    setContracts((current) => current.map((item) => {
+      if (item.contractCode.trim().toUpperCase() !== contract.contractCode.trim().toUpperCase()) return item;
+      return {
+        ...item,
+        depositStatus: 'DEPOSIT_PAID',
+        fulfillmentStatus: isFinalPayment ? 'COMPLETED' : item.fulfillmentStatus,
+      };
+    }));
   };
 
   if (!isOpen) return null;
@@ -496,7 +552,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
                         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-gray-100">
                           <span>
-                            Số lượng: <strong className="text-slate-700">{c.quantity.toLocaleString('vi-VN')} kg</strong>
+                            Số lượng: <strong className="text-slate-700">{(Number(c.quantity) || 0).toLocaleString('vi-VN')} kg</strong>
                           </span>
                           <span className="font-bold text-[#10542C]">
                             {formatVnd(c.totalAmount)}
@@ -618,7 +674,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   <div className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-100">
                     <span className="text-[11px] text-slate-500 block">Khối Lượng Hợp Đồng</span>
                     <span className="text-base font-black text-[#10542C]">
-                      {currentContract.quantity.toLocaleString('vi-VN')} kg
+                      {(Number(currentContract.quantity) || 0).toLocaleString('vi-VN')} kg
                     </span>
                     <span className="text-[10px] text-slate-500 block mt-0.5">
                       Đơn giá: {formatVnd(currentContract.unitPrice)}/kg
@@ -631,7 +687,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                       {formatVnd(currentContract.depositAmount)}
                     </span>
                     <span className="text-[10px] text-emerald-600 font-bold block mt-0.5">
-                      ✓ Đã bảo chứng tại sàn
+                      {currentContract.depositStatus === 'DEPOSIT_PAID' ? '✓ Đã bảo chứng tại sàn' : 'Chờ Buyer nộp cọc'}
                     </span>
                   </div>
 
@@ -705,16 +761,42 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                     </p>
                   </div>
 
-                  {currentContract.fulfillmentStatus !== 'COMPLETED' ? (
-                    <button
-                      type="button"
-                      onClick={() => setActiveDetailModal('CONFIRM_RECEIVE')}
-                      className="px-5 py-2.5 bg-[#10542C] hover:bg-[#0c3e20] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-[#8BC34A]" />
-                      <span>Xác Nhận Đã Nhận Hàng</span>
-                    </button>
-                  ) : (
+                  <div className="flex flex-wrap items-center justify-center gap-2 shrink-0">
+                    {currentContract.depositStatus !== 'DEPOSIT_PAID' && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentModalContract(currentContract)}
+                        className="px-4 py-2.5 bg-[#10542C] hover:bg-[#0c3e20] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                      >
+                        <QrCode className="w-4 h-4 text-[#8BC34A]" />
+                        <span>Nộp cọc 30%</span>
+                      </button>
+                    )}
+
+                    {currentContract.depositStatus === 'DEPOSIT_PAID' && currentContract.fulfillmentStatus === 'IN_TRANSIT' && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentModalContract(currentContract)}
+                        className="px-4 py-2.5 bg-[#E08A00] hover:bg-[#C97800] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        <span>Thanh toán 70% còn lại</span>
+                      </button>
+                    )}
+
+                    {currentContract.fulfillmentStatus !== 'COMPLETED' && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailModal('CONFIRM_RECEIVE')}
+                        className="px-4 py-2.5 bg-[#10542C] hover:bg-[#0c3e20] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-[#8BC34A]" />
+                        <span>Xác Nhận Đã Nhận Hàng</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {currentContract.fulfillmentStatus === 'COMPLETED' && (
                     <span className="px-3.5 py-1.5 bg-emerald-100 text-[#10542C] border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                       Đã Quyết Toán Xong
@@ -757,11 +839,11 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Cân thực nhận trạm (Gross):</span>
-                  <span className="font-bold text-slate-800">{selectedQc.grossWeight.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-slate-800">{(Number(selectedQc.grossWeight) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Cân chuẩn thực tế (Net):</span>
-                  <span className="font-bold text-emerald-600">{selectedQc.netQualifiedWeight.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-emerald-600">{(Number(selectedQc.netQualifiedWeight) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Tỷ lệ đạt chuẩn:</span>
@@ -891,11 +973,11 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Khối lượng xuất trạm:</span>
-                  <span className="font-bold text-slate-800">{selectedProof.loadedWeightKg?.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-slate-800">{(Number(selectedProof.loadedWeightKg) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Khối lượng giao tại kho:</span>
-                  <span className="font-bold text-emerald-700">{selectedProof.deliveredWeightKg?.toLocaleString('vi-VN')} kg</span>
+                  <span className="font-bold text-emerald-700">{(Number(selectedProof.deliveredWeightKg) || 0).toLocaleString('vi-VN')} kg</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
                   <span className="text-slate-500">Hao hụt tự nhiên chuỗi lạnh:</span>
@@ -942,7 +1024,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs text-slate-700 space-y-1">
                 <div className="flex justify-between">
                   <span>Khối lượng nghiệm thu:</span>
-                  <strong>{currentContract.quantity.toLocaleString('vi-VN')} kg</strong>
+                  <strong>{(Number(currentContract.quantity) || 0).toLocaleString('vi-VN')} kg</strong>
                 </div>
                 <div className="flex justify-between">
                   <span>Tổng tiền quyết toán:</span>
@@ -1016,6 +1098,32 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
           </div>
         )}
       </div>
+
+      {paymentModalContract && (
+        <SepayPaymentModal
+          isOpen={!!paymentModalContract}
+          onClose={() => setPaymentModalContract(null)}
+          type={paymentModalContract.depositStatus === 'DEPOSIT_PAID' ? 'FINAL_PAYMENT' : 'CONTRACT'}
+          code={paymentModalContract.contractCode}
+          amount={paymentModalContract.depositStatus === 'DEPOSIT_PAID'
+            ? Math.max(0, paymentModalContract.totalAmount - paymentModalContract.depositAmount)
+            : paymentModalContract.depositAmount}
+          title={paymentModalContract.depositStatus === 'DEPOSIT_PAID'
+            ? 'Quét Mã VietQR Thanh Toán 70% Còn Lại'
+            : 'Quét Mã VietQR Nộp Cọc 30% Hợp Đồng'}
+          onManualConfirm={() => confirmContractPayment(paymentModalContract)}
+          onSuccess={() => {
+            setPaymentModalContract(null);
+            void loadData();
+            setSuccessMessage(
+              paymentModalContract.depositStatus === 'DEPOSIT_PAID'
+                ? 'Đã xác nhận thanh toán 70% còn lại và cập nhật hợp đồng.'
+                : 'Đã xác nhận nộp cọc 30% bảo chứng.'
+            );
+            setTimeout(() => setSuccessMessage(null), 5000);
+          }}
+        />
+      )}
     </div>
   );
 };

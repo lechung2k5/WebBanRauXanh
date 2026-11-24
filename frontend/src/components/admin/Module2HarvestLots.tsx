@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import ImageUploadField from '../ImageUploadField';
 import {
@@ -62,8 +62,16 @@ import {
   ExternalLink,
   SlidersHorizontal,
   X,
+  Truck,
 } from 'lucide-react';
 import { notifySyncEvent, subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import { b2bWebSocket } from '@/services/websocketService';
+import {
+  calculateLogisticsEstimates,
+  POPULAR_COLD_HUBS,
+  getShippingMethodLabel,
+  ShippingMethodCode,
+} from '@/utils/logisticsCalculator';
 
 const removeVietnameseTones = (str: string) => {
   return (str || '')
@@ -119,13 +127,24 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [highlightedLotId, setHighlightedLotId] = useState<number | string | null>(null);
   const [highlightedLotCode, setHighlightedLotCode] = useState<string | null>(null);
+  const [realtimeNotification, setRealtimeNotification] = useState<string | null>(null);
+
+  const getCategoryName = useCallback(
+    (catCode?: string, catId?: number) => {
+      return getCategoryDisplayName(catCode, catId, categories);
+    },
+    [categories]
+  );
 
   // Tìm kiếm tức thì đồng thời khi người dùng gõ
   const PAGE_SIZE = 15;
   const filteredLots = useMemo(() => {
-    return allLots.filter((lot) => {
+    const list = allLots.filter((lot) => {
       // 1. Lọc theo trạng thái
-      if (filterStatus !== 'ALL' && lot.status !== filterStatus) return false;
+      if (filterStatus !== 'ALL') {
+        const currentStatus = String(lot.status || '').trim().toUpperCase();
+        if (currentStatus !== filterStatus) return false;
+      }
 
       // 2. Lọc theo ngành hàng (So khớp thông minh đa chiều: ID, Slug, Mã chuẩn, Tên tiếng Việt)
       if (filterCategory !== 'ALL' && !isLotMatchingCategory(lot, filterCategory, categories)) {
@@ -152,7 +171,17 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
       return targets.some((t) => t.includes(kw) || removeVietnameseTones(t).includes(kwNoTone));
     });
-  }, [allLots, filterStatus, filterCategory, categories, searchKw]);
+    // Sắp xếp ưu tiên:
+    // 1. Đưa các lô PENDING_APPROVAL (Chờ duyệt) lên HÀNG ĐẦU TIÊN
+    // 2. Tiếp theo là các lô mới tạo nhất (ID lớn nhất)
+    return [...list].sort((a, b) => {
+      if (a.status === 'PENDING_APPROVAL' && b.status !== 'PENDING_APPROVAL') return -1;
+      if (a.status !== 'PENDING_APPROVAL' && b.status === 'PENDING_APPROVAL') return 1;
+      const idA = typeof a.id === 'number' ? a.id : Number(String(a.id).replace(/\D/g, '')) || 0;
+      const idB = typeof b.id === 'number' ? b.id : Number(String(b.id).replace(/\D/g, '')) || 0;
+      return idB - idA;
+    });
+  }, [allLots, filterStatus, filterCategory, categories, searchKw, getCategoryName]);
 
   const totalPages = Math.ceil(filteredLots.length / PAGE_SIZE) || 1;
   const totalElements = filteredLots.length;
@@ -191,6 +220,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     reqTempMax: number;
     status: string;
     imageUrl: string;
+    shippingMethod: ShippingMethodCode;
+    estimatedShippingFee?: number;
     warehouseLocation: string;
     region: string;
     auditNote: string;
@@ -213,7 +244,9 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     reqTempMax: 6.0,
     status: 'OPEN', // Khi Admin tạo mới thì đầy đủ thông tin và sẵn sàng mở bán
     imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-    warehouseLocation: 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+    shippingMethod: 'CROSS_DOCKING_HUB',
+    estimatedShippingFee: 0,
+    warehouseLocation: 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)',
     region: 'Tây Nguyên & Lâm Đồng',
     auditNote: 'Đạt chuẩn kiểm định VietGAP',
     tierPricing: [
@@ -223,6 +256,15 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     ],
   });
   const [isSubmittingLot, setIsSubmittingLot] = useState<boolean>(false);
+
+  // Tính toán dự toán chi phí vận chuyển & điều phối chuỗi lạnh tức thời
+  const logisticsEstimates = useMemo(() => {
+    return calculateLogisticsEstimates({
+      weightKg: lotForm.totalWeightKg || 1000,
+      minTemp: lotForm.reqTempMin,
+      maxTemp: lotForm.reqTempMax,
+    });
+  }, [lotForm.totalWeightKg, lotForm.reqTempMin, lotForm.reqTempMax]);
 
   // ================= STATE CHO CATEGORIES =================
   const [loadingCategories, setLoadingCategories] = useState<boolean>(false);
@@ -259,10 +301,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       return (b.productCount || 0) - (a.productCount || 0);
     });
 
-  const getCategoryName = (catCode?: string, catId?: number) => {
-    return getCategoryDisplayName(catCode, catId, categories);
-  };
-
   // Đọc query param từ URL (VD: ?status=... hoặc ?editLotId=... / ?lotCode=...)
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -283,11 +321,91 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     }
   }, []);
 
-  // Realtime Sync hai chiều với Nông dân (Farmer)
+  // Realtime Sync hai chiều với Nông dân (Farmer) qua STOMP WebSocket & Local Events
   useEffect(() => {
+    // 1. ĐỒNG BỘ REALTIME WEBSOCKET STOMP CHUẨN XUYÊN TRÌNH DUYỆT (/topic/lots)
+    const unsubWsLots = b2bWebSocket.subscribeLots((payload: any) => {
+      const action = payload?.action;
+      const lotData = payload?.lot as HarvestLot | undefined;
+
+      if ((action === 'LOT_CREATED' || action === 'CREATED') && lotData) {
+        // Lập tức đưa lô mới vào allLots ở đầu bảng
+        setAllLots((prev) => {
+          const key = (lotData.lotCode || String(lotData.id)).trim().toUpperCase();
+          const filtered = prev.filter((l) => (l.lotCode || String(l.id)).trim().toUpperCase() !== key);
+          return [lotData, ...filtered];
+        });
+
+        // Tăng đếm thống kê ngay tức khắc
+        setLotStats((prev) => ({
+          ...prev,
+          totalLots: (prev.totalLots || 0) + 1,
+          pendingLots: (prev.pendingLots || 0) + 1,
+        }));
+
+        // Highlight dòng lô mới và kích hoạt alert banner
+        if (lotData.id) setHighlightedLotId(lotData.id);
+        if (lotData.lotCode) setHighlightedLotCode(lotData.lotCode);
+        setRealtimeNotification(
+          `🔔 Nông dân vừa đăng ký lô nông sản mới: ${lotData.productName} (${lotData.lotCode}) - Đang chờ duyệt!`
+        );
+
+        // Đồng bộ dữ liệu đầy đủ từ DB
+        fetchLots();
+        fetchStats();
+      } else if (action === 'LOT_UPDATED' || action === 'LOT_STATUS_CHANGED' || action === 'STATUS_UPDATED') {
+        if (lotData) {
+          setAllLots((prev) => {
+            const key = (lotData.lotCode || String(lotData.id)).trim().toUpperCase();
+            return prev.map((l) =>
+              (l.lotCode || String(l.id)).trim().toUpperCase() === key ? { ...l, ...lotData } : l
+            );
+          });
+        }
+        fetchLots();
+        fetchStats();
+      } else if (action === 'LOT_RESERVED' || action === 'LOT_HARVESTED' || action === 'DEPOSIT_PAID') {
+        const lotCode = payload?.lotCode || payload?.contract?.lotCode;
+        if (lotCode) {
+          setHighlightedLotCode(lotCode);
+          setRealtimeNotification(
+            `🔔 Lô hàng ${lotCode} đã được chốt hợp đồng và ${action === 'LOT_HARVESTED' ? 'thu hoạch xong' : 'đã nhận cọc bảo chứng'}!`
+          );
+        }
+        fetchLots();
+        fetchStats();
+      } else if (action === 'LOT_CANCELLED' || action === 'LOT_DELETED') {
+        if (lotData?.id) {
+          setAllLots((prev) => prev.filter((l) => l.id !== lotData.id));
+        }
+        fetchLots();
+        fetchStats();
+      }
+    });
+
+    // 1b. LẮNG NGHE REALTIME HỢP ĐỒNG & CỌC ĐÃ CHỐT CHO LÔ HÀNG (/topic/contracts)
+    const unsubWsContracts = b2bWebSocket.subscribeContracts((payload: any) => {
+      const contract = payload?.contract;
+      const lotCode = contract?.lotCode || payload?.lotCode;
+      if (lotCode) setHighlightedLotCode(lotCode);
+      setRealtimeNotification(
+        `🔔 Hợp đồng ${contract?.contractCode || payload?.contractCode || ''} cho lô ${lotCode || ''} vừa cập nhật trạng thái: ${payload?.action || 'Đã nộp cọc'}`
+      );
+      fetchLots();
+      fetchStats();
+    });
+
+    // 2. Local Event Sync (Cùng tab/cửa sổ)
     const handleSync = (e: any) => {
       const type = e?.detail?.type || e?.type;
-      if (type === 'LOT_CREATED' || type === 'LOT_UPDATED' || type === 'LOT_STATUS_UPDATED') {
+      if (
+        type === 'LOT_CREATED' ||
+        type === 'LOT_UPDATED' ||
+        type === 'LOT_STATUS_UPDATED' ||
+        type === 'DEPOSIT_PAID' ||
+        type === 'CONTRACT_CREATED' ||
+        type === 'HARVEST_COMPLETED'
+      ) {
         fetchLots();
         fetchStats();
       }
@@ -297,13 +415,23 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     window.addEventListener('storage', handleSync);
 
     const unsubscribe = subscribeB2bSyncEvents((event) => {
-      if (event.type === 'LOT_CREATED' || event.type === 'LOT_UPDATED' || event.type === 'LOT_STATUS_UPDATED') {
+      if (
+        event.type === 'LOT_CREATED' ||
+        event.type === 'LOT_UPDATED' ||
+        event.type === 'LOT_STATUS_UPDATED' ||
+        event.type === 'DEPOSIT_PAID' ||
+        event.type === 'CONTRACT_CREATED' ||
+        event.type === 'HARVEST_COMPLETED' ||
+        event.type === 'FULFILLMENT_STEP_UPDATED'
+      ) {
         fetchLots();
         fetchStats();
       }
     });
 
     return () => {
+      unsubWsLots();
+      unsubWsContracts();
       window.removeEventListener('b2b_sync_event', handleSync);
       window.removeEventListener('b2b_lot_updated', handleSync);
       window.removeEventListener('storage', handleSync);
@@ -338,11 +466,38 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         page: 0,
         size: 200,
       });
-      const lots = res.data || [];
+      let lots = res.data || [];
+
+      // Đảm bảo dữ liệu từ PostgreSQL Backend là nguồn dữ liệu chuẩn xác nhất
+      if (typeof window !== 'undefined') {
+        const map = new Map<string, HarvestLot>();
+
+        // 1. Thêm lô chính thức từ Server Backend API
+        for (const lot of lots) {
+          if (lot && (lot.lotCode || lot.id)) {
+            const key = (lot.lotCode || String(lot.id)).trim().toUpperCase();
+            map.set(key, lot);
+          }
+        }
+
+        // 2. Bổ sung các lô từ local storage (nếu có bản ghi offline chưa sync)
+        const localCustom = getStoredCustomLots();
+        for (const lot of localCustom) {
+          if (lot && (lot.lotCode || lot.id)) {
+            const key = (lot.lotCode || String(lot.id)).trim().toUpperCase();
+            if (!map.has(key)) {
+              map.set(key, lot);
+            }
+          }
+        }
+
+        lots = Array.from(map.values());
+      }
+
       setAllLots(lots);
       if (lots.length > 0) {
         setLotStats({
-          totalLots: res.totalElements || lots.length,
+          totalLots: lots.length,
           openLots: lots.filter((l) => l.status === 'OPEN').length,
           pendingLots: lots.filter((l) => l.status === 'PENDING_APPROVAL').length,
           suspendedLots: lots.filter((l) => l.status === 'SUSPENDED').length,
@@ -360,7 +515,13 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
   const fetchStats = async () => {
     try {
       const s = await getAdminLotStatsApi();
-      setLotStats(s);
+      const customLots = getStoredCustomLots();
+      const customPending = customLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+      setLotStats((prev) => ({
+        ...prev,
+        ...s,
+        pendingLots: Math.max(s.pendingLots || 0, customPending),
+      }));
     } catch (err) {
       console.warn('Error fetching stats:', err);
     }
@@ -437,7 +598,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         lot.id,
         'OPEN',
         undefined,
-        'Đã thẩm định và phê duyệt mở bán sỉ'
+        'Đã thẩm định và phê duyệt mở bán sỉ',
+        lot.lotCode
       );
 
       // 3. Bắn event đồng bộ realtime sang Portal Nông dân
@@ -490,7 +652,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
         statusModalLot.id,
         newStatusValue,
         statusReason.trim() || undefined,
-        statusAuditNote.trim() || undefined
+        statusAuditNote.trim() || undefined,
+        statusModalLot.lotCode
       );
       setStatusModalLot(null);
 
@@ -512,6 +675,49 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       await fetchLots();
     } finally {
       setIsSubmittingStatus(false);
+    }
+  };
+
+  // Duyệt nhanh một chạm cho Lô nông sản của Nông dân (Quick Approve & Publish to Marketplace)
+  const handleQuickApproveLot = async (lot: HarvestLot) => {
+    if (!confirm(`Bạn có chắc chắn muốn PHÊ DUYỆT mở bán lô "${lot.productName}" (${lot.lotCode}) lên trang /san-pham công khai?`)) {
+      return;
+    }
+    try {
+      const auditNote = 'Đã phê duyệt đạt chuẩn kiểm nghiệm VietGAP và mở bán sỉ B2B toàn quốc.';
+      const updatedLot = { ...lot, status: 'OPEN', auditNote };
+
+      // Cập nhật lạc quan state
+      setAllLots((prev) =>
+        prev.map((l) =>
+          l.id === lot.id || (lot.lotCode && l.lotCode?.toUpperCase() === lot.lotCode?.toUpperCase())
+            ? updatedLot
+            : l
+        )
+      );
+
+      await updateHarvestLotStatusApi(
+        lot.id,
+        'OPEN',
+        undefined,
+        auditNote,
+        lot.lotCode
+      );
+
+      // Phát sự kiện đồng bộ realtime để trang /san-pham và Buyer Portal cập nhật ngay
+      notifySyncEvent('LOT_STATUS_UPDATED', {
+        lot: updatedLot,
+        lotCode: lot.lotCode,
+        lotId: lot.id,
+        status: 'OPEN',
+        auditNote,
+      });
+
+      alert(`✓ Đã duyệt thành công lô "${lot.productName}" (${lot.lotCode})!\nLô nông sản này đã chính thức hiển thị công khai trên trang /san-pham để Thương lái toàn quốc đặt mua.`);
+      await fetchLots();
+      await fetchStats();
+    } catch (err: any) {
+      alert(err instanceof Error ? err.message : 'Lỗi khi phê duyệt lô hàng');
     }
   };
 
@@ -544,7 +750,9 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       reqTempMax: 6.0,
       status: 'OPEN', // Khi Admin đăng lô thì đầy đủ thông tin và sẵn sàng mở bán
       imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      warehouseLocation: 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+      shippingMethod: 'CROSS_DOCKING_HUB',
+      estimatedShippingFee: 0,
+      warehouseLocation: 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)',
       region: 'Tây Nguyên & Lâm Đồng',
       auditNote: 'Đạt chuẩn kiểm định VietGAP',
       tierPricing: [
@@ -560,13 +768,25 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
     setEditingLot(lot);
     const parsedTiers = parseTierPricing(lot.tierPricingJson || (lot as any).tierPricing);
     const code = getLotCategoryCode(lot, categories);
-    let matchedCat = categories.find((c) => c.id === lot.categoryId || getCategoryCode(c) === code);
+    const matchedCat = categories.find((c) => c.id === lot.categoryId || getCategoryCode(c) === code);
     const catCode = code || (matchedCat ? getCategoryCode(matchedCat) : (lot.category || 'RAU_AN_LA'));
     const catId = matchedCat ? matchedCat.id : (catCode === 'RAU_GIA_VI' ? 4 : catCode === 'CU_QUA' ? 2 : catCode === 'NAM_TUOI' ? 3 : 1);
 
     const minTemp = lot.reqTempMin ?? (lot as any).minTemp ?? 2.0;
     const maxTemp = lot.reqTempMax ?? (lot as any).maxTemp ?? 6.0;
     const basePrice = Number(lot.basePricePerKg) || (parsedTiers.length > 0 ? parsedTiers[0].price : 0);
+
+    let resolvedMethod: ShippingMethodCode = (lot.shippingMethod as ShippingMethodCode) || 'CROSS_DOCKING_HUB';
+    const loc = (lot.warehouseLocation || (lot as any).hubLocation || '').toLowerCase();
+    if (!lot.shippingMethod) {
+      if (loc.includes('thẳng') || loc.includes('hona fresh') || loc.includes('direct')) {
+        resolvedMethod = 'DIRECT_FARM_TO_BUYER';
+      } else if (loc.includes('tự') || loc.includes('ex-farm') || loc.includes('tại vườn')) {
+        resolvedMethod = 'BUYER_SELF_TRANSPORT';
+      } else {
+        resolvedMethod = 'CROSS_DOCKING_HUB';
+      }
+    }
 
     setLotForm({
       lotCode: lot.lotCode,
@@ -586,7 +806,9 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       reqTempMax: maxTemp,
       status: lot.status === 'PENDING_APPROVAL' ? 'OPEN' : lot.status,
       imageUrl: lot.imageUrl || '',
-      warehouseLocation: lot.warehouseLocation || (lot as any).hubLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+      shippingMethod: resolvedMethod,
+      estimatedShippingFee: lot.estimatedShippingFee || 0,
+      warehouseLocation: lot.warehouseLocation || (lot as any).hubLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)',
       region: lot.region || 'Tây Nguyên & Lâm Đồng',
       auditNote: lot.auditNote || '',
       tierPricing: parsedTiers.length > 0 ? parsedTiers : [{ minKg: 200, price: basePrice }],
@@ -761,7 +983,14 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       reqTempMax: maxTemp,
       status: finalStatus,
       imageUrl: lotForm.imageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      warehouseLocation: lotForm.warehouseLocation || 'Trạm Trung Chuyển Đức Trọng - Buồng Lạnh A1',
+      shippingMethod: lotForm.shippingMethod,
+      estimatedShippingFee: logisticsEstimates[lotForm.shippingMethod]?.estimatedFee || 0,
+      warehouseLocation:
+        lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER'
+          ? 'Giao hỏa tốc bao xe từ Kho HoNa sau kiểm định QC'
+          : lotForm.shippingMethod === 'BUYER_SELF_TRANSPORT'
+          ? 'Khách tự điều xe nhận tại Kho HoNa Fresh'
+          : (lotForm.warehouseLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)'),
       region: lotForm.region || 'Tây Nguyên & Lâm Đồng',
       auditNote: lotForm.auditNote || 'Đạt chuẩn kiểm định VietGAP',
     };
@@ -776,6 +1005,8 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           ...(saved || editingLot),
           ...payload,
           status: finalStatus,
+          shippingMethod: lotForm.shippingMethod,
+          estimatedShippingFee: logisticsEstimates[lotForm.shippingMethod]?.estimatedFee || 0,
           minTemp,
           maxTemp,
           reqTempMin: minTemp,
@@ -977,12 +1208,42 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
               </p>
             </div>
           </div>
+
+          {/* REALTIME WEBSOCKET NOTIFICATION BANNER */}
+          {realtimeNotification && (
+            <div className="p-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-[#10542C] text-white rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg border border-emerald-400/40">
+              <div className="flex items-center gap-3 text-sm font-bold">
+                <span className="w-3 h-3 rounded-full bg-emerald-200 animate-ping shrink-0" />
+                <span>{realtimeNotification}</span>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus('PENDING_APPROVAL');
+                    setCurrentPage(0);
+                  }}
+                  className="bg-white text-[#10542C] hover:bg-emerald-50 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-xs cursor-pointer transition"
+                >
+                  👉 Xem Lô Chờ Duyệt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRealtimeNotification(null)}
+                  className="text-white/80 hover:text-white text-xs font-bold px-2.5 py-1.5 rounded-xl bg-black/20 hover:bg-black/30 transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 4 Thẻ KPI Tóm Tắt */}
           {(() => {
-            const openLotsCount = allLots.filter((l) => l.status === 'OPEN').length;
-            const pendingLotsCount = allLots.filter((l) => l.status === 'PENDING_APPROVAL').length;
-            const suspendedLotsCount = allLots.filter((l) => l.status === 'SUSPENDED').length;
-            const soldOutLotsCount = allLots.filter((l) => l.status === 'SOLD_OUT').length;
+            const openLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'OPEN').length;
+            const pendingLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+            const suspendedLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'SUSPENDED').length;
+            const soldOutLotsCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'SOLD_OUT').length;
 
             return (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -997,16 +1258,29 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   <span className="text-[11px] text-emerald-600 font-medium">Sẵn sàng xuất khẩu / giao sỉ</span>
                 </div>
 
-                <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus(filterStatus === 'PENDING_APPROVAL' ? 'ALL' : 'PENDING_APPROVAL');
+                    setCurrentPage(0);
+                  }}
+                  className={`text-left rounded-2xl p-4 border transition-all cursor-pointer shadow-xs ${
+                    filterStatus === 'PENDING_APPROVAL'
+                      ? 'bg-amber-50/90 border-amber-500 ring-2 ring-amber-300'
+                      : 'bg-white border-[#EAECE8] hover:border-amber-400 hover:shadow-sm'
+                  }`}
+                >
                   <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
-                    <span className="text-xs font-bold">Chờ Kiểm Định (QC)</span>
+                    <span className="text-xs font-bold text-amber-900">Chờ Kiểm Định &amp; Duyệt</span>
                     <Clock className="w-4 h-4 text-amber-500" />
                   </div>
                   <p className="font-heading font-black text-2xl text-amber-600">
                     {allLots.length > 0 ? pendingLotsCount : (lotStats.pendingLots ?? 0)}
                   </p>
-                  <span className="text-[11px] text-amber-600 font-medium">Đang chờ lấy mẫu kiểm nghiệm</span>
-                </div>
+                  <span className="text-[11px] text-amber-700 font-semibold flex items-center gap-1 mt-0.5">
+                    {filterStatus === 'PENDING_APPROVAL' ? '✓ Đang lọc xem lô này' : '👉 Bấm để xem lô chờ duyệt'}
+                  </span>
+                </button>
 
                 <div className="bg-white rounded-2xl p-4 border border-[#EAECE8] shadow-xs">
                   <div className="flex items-center justify-between text-[#6B7280] mb-1.5">
@@ -1119,6 +1393,56 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
               </button>
             </div>
           </div>
+
+          {/* Banner Thông Báo Lô Đang Chờ Duyệt Từ Nông Dân */}
+          {(() => {
+            const pendingCount = allLots.filter((l) => String(l.status || '').trim().toUpperCase() === 'PENDING_APPROVAL').length;
+            if (pendingCount === 0) return null;
+            return (
+              <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-400 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs animate-pulse">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-amber-950 flex items-center gap-2">
+                      <span>Phát hiện {pendingCount} lô nông sản từ Nông Dân đang CHỜ XÉT DUYỆT!</span>
+                      <span className="text-[10px] font-bold text-amber-900 bg-amber-200/90 px-2 py-0.5 rounded-full">
+                        Ưu tiên hàng đầu
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Các lô này đã được hệ thống <strong>tự động đưa lên đầu bảng</strong> bên dưới. Bấm nút <strong>&quot;Duyệt &amp; Lên Sàn&quot;</strong> để mở bán công khai cho thương lái.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterStatus('PENDING_APPROVAL');
+                      setCurrentPage(0);
+                    }}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                  >
+                    <span>Lọc xem riêng ({pendingCount})</span>
+                  </button>
+                  {filterStatus === 'PENDING_APPROVAL' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterStatus('ALL');
+                        setCurrentPage(0);
+                      }}
+                      className="px-2.5 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Xem tất cả
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Bảng Dữ Liệu Harvest Lots */}
           <div className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs space-y-4">
@@ -1270,14 +1594,19 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                             )}
                           </td>
 
-                          {/* Cột 5: Chuỗi Lạnh & Kho */}
+                          {/* Cột 5: Chuỗi Lạnh & Điều Phối Vận Chuyển */}
                           <td className="py-3.5 px-3">
-                            <div className="inline-flex items-center gap-1 bg-cyan-50 text-cyan-800 text-[10px] font-bold px-2 py-0.5 rounded-md border border-cyan-200">
+                            <div className="inline-flex items-center gap-1 bg-cyan-50 text-cyan-800 text-[10px] font-bold px-2 py-0.5 rounded-md border border-cyan-200 mb-1">
                               <Thermometer className="w-3 h-3 text-cyan-600" />
                               {(lot.reqTempMin ?? (lot as any).minTemp ?? 2.0)}°C - {(lot.reqTempMax ?? (lot as any).maxTemp ?? 6.0)}°C
                             </div>
-                            <p className="text-[10px] text-[#6B7280] mt-1 truncate max-w-[150px]">
-                              {lot.warehouseLocation || (lot as any).hubLocation || 'Kho tổng Trạm'}
+                            <div>
+                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border ${getShippingMethodLabel(lot.shippingMethod).badgeClass}`}>
+                                {getShippingMethodLabel(lot.shippingMethod).badge}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-[#6B7280] mt-0.5 truncate max-w-[170px]" title={lot.warehouseLocation || (lot as any).hubLocation || 'Trạm Lạnh Cross-docking'}>
+                              📍 {lot.warehouseLocation || (lot as any).hubLocation || 'Trạm Lạnh Đức Trọng, Lâm Đồng'}
                             </p>
                           </td>
 
@@ -1628,8 +1957,25 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-[#6B7280] font-bold block">VỊ TRÍ LƯU TRẠM / KHO</span>
-                    <span className="font-bold text-[#2C3E2E]">{selectedLotDetail.warehouseLocation || (selectedLotDetail as any).hubLocation || 'Kho tổng'}</span>
+                    <span className="text-[10px] text-[#6B7280] font-bold block">ĐIỀU PHỐI VẬN CHUYỂN & BUỒNG LẠNH</span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${getShippingMethodLabel(selectedLotDetail.shippingMethod).badgeClass}`}>
+                        {getShippingMethodLabel(selectedLotDetail.shippingMethod).badge}
+                      </span>
+                      <span className="font-bold text-[#2C3E2E] truncate" title={selectedLotDetail.warehouseLocation}>
+                        {selectedLotDetail.warehouseLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[#6B7280] font-bold block">DỰ TOÁN CƯỚC CHUỖI LẠNH (TỰ ĐỘNG THEO SẢN LƯỢNG)</span>
+                    <span className="font-black text-[#10542C]">
+                      {selectedLotDetail.estimatedShippingFee && selectedLotDetail.estimatedShippingFee > 0
+                        ? `${selectedLotDetail.estimatedShippingFee.toLocaleString('vi-VN')} đ (~${Math.round(selectedLotDetail.estimatedShippingFee / (selectedLotDetail.totalWeightKg || 1000)).toLocaleString('vi-VN')} đ/kg)`
+                        : selectedLotDetail.shippingMethod === 'BUYER_SELF_TRANSPORT'
+                        ? '0 đ (Khách tự túc vận chuyển)'
+                        : `${calculateLogisticsEstimates({ weightKg: selectedLotDetail.totalWeightKg || 1000 }).CROSS_DOCKING_HUB.estimatedFee.toLocaleString('vi-VN')} đ (~${calculateLogisticsEstimates({ weightKg: selectedLotDetail.totalWeightKg || 1000 }).CROSS_DOCKING_HUB.ratePerKg.toLocaleString('vi-VN')} đ/kg)`}
+                    </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-[#6B7280] font-bold block">KHU VỰC VÙNG TRỒNG</span>
@@ -2141,26 +2487,231 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   ))}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold mb-1">Kho lưu / Buồng lạnh trạm</label>
-                    <input
-                      type="text"
-                      value={lotForm.warehouseLocation}
-                      onChange={(e) => setLotForm({ ...lotForm, warehouseLocation: e.target.value })}
-                      className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
-                    />
+                {/* ================= PHƯƠNG THỨC VẬN CHUYỂN & ĐIỀU PHỐI CHUỖI LẠNH ================= */}
+                <div className="space-y-3 bg-[#F9F9F5] p-3.5 rounded-2xl border border-[#E5E7EB]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-[#10542C]" />
+                      <label className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+                        Phương thức Vận chuyển & Điều phối Chuỗi Lạnh
+                      </label>
+                    </div>
+                    <span className="text-[11px] text-gray-500 font-medium">
+                      Dự toán tự động theo khối lượng: <strong className="text-[#10542C]">{(Number(lotForm.totalWeightKg) || 0).toLocaleString('vi-VN')} kg</strong>
+                    </span>
                   </div>
-                  <div>
-                    <ImageUploadField
-                      name="imageUrl"
-                      label="Ảnh lô nông sản"
-                      purpose="LOT"
-                      value={lotForm.imageUrl}
-                      onChange={(url) => setLotForm({ ...lotForm, imageUrl: url })}
-                      hint="Chọn tệp ảnh từ máy để tải lên Cloudinary."
-                    />
+
+                  {/* 3 Thẻ lựa chọn Phương án */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    {/* Phương án 1 */}
+                    <div
+                      onClick={() =>
+                        setLotForm({
+                          ...lotForm,
+                          shippingMethod: 'DIRECT_FARM_TO_BUYER',
+                          warehouseLocation: 'Giao hỏa tốc bao xe từ Kho HoNa sau kiểm định QC',
+                        })
+                      }
+                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                        lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER'
+                          ? 'border-[#10542C] bg-white shadow-sm ring-1 ring-[#10542C]/20'
+                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-gray-900">Phương án 1</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-amber-100 text-amber-800">
+                            Bao trọn xe sau QC
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-[#10542C]">
+                          Giao hỏa tốc từ Kho HoNa (Sau QC)
+                        </p>
+                        <p className="text-[10px] text-gray-500 line-clamp-2">
+                          Gom về kho HoNa kiểm định QC ➔ Xe lạnh riêng chở thẳng từ kho tới khách hàng (sàn 4.5tr).
+                        </p>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
+                        <span className="text-[10px] text-gray-400">Dự toán cước:</span>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-emerald-700">
+                            {logisticsEstimates.DIRECT_FARM_TO_BUYER.estimatedFee.toLocaleString('vi-VN')} đ
+                          </span>
+                          <span className="text-[9px] text-gray-400 block">
+                            ~{logisticsEstimates.DIRECT_FARM_TO_BUYER.ratePerKg.toLocaleString('vi-VN')} đ/kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Phương án 2 */}
+                    <div
+                      onClick={() =>
+                        setLotForm({
+                          ...lotForm,
+                          shippingMethod: 'CROSS_DOCKING_HUB',
+                          warehouseLocation:
+                            lotForm.warehouseLocation && !lotForm.warehouseLocation.includes('thẳng từ') && !lotForm.warehouseLocation.includes('tự')
+                              ? lotForm.warehouseLocation
+                              : POPULAR_COLD_HUBS[0],
+                        })
+                      }
+                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                        lotForm.shippingMethod === 'CROSS_DOCKING_HUB'
+                          ? 'border-blue-600 bg-white shadow-sm ring-1 ring-blue-500/20'
+                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-gray-900">Phương án 2</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-blue-100 text-blue-800">
+                            ⭐ Tiết kiệm từ kho
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-blue-700">
+                          Giao tiêu chuẩn từ Kho HoNa (Sau QC)
+                        </p>
+                        <p className="text-[10px] text-gray-500 line-clamp-2">
+                          Gom về kho HoNa kiểm định QC ➔ Xe lạnh HoNa Fresh chở thẳng từ kho tới tận tay khách hàng.
+                        </p>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
+                        <span className="text-[10px] text-gray-400">Dự toán cước:</span>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-blue-700">
+                            {logisticsEstimates.CROSS_DOCKING_HUB.estimatedFee.toLocaleString('vi-VN')} đ
+                          </span>
+                          <span className="text-[9px] text-gray-400 block">
+                            ~{logisticsEstimates.CROSS_DOCKING_HUB.ratePerKg.toLocaleString('vi-VN')} đ/kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Phương án 3 */}
+                    <div
+                      onClick={() =>
+                        setLotForm({
+                          ...lotForm,
+                          shippingMethod: 'BUYER_SELF_TRANSPORT',
+                          warehouseLocation: 'Khách tự điều xe nhận tại Kho HoNa Fresh sau kiểm định QC',
+                        })
+                      }
+                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                        lotForm.shippingMethod === 'BUYER_SELF_TRANSPORT'
+                          ? 'border-purple-600 bg-white shadow-sm ring-1 ring-purple-500/20'
+                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-gray-900">Phương án 3</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-purple-100 text-purple-800">
+                            Lấy tại kho HoNa
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-purple-700">
+                          Khách nhận tại Kho HoNa (Sau QC)
+                        </p>
+                        <p className="text-[10px] text-gray-500 line-clamp-2">
+                          Gom về kho HoNa kiểm định QC đạt chuẩn ➔ Khách tự điều xe đến kho nhận hàng (Thanh toán 100%).
+                        </p>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
+                        <span className="text-[10px] text-gray-400">Cước giao hàng:</span>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-purple-700">0 đ (Miễn phí)</span>
+                          <span className="text-[9px] text-gray-400 block">Tự túc xe đến kho</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Chi tiết điều phối & chọn Kho lưu / Buồng lạnh trạm khi chọn Phương án 2 */}
+                  {lotForm.shippingMethod === 'CROSS_DOCKING_HUB' ? (
+                    <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/80 space-y-2 mt-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                          Kho lưu / Buồng lạnh trạm điều phối *
+                        </label>
+                        <span className="text-[10px] text-blue-700">
+                          Buồng lạnh kiểm định QC & giữ chuỗi lạnh
+                        </span>
+                      </div>
+
+                      {/* Dropdown chọn nhanh trạm có sẵn */}
+                      <select
+                        value={POPULAR_COLD_HUBS.includes(lotForm.warehouseLocation) ? lotForm.warehouseLocation : ''}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setLotForm({ ...lotForm, warehouseLocation: e.target.value });
+                          }
+                        }}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E] font-medium"
+                      >
+                        <option value="">-- Chọn nhanh Trạm Lạnh Cross-docking chuẩn --</option>
+                        {POPULAR_COLD_HUBS.map((hub) => (
+                          <option key={hub} value={hub}>
+                            {hub}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Input gõ tùy chỉnh */}
+                      <input
+                        type="text"
+                        placeholder="Hoặc nhập tên trạm / buồng lạnh tùy chỉnh..."
+                        value={lotForm.warehouseLocation}
+                        onChange={(e) => setLotForm({ ...lotForm, warehouseLocation: e.target.value })}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
+                      />
+
+                      {/* Bóc tách chi phí Phương án 2 */}
+                      <div className="text-[11px] text-blue-800 pt-1 border-t border-blue-200/60 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {logisticsEstimates.CROSS_DOCKING_HUB.breakdown.map((b, idx) => (
+                          <div key={idx} className="bg-white/70 p-1.5 rounded-lg border border-blue-100">
+                            <span className="text-gray-500 block text-[10px] truncate" title={b.label}>
+                              {b.label}
+                            </span>
+                            <strong className="text-blue-900">{b.amount.toLocaleString('vi-VN')} đ</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER' ? (
+                    <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Điều phối: <strong>Giao hỏa tốc bao xe từ Kho HoNa (Sau kiểm định QC)</strong></span>
+                      </span>
+                      <span className="font-bold text-emerald-800">
+                        {logisticsEstimates.DIRECT_FARM_TO_BUYER.estimatedFee.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-900 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />
+                        <span>Điều phối: <strong>Khách tự điều xe đến Kho HoNa nhận hàng (Sau kiểm định QC)</strong></span>
+                      </span>
+                      <span className="font-bold text-purple-800">0 đ (Khách tự điều xe nhận tại kho)</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tải ảnh lô nông sản */}
+                <div>
+                  <ImageUploadField
+                    name="imageUrl"
+                    label="Ảnh lô nông sản thực tế *"
+                    purpose="LOT"
+                    value={lotForm.imageUrl}
+                    onChange={(url) => setLotForm({ ...lotForm, imageUrl: url })}
+                    hint="Chọn tệp ảnh từ máy để tải lên Cloudinary hoặc dùng ảnh mẫu chuẩn VietGAP."
+                  />
                 </div>
               </div>
 

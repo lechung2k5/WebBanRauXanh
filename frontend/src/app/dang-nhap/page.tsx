@@ -5,7 +5,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#F0F7F2] via-[#F9F9F5] to-[#EDF5EE] flex flex-col justify-center px-4 py-10">
       {/* Back link */}
-      <div className="max-w-[460px] w-full mx-auto mb-5">
+      <div className="max-w-[520px] w-full mx-auto mb-5">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#10542C] hover:text-[#0d4524] transition-colors group"
@@ -24,10 +24,12 @@ export default function LoginPage() {
       </div>
 
       {/* Form card */}
-      <div className="max-w-[460px] w-full mx-auto">
+      <div className="max-w-[520px] w-full mx-auto space-y-4">
         <section className="bg-white rounded-2xl border border-gray-200/80 px-7 py-8 shadow-[0_8px_32px_rgba(16,84,44,0.08)]">
           <AuthForm initialMode="login" />
         </section>
+
+
       </div>
     </main>
   );

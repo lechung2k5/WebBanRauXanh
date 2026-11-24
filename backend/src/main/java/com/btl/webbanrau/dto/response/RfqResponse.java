@@ -16,6 +16,9 @@ public class RfqResponse {
     private String rfqCode;
     private Long harvestLotId;
     private String harvestLotCode;
+    private Long farmerId;
+    private String farmerName;
+    private String farmerPhone;
     private String productName;
     private String buyerName;
     private String buyerPhone;
