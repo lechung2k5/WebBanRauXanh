@@ -389,7 +389,7 @@ public class BuyerWorkflowService {
                        fu.full_name AS farmer_name, fu.phone AS farmer_phone,
                        fu.company_name AS farmer_company
                 FROM b2b_contracts c
-                JOIN harvest_lots l ON l.id=c.lot_id
+                JOIN harvest_lots l ON l.id = COALESCE(c.lot_id, c.harvest_lot_id)
                 LEFT JOIN rfq_negotiations r ON r.id=c.rfq_id
                 LEFT JOIN users bu ON bu.id=c.buyer_id
                 LEFT JOIN users fu ON fu.id=c.farmer_id
@@ -418,10 +418,17 @@ public class BuyerWorkflowService {
         return enriched;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> depositQr(Long contractId) {
+        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
         Map<String, Object> contract = ownedContract(contractId);
         BigDecimal amount = decimal(contract, "deposit_30_amount");
+        if (amount.signum() <= 0) amount = decimal(contract, "deposit_amount");
+        if (amount.signum() <= 0) {
+            BigDecimal totalGoods = decimal(contract, "total_goods_amount");
+            if (totalGoods.signum() <= 0) totalGoods = decimal(contract, "total_amount");
+            amount = totalGoods.multiply(new BigDecimal("0.3"));
+        }
         return new LinkedHashMap<>(Map.of(
                 "contractId", contractId,
                 "contractCode", contract.get("contract_code"),
@@ -435,19 +442,24 @@ public class BuyerWorkflowService {
 
     @Transactional
     public Map<String, Object> confirmDeposit(Long contractId) {
+        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
         Map<String, Object> contract = ownedContract(contractId);
-        // Farmer's legacy entity writes deposit_amount, while accounting reads deposit_30_amount.
-        db.update("UPDATE b2b_contracts SET deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount) WHERE id=?", contractId);
-        contract = ownedContract(contractId);
-        if (decimal(contract, "deposit_30_amount").signum() <= 0) {
+        BigDecimal depositAmount = decimal(contract, "deposit_30_amount");
+        if (depositAmount.signum() <= 0) depositAmount = decimal(contract, "deposit_amount");
+        if (depositAmount.signum() <= 0) {
+            BigDecimal totalGoods = decimal(contract, "total_goods_amount");
+            if (totalGoods.signum() <= 0) totalGoods = decimal(contract, "total_amount");
+            depositAmount = totalGoods.multiply(new BigDecimal("0.3"));
+        }
+        if (depositAmount.signum() <= 0) {
             throw new AuthException(400, "INVALID_DEPOSIT", "Hợp đồng chưa có số tiền cọc hợp lệ.");
         }
         ObjectNode request = objectMapper.createObjectNode()
                 .put("status", "DEPOSIT_PAID")
                 .put("reference", "DEP-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase())
-                .put("amount", decimal(contract, "deposit_30_amount"));
+                .put("amount", depositAmount);
         business.transition(contractId, request);
-        db.update("UPDATE b2b_contracts SET deposit_status='DEPOSIT_PAID',deposit_paid_at=CURRENT_TIMESTAMP WHERE id=?", contractId);
+        db.update("UPDATE b2b_contracts SET status='DEPOSIT_PAID',deposit_status='DEPOSIT_PAID',deposit_received=?,deposit_paid_at=CURRENT_TIMESTAMP WHERE id=?", depositAmount, contractId);
         Map<String, Object> updated = ownedContract(contractId);
         b2bRealtimeService.notifyContractUpdated("DEPOSIT_PAID", (String) updated.get("contract_code"), updated);
         return updated;
@@ -550,7 +562,7 @@ public class BuyerWorkflowService {
                        c.status AS contract_status, c.delivery_address
                 FROM spoilage_claims cl
                 JOIN b2b_contracts c ON c.id=cl.contract_id
-                LEFT JOIN harvest_lots l ON l.id=c.lot_id
+                LEFT JOIN harvest_lots l ON l.id = COALESCE(c.lot_id, c.harvest_lot_id)
                 WHERE c.buyer_id=?
                 ORDER BY cl.id DESC
                 """, buyer.getId());
@@ -585,7 +597,7 @@ public class BuyerWorkflowService {
                 select cl.*, c.contract_code, l.product_name, c.status contract_status
                 from spoilage_claims cl
                 join b2b_contracts c on c.id=cl.contract_id
-                left join harvest_lots l on l.id=c.lot_id
+                left join harvest_lots l on l.id = COALESCE(c.lot_id, c.harvest_lot_id)
                 where cl.id=?
                 """, id);
     }
@@ -655,7 +667,7 @@ public class BuyerWorkflowService {
 
     private Map<String, Object> ownedContract(Long id) {
         User buyer = currentBuyer();
-        List<Map<String, Object>> rows = db.queryForList("SELECT c.*, l.product_name, l.lot_code FROM b2b_contracts c JOIN harvest_lots l ON l.id=c.lot_id WHERE c.id=? AND c.buyer_id=?", id, buyer.getId());
+        List<Map<String, Object>> rows = db.queryForList("SELECT c.*, l.product_name, l.lot_code FROM b2b_contracts c JOIN harvest_lots l ON l.id = COALESCE(c.lot_id, c.harvest_lot_id) WHERE c.id=? AND c.buyer_id=?", id, buyer.getId());
         if (rows.isEmpty()) throw new AuthException(404, "CONTRACT_NOT_FOUND", "Không tìm thấy hợp đồng hoặc bạn không có quyền truy cập.");
         return new LinkedHashMap<>(rows.getFirst());
     }

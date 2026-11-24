@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -28,6 +28,7 @@ import {
   Printer,
   ExternalLink,
   Edit3,
+  Award,
 } from 'lucide-react';
 import {
   B2bSyncContract,
@@ -196,7 +197,21 @@ export default function FarmerOrderManagementView({
   };
 
   // Load contracts from sync service and backend API
+  const isReloadingRef = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedReloadContracts = useCallback((delay = 600) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      void reloadContracts();
+    }, delay);
+  }, []);
+
   const reloadContracts = async () => {
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
     setRefreshing(true);
     try {
       const apiContracts = await getFarmerContractsFromServer().catch(() => []);
@@ -265,7 +280,18 @@ export default function FarmerOrderManagementView({
             truckTempCurrent: 4.0,
             deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
             deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
-            finalPaidStatus: ac.settlementId ? 'PAID' : 'UNPAID',
+            finalPaidStatus: (ac.settlementId || (ac as any).settledAt || (ac as any).remainingPaymentStatus === 'PAID' || rawStatus === 'SETTLED' || rawStatus === 'COMPLETED' || fStep === 6) ? 'PAID' : 'UNPAID',
+            epodSignedAt: (ac as any).epodDeliveredAt || (ac as any).epodSignedAt || ((ac as any).epodSignatureUrl ? ((ac as any).epodDeliveredAt || new Date().toISOString()) : undefined),
+            epodDeliveredWeightKg: (ac as any).epodDeliveredWeightKg || ac.quantity,
+            hubWarehouseZone: (ac as any).hubWarehouseZone || (ac as any).hub_warehouse_zone,
+            hubRackBin: (ac as any).hubRackBin || (ac as any).hub_rack_bin,
+            hubInboundAt: (ac as any).hubInboundAt || (ac as any).hub_inbound_at,
+            qcStatus: (ac as any).qcStatus || (ac as any).qc_status,
+            qcPassedAt: (ac as any).qcPassedAt || (ac as any).qc_passed_at,
+            outboundTruckPlate: (ac as any).outboundTruckPlate || (ac as any).outbound_truck_plate,
+            outboundDriverName: (ac as any).outboundDriverName || (ac as any).outbound_driver_name,
+            settledAt: (ac as any).settledAt || (ac as any).settled_at,
+            remainingPaymentStatus: (ac as any).remainingPaymentStatus || (ac as any).remaining_payment_status,
             packagingApproved: isApproved,
             isHarvestDone: isHarvestDone,
             actualHarvestWeightKg: (ac as any).actual_harvest_weight_kg || (ac as any).actualHarvestWeightKg,
@@ -293,10 +319,11 @@ export default function FarmerOrderManagementView({
 
       const mergedList = Array.from(map.values());
       setContracts(mergedList);
-      replaceSyncContracts(mergedList);
+      replaceSyncContracts(mergedList, false);
     } catch (err) {
       console.error('Lỗi tải danh sách hợp đồng Farmer:', err);
     } finally {
+      isReloadingRef.current = false;
       setRefreshing(false);
     }
   };
@@ -384,32 +411,30 @@ export default function FarmerOrderManagementView({
         setActionSuccessMsg(`Hợp đồng ${code || ''} vừa được cập nhật thời gian thực!`);
       }
       setTimeout(() => setActionSuccessMsg(null), 5000);
-      void reloadContracts();
+      debouncedReloadContracts(600);
     });
 
     // Lắng nghe sự kiện đồng bộ từ tab Buyer hoặc các tab khác
     const unsubscribe = subscribeB2bSyncEvents((event) => {
+      if (!event || event.type === 'CONTRACTS_SYNCED' || event.type === 'CONTRACTS_STORAGE_SYNC' || event.type === 'LOT_UPDATED' || event.type === 'PRODUCT_UPDATED') {
+        return;
+      }
       if (event?.type === 'ADMIN_APPROVED_PACKAGING') {
         const c = event?.payload as any;
         setActionSuccessMsg(`Ban Quản Trị HoNa vừa phê duyệt quy cách đóng gói cho Hợp đồng ${c?.contractCode || ''}! Đang phân công xe lạnh đến rẫy.`);
         setTimeout(() => setActionSuccessMsg(null), 5000);
       }
-      void reloadContracts();
+      debouncedReloadContracts(600);
     });
-    const handleCustomSync = () => {
-      void reloadContracts();
-    };
-    window.addEventListener('b2b_sync_event', handleCustomSync);
-    window.addEventListener('b2b_contract_updated', handleCustomSync);
-    window.addEventListener('storage', handleCustomSync);
+
     return () => {
       unsubContracts();
       unsubscribe();
-      window.removeEventListener('b2b_sync_event', handleCustomSync);
-      window.removeEventListener('b2b_contract_updated', handleCustomSync);
-      window.removeEventListener('storage', handleCustomSync);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
-  }, []);
+  }, [debouncedReloadContracts]);
 
   // Filter & Search
   const filteredContracts = useMemo(() => {
@@ -811,6 +836,75 @@ export default function FarmerOrderManagementView({
                         >
                           <Eye className="w-3 h-3 text-[#10542C]" /> Xem lại ảnh & tem đã nộp
                         </button>
+                      </div>
+                    ) : contract.fulfillmentStep === 4 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Đã Nhập Kho HoNa & QC Đạt Chuẩn</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Khu vực lưu:</span>
+                          <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                            {(contract as any).hubWarehouseZone || 'Zone A (Lạnh mát 2-6°C)'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Tọa độ kệ:</span>
+                          <span className="font-mono font-bold text-gray-800">
+                            {(contract as any).hubRackBin || 'Kệ R-02 Ô B-04'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
+                          <span>Nhiệt độ kho:</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            4.0°C (Chuẩn 2-6°C)
+                          </span>
+                        </div>
+                      </div>
+                    ) : contract.fulfillmentStep === 5 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-blue-800 bg-blue-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-blue-200">
+                          <Truck className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span>Xe Lạnh Outbound Đang Giao Buyer</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Biển số xe:</span>
+                          <span className="font-mono font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                            {(contract as any).outboundTruckPlate || contract.truckLicensePlate || '51D-921.34'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Tài xế phụ trách:</span>
+                          <span className="font-bold text-gray-800 truncate max-w-[150px]">
+                            {(contract as any).outboundDriverName || 'Tài xế Outbound HoNa'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
+                          <span>Nhiệt độ thùng:</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            4.0°C (Chuẩn 2-6°C)
+                          </span>
+                        </div>
+                      </div>
+                    ) : contract.fulfillmentStep === 6 ? (
+                      <div className="space-y-1.5 py-0.5">
+                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
+                          <Award className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <span>Giao Nhận Hoàn Tất & Đã Quyết Toán</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-gray-500">Biên bản ePOD:</span>
+                          <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Đã nghiệm thu đạt chuẩn
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Quyết toán:</span>
+                          <span className="font-bold text-emerald-700">
+                            Đã giải ngân 100% tiền tươi
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-1.5 py-0.5">

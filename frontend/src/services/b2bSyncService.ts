@@ -941,10 +941,14 @@ export function removeLocalContractByCode(contractCode: string): number {
 }
 
 /** Đồng bộ danh sách hợp đồng Buyer từ backend, loại bỏ dữ liệu mẫu cũ trong localStorage. */
-export function replaceSyncContracts(contracts: B2bSyncContract[]): B2bSyncContract[] {
+export function replaceSyncContracts(contracts: B2bSyncContract[], notify = false): B2bSyncContract[] {
   if (typeof window === 'undefined') return contracts;
-  localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
-  notifySyncEvent('CONTRACTS_SYNCED', { contracts });
+  try {
+    localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(contracts));
+  } catch {}
+  if (notify) {
+    notifySyncEvent('CONTRACTS_SYNCED', { contracts });
+  }
   return contracts;
 }
 
@@ -1065,6 +1069,7 @@ export function buyerPayDeposit(contractId: number | string): B2bSyncContract | 
   if (c.depositStatus === 'DEPOSIT_PAID' && c.fulfillmentStep >= 2) {
     return c;
   }
+  c.status = 'DEPOSIT_PAID';
   c.depositStatus = 'DEPOSIT_PAID';
   c.depositPaidAt = new Date().toISOString();
   c.fulfillmentStep = 2; // Tự động chuyển sang Mốc 2: Nông dân bắt đầu thu hoạch & đóng gói

@@ -440,15 +440,22 @@ export interface B2BContract {
   farmHandoverTemp?: number;
   hubWarehouseZone?: string;
   hubRackBin?: string;
+  hubInboundAt?: string;
   qcStatus?: string;
+  qcPassedAt?: string;
   qcBrix?: number;
   qcNitratePpm?: number;
   outboundTruckPlate?: string;
   outboundDriverName?: string;
   outboundManifestCode?: string;
   epodSignedAt?: string;
+  epodDeliveredAt?: string;
   epodDeliveredWeightKg?: number;
   epodSignatureUrl?: string;
+  settledAt?: string;
+  remainingPaidAt?: string;
+  remainingPaymentStatus?: string;
+  farmPickupSignedAt?: string;
 }
 
 export interface QcInspection {

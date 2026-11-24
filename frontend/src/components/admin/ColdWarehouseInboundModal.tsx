@@ -39,7 +39,16 @@ export const ColdWarehouseInboundModal: React.FC<ColdWarehouseInboundModalProps>
   onClose,
   onSubmit,
 }) => {
-  const agreedWeight = Number(contract.offered_weight_kg || contract.quantity || 100);
+  const agreedWeight = Math.max(
+    1,
+    Number(
+      contract.actual_harvest_weight_kg ||
+      contract.offered_weight_kg ||
+      contract.quantity_kg ||
+      contract.quantity ||
+      100
+    )
+  );
 
   // WMS Matrix
   const [zone, setZone] = useState('Zone A (Lạnh mát 2-6°C - Rau ăn lá)');
@@ -81,6 +90,10 @@ export const ColdWarehouseInboundModal: React.FC<ColdWarehouseInboundModalProps>
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (netWeight <= 0) {
+      alert('Khối lượng tịnh nhập kho (Net Weight) phải lớn hơn 0 kg. Vui lòng kiểm tra lại Cân Tổng và Tự Trọng Xe.');
+      return;
+    }
     setSubmitting(true);
     try {
       await onSubmit({
