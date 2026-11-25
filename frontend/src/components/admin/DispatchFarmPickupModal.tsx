@@ -44,13 +44,13 @@ export const DispatchFarmPickupModal: React.FC<DispatchFarmPickupModalProps> = (
   onConfirmHandover,
 }) => {
   const [truckPlate, setTruckPlate] = useState(
-    contract.pickup_truck_plate || '49C-198.86 (Xe thùng lạnh HoNa Express 5 tấn)'
+    contract.pickup_truck_plate || '49C-678.90 (Xe thùng lạnh HoNa Express 8 tấn)'
   );
   const [driverName, setDriverName] = useState(
     contract.pickup_driver_name || 'Nguyễn Văn Tài (Tài xế chuyên trách Lâm Đồng)'
   );
   const [driverPhone, setDriverPhone] = useState(
-    contract.pickup_driver_phone || '0981.234.567'
+    contract.pickup_driver_phone || '0944.556.677'
   );
   const [estimatedPickupTime, setEstimatedPickupTime] = useState(
     '14:00 - 15:30 Hôm nay'

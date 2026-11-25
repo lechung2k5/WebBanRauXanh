@@ -37,7 +37,18 @@ public class DriverPickupController {
         if (AuthService.has(user, "ADMIN")) {
             trips = pickupTripRepository.findAll();
         } else {
-            trips = pickupTripRepository.findByDriverPhoneAndStatusIn(user.getPhone(), activeStatuses);
+            String userPhone = user != null && user.getPhone() != null ? user.getPhone().replaceAll("\\D", "") : "";
+            boolean isDemoDriver = user != null && "driver_tms".equalsIgnoreCase(user.getUsername());
+            trips = pickupTripRepository.findAll().stream()
+                    .filter(t -> activeStatuses.contains(t.getStatus()))
+                    .filter(t -> {
+                        if (t.getDriver() == null) return false;
+                        if (isDemoDriver) return true;
+                        String dPhone = t.getDriver().getPhone() != null ? t.getDriver().getPhone().replaceAll("\\D", "") : "";
+                        return !userPhone.isEmpty() && dPhone.equals(userPhone);
+                    })
+                    .sorted((a, b) -> b.getId().compareTo(a.getId()))
+                    .toList();
         }
         return ApiResponse.success(trips);
     }

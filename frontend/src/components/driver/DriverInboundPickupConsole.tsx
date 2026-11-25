@@ -40,6 +40,7 @@ export default function DriverInboundPickupConsole() {
 
   const [consoleMode, setConsoleMode] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
   const [trips, setTrips] = useState<PickupTripDto[]>([]);
+  const [outboundTripsCount, setOutboundTripsCount] = useState<number>(0);
   const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -62,13 +63,22 @@ export default function DriverInboundPickupConsole() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fleetDispatchApi.getMyTrips();
+      const [res, outboundRes] = await Promise.all([
+        fleetDispatchApi.getMyTrips().catch(() => []),
+        fleetDispatchApi.getMyOutboundTrips().catch(() => []),
+      ]);
       const tripList = Array.isArray(res) ? res : [];
+      const outboundList = Array.isArray(outboundRes) ? outboundRes : [];
       setTrips(tripList);
+      setOutboundTripsCount(outboundList.length);
+
       if (tripList.length > 0 && !selectedTripId) {
         // Ưu tiên chọn chuyến đang chạy (ON_TRIP hoặc ACKNOWLEDGED hoặc ASSIGNED)
         const activeTrip = tripList.find(t => ['ON_TRIP', 'RETURNING', 'ARRIVED_AT_WAREHOUSE', 'ACKNOWLEDGED', 'ASSIGNED'].includes(t.status)) || tripList[0];
         setSelectedTripId(activeTrip.id);
+      } else if (tripList.length === 0 && outboundList.length > 0) {
+        // Tự động chuyển sang Outbound nếu không có đơn thu gom nhưng có đơn giao hàng
+        setConsoleMode('OUTBOUND');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được danh sách chuyến xe');
@@ -334,6 +344,7 @@ export default function DriverInboundPickupConsole() {
           >
             <Truck className="w-4 h-4" />
             <span>2. Xuất Giao Buyer & Ký ePOD (Outbound)</span>
+            {outboundTripsCount > 0 && <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-[10px] text-white">{outboundTripsCount}</span>}
           </button>
         </div>
 

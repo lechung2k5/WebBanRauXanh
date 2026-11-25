@@ -668,9 +668,9 @@ export default function AdminContractsPage() {
       `🚚 Điều phối xe lạnh lấy hàng tại vườn · ${row.contract_code}`,
       `admin/contracts/${row.id}/dispatch-pickup`,
       [
-        f('truckPlate', 'Biển số xe tải lạnh HoNa Fresh', 'text', '49C-198.86 (Xe thùng lạnh 5 tấn)'),
+        f('truckPlate', 'Biển số xe tải lạnh HoNa Fresh', 'text', '49C-678.90 (Xe thùng lạnh 8 tấn)'),
         f('driverName', 'Tên tài xế phụ trách', 'text', 'Nguyễn Văn Tài (HoNa Cold Express)'),
-        f('driverPhone', 'Số điện thoại tài xế', 'text', '0981.234.567'),
+        f('driverPhone', 'Số điện thoại tài xế', 'text', '0944.556.677'),
         f('pickupAddress', 'Địa chỉ vườn đón xe (Farmer khai báo)', 'text', defaultAddr),
       ],
       'POST',

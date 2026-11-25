@@ -363,12 +363,80 @@ public class AdminBusinessService {
 
     @Transactional public void dispatchPickup(long id, JsonNode n) {
         var c = lock("b2b_contracts", id);
-        String plate = n.path("truckPlate").asText("29H-882.14");
+        String plate = n.path("truckPlate").asText("49C-678.90");
         String driver = n.path("driverName").asText("Nguyễn Văn Tài (HoNa Cold Express)");
-        String phone = n.path("driverPhone").asText("0981.234.567");
+        String phone = n.path("driverPhone").asText("0944.556.677");
         db.update("update b2b_contracts set pickup_truck_plate=?,pickup_driver_name=?,pickup_driver_phone=?,fulfillment_status='PICKUP_DISPATCHED',status='PICKUP_DISPATCHED',updated_at=CURRENT_TIMESTAMP where id=?",
                 plate, driver, phone, id);
         audit("DISPATCH_PICKUP", id);
+
+        // Đảm bảo đồng bộ tạo chuyến xe pickup_trips và điểm dừng pickup_trip_stops cho tài xế
+        try {
+            Integer stopCount = db.queryForObject("select count(*) from pickup_trip_stops where contract_id=?", Integer.class, id);
+            if (stopCount == null || stopCount == 0) {
+                String cleanPhone = phone != null ? phone.replaceAll("\\D", "") : "";
+                List<Map<String, Object>> drivers = db.queryForList(
+                    "select id, warehouse_id from fleet_drivers where regexp_replace(phone, '\\D', '', 'g') = ? limit 1", cleanPhone);
+                Long driverId;
+                Long warehouseId;
+                if (!drivers.isEmpty()) {
+                    driverId = ((Number) drivers.get(0).get("id")).longValue();
+                    warehouseId = ((Number) drivers.get(0).get("warehouse_id")).longValue();
+                } else {
+                    var defDriver = db.queryForMap("select id, warehouse_id from fleet_drivers where driver_code='DRV-DT-01' limit 1");
+                    driverId = ((Number) defDriver.get("id")).longValue();
+                    warehouseId = ((Number) defDriver.get("warehouse_id")).longValue();
+                }
+
+                String cleanPlate = plate != null ? plate.split(" ")[0].trim() : "";
+                List<Map<String, Object>> vehicles = db.queryForList(
+                    "select id from fleet_vehicles where plate_number like ? or plate_number like ? limit 1", cleanPlate + "%", "%" + cleanPlate + "%");
+                Long vehicleId;
+                if (!vehicles.isEmpty()) {
+                    vehicleId = ((Number) vehicles.get(0).get("id")).longValue();
+                } else {
+                    var defVehicle = db.queryForMap("select id from fleet_vehicles where warehouse_id=? limit 1", warehouseId);
+                    vehicleId = ((Number) defVehicle.get("id")).longValue();
+                }
+
+                BigDecimal weight = c.get("actual_harvest_weight_kg") != null
+                    ? new BigDecimal(c.get("actual_harvest_weight_kg").toString())
+                    : (c.get("quantity_kg") != null ? new BigDecimal(c.get("quantity_kg").toString()) : new BigDecimal("100"));
+                int packages = c.get("package_count") != null ? ((Number) c.get("package_count")).intValue() : 5;
+                BigDecimal volume = weight.multiply(new BigDecimal("0.0035"));
+
+                String tripCode = "TRIP-" + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))
+                        + "-" + String.format("%04d", System.currentTimeMillis() % 10000);
+
+                Long tripId = db.queryForObject("""
+                    insert into pickup_trips(
+                        trip_code, warehouse_id, vehicle_id, driver_id, status,
+                        total_weight_kg, total_volume_m3, total_packages, total_stops,
+                        created_by, created_at, updated_at
+                    ) values (?, ?, ?, ?, 'ASSIGNED', ?, ?, ?, 1, 'ADMIN_DISPATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    returning id
+                    """, Long.class, tripCode, warehouseId, vehicleId, driverId, weight, volume, packages);
+
+                String farmerName = Objects.toString(c.get("farmer_name"), "HTX Nông Nghiệp VietGAP");
+                String farmAddress = Objects.toString(c.get("farm_pickup_address"), Objects.toString(c.get("farmer_address"), "Vườn Nhà Vườn VietGAP"));
+                String contactPhone = Objects.toString(c.get("farmer_phone"), "0912345678");
+
+                db.update("""
+                    insert into pickup_trip_stops(
+                        trip_id, contract_id, stop_order, farmer_name, pickup_address,
+                        contact_phone, weight_kg, volume_m3, package_count, status, created_at
+                    ) values (?, ?, 1, ?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP)
+                    """, tripId, id, farmerName, farmAddress, contactPhone, weight, volume, packages);
+
+                db.update("update fleet_vehicles set status='ASSIGNED' where id=?", vehicleId);
+                db.update("update fleet_drivers set status='ASSIGNED' where id=?", driverId);
+
+                b2bRealtimeService.notifyDispatchTripUpdated("TRIP_CREATED", tripId, null);
+            }
+        } catch (Exception ex) {
+            log.warn("Không thể tự động đồng bộ pickup_trip cho contract id {}: {}", id, ex.getMessage());
+        }
+
         var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
         notifyContractParties(updated, "PICKUP_DISPATCHED");
         b2bRealtimeService.notifyContractUpdated("PICKUP_DISPATCHED", Objects.toString(updated.get("contract_code"), ""), updated);
