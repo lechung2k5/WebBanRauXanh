@@ -886,7 +886,6 @@ export default function DriverInboundPickupConsole() {
               value={departurePhotoUrl}
               onChange={(url) => setDeparturePhotoUrl(url)}
               purpose="EPOD"
-              capture="environment"
               hint="Chụp trực tiếp bằng camera hình ảnh xe trước khi xuất bến"
             />
 

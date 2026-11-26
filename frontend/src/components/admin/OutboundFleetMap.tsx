@@ -225,16 +225,13 @@ export default function OutboundFleetMap({
       const shortDriver = driverName.split(' ').slice(-1)[0] || driverName;
 
       let status: 'ON_DELIVERY' | 'ASSIGNED' | 'AVAILABLE' = 'AVAILABLE';
+      const tripStatus = String(trip?.status || '');
       if (
-        trip?.status === 'ON_DELIVERY' ||
-        trip?.status === 'ON_TRIP' ||
-        trip?.status === 'DEPARTED' ||
-        trip?.status === 'IN_PROGRESS' ||
-        trip?.status === 'RETURNING' ||
+        ['ON_DELIVERY', 'ON_TRIP', 'DEPARTED', 'IN_PROGRESS', 'RETURNING'].includes(tripStatus) ||
         v.status === 'ON_TRIP'
       ) {
         status = 'ON_DELIVERY';
-      } else if (trip?.status === 'ASSIGNED' || trip?.status === 'ACKNOWLEDGED' || v.status === 'ASSIGNED') {
+      } else if (['ASSIGNED', 'ACKNOWLEDGED'].includes(tripStatus) || v.status === 'ASSIGNED') {
         status = 'ASSIGNED';
       }
 

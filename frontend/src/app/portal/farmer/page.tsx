@@ -53,6 +53,7 @@ import {
   Landmark,
   Star,
   Users,
+  X,
 } from 'lucide-react';
 
 import {
@@ -3857,8 +3858,8 @@ function FarmerPortalContent() {
                           setProfileForm((prev) => ({ ...prev, farmAddress: val }));
                           setProfileErrors((prev) => ({ ...prev, farmAddress: undefined }));
                         }}
-                        onSelectSuggestion={(prediction) => {
-                          setProfileForm((prev) => ({ ...prev, farmAddress: prediction.description }));
+                        onSelectAddress={(data) => {
+                          setProfileForm((prev) => ({ ...prev, farmAddress: data.address }));
                           setProfileErrors((prev) => ({ ...prev, farmAddress: undefined }));
                         }}
                         placeholder="Nhập số nhà, tên đường, xã/phường, tỉnh/thành (Gợi ý Goong Maps)..."

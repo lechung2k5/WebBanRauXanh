@@ -872,7 +872,6 @@ export default function DriverOutboundDeliveryConsole() {
               value={departurePhotoUrl}
               onChange={(url) => setDeparturePhotoUrl(url)}
               purpose="EPOD"
-              capture="environment"
               hint="Chụp trực tiếp bằng camera hình ảnh thùng xe đã xếp hàng trước khi rời kho"
             />
 
