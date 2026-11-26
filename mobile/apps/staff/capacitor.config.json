@@ -1,11 +1,11 @@
 {
   "appId": "com.honafresh.staff",
-  "appName": "HoNa Staff QC",
+  "appName": "Hona Fresh Staff",
   "webDir": "www",
   "server": {
-    "url": "http://localhost:3000/portal/warehouse-qc",
+    "url": "https://honafresh.vercel.app/dang-nhap",
     "cleartext": true,
-    "allowNavigation": ["localhost", "127.0.0.1"]
+    "allowNavigation": ["honafresh.vercel.app", "*.vercel.app", "54-251-17-236.sslip.io"]
   },
   "android": {
     "allowMixedContent": true

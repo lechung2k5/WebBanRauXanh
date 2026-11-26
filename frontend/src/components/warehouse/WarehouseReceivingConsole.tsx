@@ -41,11 +41,29 @@ import {
   WarehouseZoneDto,
 } from '@/services/fleetDispatchApi';
 import { useApp } from '@/context/AppContext';
+import { portalFor } from '@/services/auth';
 import { b2bWebSocket } from '@/services/websocketService';
 
 export default function WarehouseReceivingConsole() {
-  const { currentUser, logout } = useApp();
+  const { currentUser, authLoading, logout } = useApp();
   const router = useRouter();
+
+  const canAccessStaffQc = Boolean(
+    currentUser?.roles?.includes('ROLE_WAREHOUSE_QC') ||
+      currentUser?.roles?.includes('ROLE_WAREHOUSE_MANAGER') ||
+      currentUser?.roles?.includes('ROLE_ADMIN')
+  );
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!currentUser) {
+      router.replace('/dang-nhap');
+      return;
+    }
+    if (!canAccessStaffQc) {
+      router.replace(portalFor(currentUser.roles || []));
+    }
+  }, [authLoading, currentUser, canAccessStaffQc, router]);
 
   const [hubs] = useState<WarehouseHubDto[]>(DEFAULT_OFFICIAL_HUBS);
   const [selectedHubId, setSelectedHubId] = useState<number>(() => Number(currentUser?.assignedHubId || 2));

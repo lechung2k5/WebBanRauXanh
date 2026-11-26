@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">HoNa Staff QC</string>
-    <string name="title_activity_main">HoNa Staff QC</string>
+    <string name="app_name">Hona Fresh Staff</string>
+    <string name="title_activity_main">Hona Fresh Staff</string>
     <string name="package_name">com.honafresh.staff</string>
     <string name="custom_url_scheme">com.honafresh.staff</string>
 </resources>

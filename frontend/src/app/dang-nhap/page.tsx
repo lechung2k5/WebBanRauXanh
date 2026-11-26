@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AuthForm from '@/components/AuthForm';
+import { useApp } from '@/context/AppContext';
+import { portalFor } from '@/services/auth';
 
 export default function LoginPage() {
   const [isNativeMobile, setIsNativeMobile] = useState(false);
+  const { currentUser, authLoading } = useApp();
+  const router = useRouter();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -14,6 +19,12 @@ export default function LoginPage() {
       setIsNativeMobile(isCap);
     }
   }, []);
+
+  useEffect(() => {
+    if (!authLoading && currentUser?.roles && currentUser.roles.length > 0) {
+      router.replace(portalFor(currentUser.roles));
+    }
+  }, [authLoading, currentUser, router]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#F0F7F2] via-[#F9F9F5] to-[#EDF5EE] flex flex-col justify-center px-4 py-10">

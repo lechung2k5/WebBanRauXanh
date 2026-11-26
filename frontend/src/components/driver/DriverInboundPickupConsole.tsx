@@ -30,14 +30,30 @@ import {
   PickupTripStopDto,
 } from '@/services/fleetDispatchApi';
 import { useApp } from '@/context/AppContext';
+import { portalFor } from '@/services/auth';
 import { b2bWebSocket } from '@/services/websocketService';
 import { adminFarmHandover } from '@/services/b2bSyncService';
 import ImageUploadField from '@/components/ImageUploadField';
 import DriverOutboundDeliveryConsole from './DriverOutboundDeliveryConsole';
 
 export default function DriverInboundPickupConsole() {
-  const { currentUser, logout } = useApp();
+  const { currentUser, authLoading, logout } = useApp();
   const router = useRouter();
+
+  const canAccessDriver = Boolean(
+    currentUser?.roles?.includes('ROLE_DRIVER') || currentUser?.roles?.includes('ROLE_ADMIN')
+  );
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!currentUser) {
+      router.replace('/dang-nhap');
+      return;
+    }
+    if (!canAccessDriver) {
+      router.replace(portalFor(currentUser.roles || []));
+    }
+  }, [authLoading, currentUser, canAccessDriver, router]);
 
   const [consoleMode, setConsoleMode] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
   const [trips, setTrips] = useState<PickupTripDto[]>([]);
