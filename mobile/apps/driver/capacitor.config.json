@@ -1,0 +1,13 @@
+{
+  "appId": "com.honafresh.driver",
+  "appName": "HoNa Driver",
+  "webDir": "www",
+  "server": {
+    "url": "http://localhost:3000/portal/driver",
+    "cleartext": true,
+    "allowNavigation": ["localhost", "127.0.0.1"]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

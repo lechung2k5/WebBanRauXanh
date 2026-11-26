@@ -7,6 +7,7 @@ export interface User {
   address?: string;
   enabled: boolean;
   roles: string[];
+  assignedHubId?: number;
 }
 
 export interface AuthResponse {
@@ -18,6 +19,7 @@ export interface AuthResponse {
   address?: string;
   enabled: boolean;
   roles: string[];
+  assignedHubId?: number;
   emailVerified: boolean;
   companyName?: string;
   taxCode?: string;

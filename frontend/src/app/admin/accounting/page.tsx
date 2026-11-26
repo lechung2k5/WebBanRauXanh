@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/services/auth';
+import { getStoredUser } from '@/services/api';
 import {
   Receipt,
   Settings,
@@ -29,7 +30,43 @@ import {
   Layers,
   ChevronRight,
 } from 'lucide-react';
+import { b2bWebSocket } from '@/services/websocketService';
+import { SettlementStatementModal } from '@/components/admin/SettlementStatementModal';
+import Pagination from '@/components/Pagination';
 import { DataTable, FormDialog, Row, Field, str } from '@/components/admin/AdminConsole';
+
+const ACCOUNTING_PAGE_SIZE = 10;
+
+function paginateList<T>(items: T[], page: number, pageSize = ACCOUNTING_PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    pagedItems: items.slice(start, start + pageSize),
+    totalPages,
+    safePage,
+  };
+}
+
+const formatAccountingEvent = (rawEvent: unknown): string => {
+  const ev = String(rawEvent || '').toUpperCase().trim();
+  if (ev === 'DEPOSIT') return 'Thu tiền đặt cọc (30%)';
+  if (ev === 'BALANCE') return 'Thu phần tiền còn lại (70%)';
+  if (ev === 'SETTLEMENT') return 'Giải ngân tiền hàng cho Nông dân';
+  if (ev === 'REFUND') return 'Hoàn trả tiền cọc cho Thương lái';
+  if (ev === 'COMPENSATION') return 'Chi bồi thường sự cố';
+  return ev || 'Giao dịch dòng tiền';
+};
+
+const formatAccountingAccount = (rawAccount: unknown): string => {
+  const acc = String(rawAccount || '').trim();
+  if (acc === '112') return 'Tài khoản ngân hàng Sàn';
+  if (acc === '3388') return 'Quỹ giữ hộ trung gian';
+  if (acc === '5113') return 'Doanh thu dịch vụ Sàn';
+  if (acc === '3331') return 'Thuế GTGT phải nộp Nhà nước';
+  if (acc === '811') return 'Chi phí bồi thường';
+  return `Tài khoản ${acc}`;
+};
 
 const f = (name: string, label: string, type = 'text', value?: string | number): Field => ({
   name,
@@ -59,12 +96,28 @@ interface ContractLedgerItem {
   serviceVatAmount: number;
   honaRealPocket: number;
   farmerPayoutAmount: number;
-  cashflowStatus: 'SETTLED_COMPLETED' | 'BUYER_PAID_100' | 'ESCROW_HOLDING_30' | string;
+  cashflowStatus: 'SETTLED_COMPLETED' | 'BUYER_PAID_100' | 'WAITING_BUYER_70' | 'ESCROW_HOLDING_30' | string;
+  cashflowStatusLabel?: string;
+  hub_id?: number;
+  hub_name?: string;
+  remaining_payment_status?: string;
   settled_at?: string;
   bank_transfer_ref?: string;
   deposit_ref?: string;
   payout_ref?: string;
   balance_ref?: string;
+  farmer_bank_name?: string;
+  farmer_bank_account?: string;
+  farmer_bank_owner?: string;
+  platform_fee_rate?: number;
+  service_vat_rate?: number;
+  totalInvoiceAmount?: number;
+}
+
+interface HubOption {
+  id: number;
+  hub_code: string;
+  hub_name: string;
 }
 
 interface DailyCashflowItem {
@@ -85,21 +138,57 @@ export default function AdminAccountingPage() {
   // Tab điều hướng
   const [activeTab, setActiveTab] = useState<'LEDGER' | 'DAILY' | 'ENTRIES' | 'DOCUMENTS'>('LEDGER');
 
-  // Bộ lọc bảng đối soát
+  // Bộ lọc bảng đối soát & Phạm vi Trạm (Admin) & Phân trang
+  const storedUser = typeof window !== 'undefined' ? getStoredUser() : null;
+  const userRoles = storedUser?.roles || [];
+  const isSuperAdmin = userRoles.includes('ROLE_ADMIN');
+  const isAccountant = userRoles.includes('ROLE_ACCOUNTANT');
+  const isWarehouseManagerOnly = !isSuperAdmin && !isAccountant && userRoles.includes('ROLE_WAREHOUSE_MANAGER');
+  const canAuditAllHubs = isSuperAdmin || isAccountant;
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [ledgerPage, setLedgerPage] = useState<number>(1);
+  const [dailyPage, setDailyPage] = useState<number>(1);
+  const [entriesPage, setEntriesPage] = useState<number>(1);
+  const [linesPage, setLinesPage] = useState<number>(1);
+  const [documentsPage, setDocumentsPage] = useState<number>(1);
+  const [selectedHubId, setSelectedHubId] = useState<number>(() => {
+    if (isWarehouseManagerOnly && storedUser?.assignedHubId) {
+      return Number(storedUser.assignedHubId);
+    }
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hona_admin_selected_hub_id');
+      if (saved) return Number(saved);
+    }
+    return 2;
+  });
+  const [auditAllHubs, setAuditAllHubs] = useState<boolean>(isAccountant && !isSuperAdmin);
 
-  // Modal xem chi tiết bút toán dòng tiền của hợp đồng
+  // Modal xem chi tiết bút toán dòng tiền & Modal giải ngân Nông dân
   const [selectedContractLedger, setSelectedContractLedger] = useState<ContractLedgerItem | null>(null);
+  const [settlingContract, setSettlingContract] = useState<ContractLedgerItem | null>(null);
+  const [settlementQuoteData, setSettlementQuoteData] = useState<Row | null>(null);
+  const [actionMsg, setActionMsg] = useState<string>('');
+
+  useEffect(() => {
+    const onHubChanged = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (custom.detail) setSelectedHubId(Number(custom.detail));
+    };
+    window.addEventListener('hona-admin-hub-changed', onHubChanged);
+    return () => window.removeEventListener('hona-admin-hub-changed', onHubChanged);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      const hubQuery = !auditAllHubs && selectedHubId ? `?hubId=${selectedHubId}` : '';
       const [reportsData, settingsData, cashflowRes] = await Promise.all([
-        api<Row>('admin/accounting/vas-reports').catch(() => ({})),
+        api<Row>(`admin/accounting/vas-reports${hubQuery}`).catch(() => ({})),
         api<Row>('admin/settings').catch(() => ({})),
-        api<any>('admin/accounting/cashflow-summary').catch(() => ({})),
+        api<any>(`admin/accounting/cashflow-summary${hubQuery}`).catch(() => ({})),
       ]);
       setReports(reportsData || {});
       setSettings(settingsData || {});
@@ -109,11 +198,31 @@ export default function AdminAccountingPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [auditAllHubs, selectedHubId]);
 
   useEffect(() => {
     void loadData();
+    const unsubContracts = b2bWebSocket.subscribeContracts(() => {
+      void loadData();
+    });
+    const unsubDispatch = b2bWebSocket.subscribeDispatch(() => {
+      void loadData();
+    });
+    return () => {
+      unsubContracts();
+      unsubDispatch();
+    };
   }, [loadData]);
+
+  const openDisbursementModal = async (item: ContractLedgerItem) => {
+    setSettlingContract(item);
+    try {
+      const q = await api<Row>(`admin/contracts/${item.contract_id}/settlement-quote`);
+      setSettlementQuoteData(q);
+    } catch {
+      setSettlementQuoteData(null);
+    }
+  };
 
   const openDialog = (title: string, endpoint: string, fields: Field[], method = 'POST', fixed: Row = {}) => {
     setDialog({
@@ -140,6 +249,8 @@ export default function AdminAccountingPage() {
   };
 
   const kpi = cashflowData?.kpi || {};
+  const hubs: HubOption[] = cashflowData?.hubs || [];
+  const currentHubName = hubs.find((h) => Number(h.id) === Number(selectedHubId))?.hub_name || `Trạm #${selectedHubId}`;
   const ledger: ContractLedgerItem[] = cashflowData?.contractLedger || [];
   const dailyCashflow: DailyCashflowItem[] = cashflowData?.dailyCashflow || [];
 
@@ -161,11 +272,29 @@ export default function AdminAccountingPage() {
         statusFilter === 'ALL' ||
         (statusFilter === 'SETTLED' && item.cashflowStatus === 'SETTLED_COMPLETED') ||
         (statusFilter === 'PAID_100' && item.cashflowStatus === 'BUYER_PAID_100') ||
+        (statusFilter === 'WAITING_70' && item.cashflowStatus === 'WAITING_BUYER_70') ||
         (statusFilter === 'ESCROW_30' && item.cashflowStatus === 'ESCROW_HOLDING_30');
 
       return matchSearch && matchStatus;
     });
   }, [ledger, searchQuery, statusFilter]);
+
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [searchQuery, statusFilter, selectedHubId, auditAllHubs]);
+
+  useEffect(() => {
+    setDailyPage(1);
+    setEntriesPage(1);
+    setLinesPage(1);
+    setDocumentsPage(1);
+  }, [selectedHubId, auditAllHubs]);
+
+  const ledgerPaging = useMemo(() => paginateList(filteredLedger, ledgerPage), [filteredLedger, ledgerPage]);
+  const dailyPaging = useMemo(() => paginateList(dailyCashflow, dailyPage), [dailyCashflow, dailyPage]);
+  const entriesPaging = useMemo(() => paginateList(entries, entriesPage), [entries, entriesPage]);
+  const linesPaging = useMemo(() => paginateList(lines, linesPage), [lines, linesPage]);
+  const documentsPaging = useMemo(() => paginateList(documents, documentsPage), [documents, documentsPage]);
 
   // Các hợp đồng liên quan đến mục được chọn
   const selectedEntries = useMemo(() => {
@@ -191,13 +320,13 @@ export default function AdminAccountingPage() {
           <div>
             <div className="flex items-center gap-2 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-1">
               <Scale className="w-4 h-4 text-emerald-300" />
-              <span>B2B Platform Financial & Escrow Cashflow Control</span>
+              <span>Quản Lý Tài Chính & Đối Soát Dòng Tiền Sàn B2B HoNa Fresh</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-heading font-black tracking-tight text-white flex items-center gap-3">
-              <Wallet className="w-7 h-7 text-[#8BC34A]" /> Kế Toán & Kiểm Soát Dòng Tiền Về Túi HoNa
+              <Wallet className="w-7 h-7 text-[#8BC34A]" /> Kế Toán, Ký Quỹ & Giải Ngân Nông Dân
             </h1>
             <p className="text-xs text-white/80 mt-1 max-w-2xl">
-              Hệ thống kế toán kép VAS giám sát két ký quỹ Escrow bảo chứng giao dịch, đối soát doanh thu thực tế về túi HoNa, dòng tiền giải ngân cho Nhà vườn và bảng kê thu mua 01/TNDN.
+              Theo dõi tiền Thương lái nộp về Sàn (cọc 30% & thanh toán 70%), tiền doanh thu Sàn giữ lại và thực hiện giải ngân ròng về tài khoản Nông dân.
             </p>
           </div>
 
@@ -219,26 +348,26 @@ export default function AdminAccountingPage() {
               <span>In Báo Cáo / PDF</span>
             </button>
 
-            <button
-              onClick={() =>
-                openDialog(
-                  'Cấu Hình Tham Số Tỷ Lệ Sàn HoNa',
-                  'admin/settings',
-                  [
-                    f('platformFeeRate', 'Tỷ lệ phí hoa hồng sàn (%) · Từ 1 đến 5', 'number', Number(settings.platform_fee_rate || 2.5)),
-                    f('depositRate', 'Tỷ lệ cọc ký quỹ Escrow (%) · Mặc định 30', 'number', Number(settings.deposit_rate || 30)),
-                    f('tempMin', 'Ngưỡng nhiệt độ an toàn thấp nhất (°C)', 'number', Number(settings.temp_min || 2)),
-                    f('tempMax', 'Ngưỡng nhiệt độ an toàn cao nhất (°C)', 'number', Number(settings.temp_max || 6)),
-                    f('serviceVatRate', 'Thuế GTGT dịch vụ sàn (%) · 8 hoặc 10', 'number', Number(settings.service_vat_rate || 8)),
-                  ],
-                  'PUT'
-                )
-              }
-              className="px-3.5 py-2 rounded-xl bg-[#8BC34A] hover:bg-[#7CB342] text-[#10542C] font-bold text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Settings className="w-4 h-4" />
-              <span>Tham Số Tỷ Lệ Sàn</span>
-            </button>
+            {canAuditAllHubs && (
+              <button
+                onClick={() =>
+                  openDialog(
+                    'Cấu Hình Tham Số Tỷ Lệ Sàn HoNa',
+                    'admin/settings',
+                    [
+                      f('platformFeeRate', 'Tỷ lệ phí hoa hồng sàn (%) · Từ 1 đến 5', 'number', Number(settings.platform_fee_rate || 2.5)),
+                      f('depositRate', 'Tỷ lệ đặt cọc bảo chứng (%) · Mặc định 30', 'number', Number(settings.deposit_rate || 30)),
+                      f('serviceVatRate', 'Thuế GTGT dịch vụ sàn (%) · 8 hoặc 10', 'number', Number(settings.service_vat_rate || 8)),
+                    ],
+                    'PUT'
+                  )
+                }
+                className="px-3.5 py-2 rounded-xl bg-[#8BC34A] hover:bg-[#7CB342] text-[#10542C] font-bold text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Tham Số Tỷ Lệ Sàn</span>
+              </button>
+            )}
 
             <button
               onClick={() => void loadData()}
@@ -252,6 +381,86 @@ export default function AdminAccountingPage() {
           </div>
         </div>
       </div>
+
+      {/* THANH CHỌN PHẠM VI KIỂM TOÁN THEO TRẠM / TOÀN HỆ THỐNG (ADMIN) */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
+        <div className="flex items-center gap-2.5 text-xs">
+          <Building2 className="w-4 h-4 text-[#10542C] shrink-0" />
+          <div>
+            <span className="font-bold text-slate-900">
+              {auditAllHubs
+                ? 'Đang xem: Kiểm toán toàn bộ tất cả các trạm trên sàn'
+                : `Đang lọc theo trạm hiện tại: ${currentHubName}`}
+            </span>
+            <span className="text-[11px] text-slate-500 block">
+              Chuyển nhanh giữa số liệu riêng của trạm đang chọn hoặc kiểm toán tổng hợp toàn hệ thống (dành cho Admin)
+            </span>
+          </div>
+        </div>
+
+        {canAuditAllHubs ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAuditAllHubs(false)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                !auditAllHubs
+                  ? 'bg-[#10542C] text-white border-[#10542C] shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Chỉ trạm đang chọn
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuditAllHubs(true)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                auditAllHubs
+                  ? 'bg-indigo-700 text-white border-indigo-700 shadow-2xs'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Kiểm toán toàn bộ các trạm
+            </button>
+            {!auditAllHubs && hubs.length > 0 && (
+              <select
+                value={selectedHubId}
+                onChange={(e) => {
+                  const nextId = Number(e.target.value);
+                  setSelectedHubId(nextId);
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('hona_admin_selected_hub_id', String(nextId));
+                    window.dispatchEvent(new CustomEvent('hona-admin-hub-changed', { detail: nextId }));
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-slate-50 focus:outline-emerald-600"
+              >
+                {hubs.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.hub_name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        ) : (
+          <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-[#10542C] border border-emerald-200 text-xs font-bold">
+            Phạm vi kho quản lý: {currentHubName}
+          </span>
+        )}
+      </div>
+
+      {actionMsg && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold rounded-2xl flex items-center justify-between gap-2 print:hidden">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{actionMsg}</span>
+          </div>
+          <button type="button" onClick={() => setActionMsg('')} className="text-emerald-700 hover:underline">
+            Đóng
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 text-red-800 text-xs font-bold rounded-2xl flex items-center gap-2 print:hidden">
@@ -302,25 +511,25 @@ export default function AdminAccountingPage() {
         <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
-              Két Ký Quỹ Escrow (TK 3388)
+              Chờ Giải Ngân Nông Dân
             </span>
             <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4" />
+              <Clock className="w-4 h-4" />
             </div>
           </div>
           <div className="text-2xl font-black font-mono tracking-tight text-amber-800">
-            {Number(kpi.totalEscrowHeld || 0).toLocaleString('vi-VN')} đ
+            {Number(kpi.pendingDisbursementAmount || 0).toLocaleString('vi-VN')} đ
           </div>
           <p className="text-[11px] text-slate-500 leading-tight">
-            Tiền cọc & tiền hàng giữ hộ trung gian, chưa quyết toán cho Farmer.
+            Tiền Buyer đã trả đủ 100% về Sàn, đang chờ Kế toán giải ngân cho Nhà vườn (Tổng giữ hộ TK 3388: {Number(kpi.totalEscrowHeld || 0).toLocaleString('vi-VN')} đ).
           </p>
         </div>
 
-        {/* THẺ 4: TIỀN ĐÃ GIẢI NGÂN CHO NHÀ VƯỜN (PAYOUT) */}
+        {/* THẺ 4: TIỀN ĐÃ GIẢI NGÂN CHO NHÀ VƯỜN */}
         <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 block">
-              Đã Payout Cho Nông Dân
+              Đã Giải Ngân Nông Dân
             </span>
             <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
               <CreditCard className="w-4 h-4" />
@@ -388,7 +597,7 @@ export default function AdminAccountingPage() {
           }`}
         >
           <BookOpen className="w-4 h-4" />
-          <span>Sổ Nhật Ký Chung & Bút Toán Kép VAS ({entries.length})</span>
+          <span>Lịch Sử Giao Dịch Thu / Chi ({entries.length})</span>
         </button>
 
         <button
@@ -437,9 +646,10 @@ export default function AdminAccountingPage() {
                 className="px-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-emerald-600 bg-white"
               >
                 <option value="ALL">Tất cả trạng thái ({ledger.length})</option>
-                <option value="SETTLED">Đã chốt sổ về túi HoNa (SETTLED)</option>
-                <option value="PAID_100">Đã thu đủ 100% chờ chốt (DELIVERED)</option>
-                <option value="ESCROW_30">Đang giữ cọc 30% Escrow</option>
+                <option value="PAID_100">Buyer đã trả đủ 100% · Chờ giải ngân</option>
+                <option value="SETTLED">Đã giải ngân hoàn tất cho Nông dân</option>
+                <option value="WAITING_70">Đã giao hàng · Chờ Buyer trả nốt 70%</option>
+                <option value="ESCROW_30">Đang giữ cọc 30% bảo chứng</option>
               </select>
             </div>
           </div>
@@ -465,16 +675,17 @@ export default function AdminAccountingPage() {
                     <th className="py-3 px-3">Nhà Vườn (Farmer)</th>
                     <th className="py-3 px-3 text-right">Tổng Tiền Hàng</th>
                     <th className="py-3 px-3 text-right">Buyer Đã Nộp</th>
-                    <th className="py-3 px-3 text-right text-emerald-800 bg-emerald-50/40">Tiền Về Túi HoNa</th>
-                    <th className="py-3 px-3 text-right">Payout Nông Dân</th>
+                    <th className="py-3 px-3 text-right text-emerald-800 bg-emerald-50/40">Doanh Thu Sàn</th>
+                    <th className="py-3 px-3 text-right">Giải Ngân Nông Dân</th>
                     <th className="py-3 px-3 text-center">Trạng Thái Dòng Tiền</th>
-                    <th className="py-3 px-3 text-center">Bút Toán</th>
+                    <th className="py-3 px-3 text-center">Thao Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredLedger.map((item) => {
+                  {ledgerPaging.pagedItems.map((item) => {
                     const isSettled = item.cashflowStatus === 'SETTLED_COMPLETED';
                     const isPaid100 = item.cashflowStatus === 'BUYER_PAID_100';
+                    const isWaiting70 = item.cashflowStatus === 'WAITING_BUYER_70';
 
                     return (
                       <tr key={item.contract_id} className="hover:bg-slate-50/80 transition-colors">
@@ -483,7 +694,9 @@ export default function AdminAccountingPage() {
                             {item.contract_code}
                           </span>
                           <span className="text-slate-800 font-semibold block">{item.product_name}</span>
-                          <span className="text-[10px] text-slate-400">HĐ #{item.contract_id}</span>
+                          {item.hub_name && (
+                            <span className="text-[10px] text-slate-500 block">{item.hub_name}</span>
+                          )}
                         </td>
 
                         <td className="py-3 px-3">
@@ -521,6 +734,9 @@ export default function AdminAccountingPage() {
                               Xe lạnh: {Number(item.logisticsFeeAmount || 0).toLocaleString('vi-VN')} đ
                             </span>
                           )}
+                          <span className="text-[10px] text-slate-500 block">
+                            Thuế VAT (TK 3331): {Number(item.serviceVatAmount || 0).toLocaleString('vi-VN')} đ
+                          </span>
                         </td>
 
                         <td className="py-3 px-3 text-right font-mono text-indigo-900 font-semibold">
@@ -534,32 +750,56 @@ export default function AdminAccountingPage() {
                                 ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                                 : isPaid100
                                 ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                : isWaiting70
+                                ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
                                 : 'bg-amber-100 text-amber-800 border-amber-300'
                             }`}
                           >
-                            {isSettled
-                              ? '✓ ĐÃ VỀ TÚI HONA (SETTLED)'
-                              : isPaid100
-                              ? 'ĐÃ THU ĐỦ 100% (DELIVERED)'
-                              : 'GIỮ CỌC 30% ESCROW'}
+                            {item.cashflowStatusLabel ||
+                              (isSettled
+                                ? 'Đã giải ngân hoàn tất cho Nông dân'
+                                : isPaid100
+                                ? 'Buyer đã trả đủ 100% · Chờ giải ngân Nông dân'
+                                : isWaiting70
+                                ? 'Đã giao hàng · Chờ Buyer trả nốt 70%'
+                                : 'Đang giữ cọc 30% bảo chứng')}
                           </span>
                         </td>
 
                         <td className="py-3 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedContractLedger(item)}
-                            className="px-2.5 py-1 text-xs font-bold text-[#10542C] bg-white hover:bg-emerald-50 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1 mx-auto"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Bút Toán</span>
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            {isPaid100 && (
+                              <button
+                                type="button"
+                                onClick={() => void openDisbursementModal(item)}
+                                className="px-2.5 py-1 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Xác nhận chuyển khoản giải ngân tiền hàng ròng về STK Nông dân"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                                <span>Giải ngân</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedContractLedger(item)}
+                              className="px-2.5 py-1 text-xs font-bold text-[#10542C] bg-white hover:bg-emerald-50 border border-emerald-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Chi tiết</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              <Pagination
+                currentPage={ledgerPaging.safePage}
+                totalPages={ledgerPaging.totalPages}
+                onPageChange={setLedgerPage}
+                className="py-3 pt-4"
+              />
             </div>
           )}
         </div>
@@ -594,14 +834,14 @@ export default function AdminAccountingPage() {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                     <th className="py-3 px-4">Ngày Ghi Nhận</th>
-                    <th className="py-3 px-4 text-right text-emerald-800">Tiền Vào (Buyer Nộp)</th>
-                    <th className="py-3 px-4 text-right text-rose-800">Tiền Ra (Payout Nông Dân)</th>
-                    <th className="py-3 px-4 text-right">Dòng Tiền Ròng Trong Ngày (Net Inflow)</th>
+                    <th className="py-3 px-4 text-right text-emerald-800">Tiền Vào (Thương Lái Nộp)</th>
+                    <th className="py-3 px-4 text-right text-rose-800">Tiền Ra (Giải Ngân Nông Dân)</th>
+                    <th className="py-3 px-4 text-right">Chênh Lệch Thu - Chi Trong Ngày</th>
                     <th className="py-3 px-4 text-center">Trạng Thái Dòng Tiền</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {dailyCashflow.map((d, idx) => {
+                  {dailyPaging.pagedItems.map((d, idx) => {
                     const net = Number(d.incoming || 0) - Number(d.outgoing || 0);
                     return (
                       <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
@@ -631,6 +871,12 @@ export default function AdminAccountingPage() {
                   })}
                 </tbody>
               </table>
+              <Pagination
+                currentPage={dailyPaging.safePage}
+                totalPages={dailyPaging.totalPages}
+                onPageChange={setDailyPage}
+                className="py-3 pt-4"
+              />
             </div>
           )}
         </div>
@@ -643,57 +889,83 @@ export default function AdminAccountingPage() {
             <div>
               <h3 className="font-heading font-black text-sm text-slate-900 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-[#10542C]" />
-                <span>Sổ Nhật Ký Chung & Bút Toán Kế Toán Kép VAS (Journal Entries & Lines)</span>
+                <span>Lịch Sử Giao Dịch Thu / Chi & Phân Bổ Dòng Tiền</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Nguyên tắc kế toán kép bất biến: Tổng Nợ (Debit) luôn bằng Tổng Có (Credit)
+                Hiển thị chi tiết từng lần thu tiền từ Thương lái, giữ hộ trung gian, doanh thu dịch vụ Sàn, thuế GTGT và giải ngân cho Nông dân
               </p>
             </div>
             <span className="text-xs text-slate-500">
-              <strong className="text-emerald-800 font-bold">{entries.length}</strong> sự kiện nghiệp vụ ·{' '}
-              <strong className="text-emerald-800 font-bold">{lines.length}</strong> dòng định khoản
+              <strong className="text-emerald-800 font-bold">{entries.length}</strong> giao dịch ·{' '}
+              <strong className="text-emerald-800 font-bold">{lines.length}</strong> khoản phân bổ
             </span>
           </div>
 
           {entries.length === 0 ? (
             <div className="py-12 text-center text-xs text-slate-500 space-y-2">
               <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
-              <p className="font-bold text-slate-800">Chưa có bút toán ghi nhận trong sổ nhật ký chung.</p>
+              <p className="font-bold text-slate-800">Chưa có giao dịch thu / chi nào được ghi nhận.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Sổ nhật ký chung */}
+              {/* Lịch sử giao dịch */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Receipt className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Sự Kiện Nghiệp Vụ Sàn (Journal Entries)</span>
+                  <span>Các Giao Dịch Phát Sinh Theo Hợp Đồng</span>
                 </p>
                 <DataTable
-                  rows={entries}
+                  rows={entriesPaging.pagedItems.map((e) => ({
+                    ...e,
+                    event_vi: formatAccountingEvent(e.event),
+                    created_at_vi: e.created_at ? new Date(String(e.created_at)).toLocaleDateString('vi-VN') : '',
+                  }))}
                   columns={[
-                    ['id', 'Mã'],
                     ['contract_code', 'Hợp Đồng'],
-                    ['event', 'Sự Kiện'],
-                    ['reference', 'Mã Giao Dịch'],
-                    ['created_at', 'Thời Điểm'],
+                    ['event_vi', 'Nội Dung Giao Dịch'],
+                    ['reference', 'Mã Chứng Từ'],
+                    ['created_at_vi', 'Ngày Ghi Nhận'],
                   ]}
+                />
+                <Pagination
+                  currentPage={entriesPaging.safePage}
+                  totalPages={entriesPaging.totalPages}
+                  onPageChange={setEntriesPage}
+                  className="py-2 pt-3"
                 />
               </div>
 
-              {/* Bút toán định khoản Nợ / Có */}
+              {/* Chi tiết phân bổ dòng tiền */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Scale className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Định Khoản Nợ / Có (Debit / Credit Lines)</span>
+                  <span>Chi Tiết Tiền Vào / Tiền Ra Theo Khoản Mục</span>
                 </p>
                 <DataTable
-                  rows={lines}
+                  rows={linesPaging.pagedItems.map((l) => {
+                    const entry = entries.find((e) => String(e.id) === String(l.entry_id));
+                    return {
+                      ...l,
+                      contract_event_vi: entry
+                        ? `${str(entry.contract_code)} · ${formatAccountingEvent(entry.event)}`
+                        : `Giao dịch #${str(l.entry_id)}`,
+                      account_vi: formatAccountingAccount(l.account),
+                      debit_vi: Number(l.debit || 0) > 0 ? `${Number(l.debit).toLocaleString('vi-VN')} đ` : '—',
+                      credit_vi: Number(l.credit || 0) > 0 ? `${Number(l.credit).toLocaleString('vi-VN')} đ` : '—',
+                    };
+                  })}
                   columns={[
-                    ['entry_id', 'Mã Sự Kiện'],
-                    ['account', 'Tài Khoản (TK)'],
-                    ['debit', 'Nợ (Debit)'],
-                    ['credit', 'Có (Credit)'],
+                    ['contract_event_vi', 'Hợp Đồng & Giao Dịch'],
+                    ['account_vi', 'Mục Tiền'],
+                    ['debit_vi', 'Tiền Vào / Tăng'],
+                    ['credit_vi', 'Tiền Ra / Phân Bổ'],
                   ]}
+                />
+                <Pagination
+                  currentPage={linesPaging.safePage}
+                  totalPages={linesPaging.totalPages}
+                  onPageChange={setLinesPage}
+                  className="py-2 pt-3"
                 />
               </div>
             </div>
@@ -731,26 +1003,34 @@ export default function AdminAccountingPage() {
               <p className="text-slate-400">Khi các hợp đồng B2B hoàn tất thanh toán hoặc quyết toán, bảng kê chứng từ sẽ tự động xuất tại đây.</p>
             </div>
           ) : (
-            <DataTable
-              rows={documents}
-              columns={[
-                ['contract_code', 'Mã Hợp Đồng'],
-                ['company_name', 'Nông Trại / HTX'],
-                ['tax_code', 'Mã Số Thuế'],
-                ['document_type', 'Loại Chứng Từ'],
-                ['total_goods_amount', 'Tổng Giá Trị (đ)'],
-                ['payout_amount', 'Số Tiền Thực Giải Ngân (đ)'],
-              ]}
-              actions={(row) => (
-                <button
-                  type="button"
-                  onClick={() => setDetail(row)}
-                  className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
-                >
-                  Chi tiết
-                </button>
-              )}
-            />
+            <>
+              <DataTable
+                rows={documentsPaging.pagedItems}
+                columns={[
+                  ['contract_code', 'Mã Hợp Đồng'],
+                  ['company_name', 'Nông Trại / HTX'],
+                  ['tax_code', 'Mã Số Thuế'],
+                  ['document_type', 'Loại Chứng Từ'],
+                  ['total_goods_amount', 'Tổng Giá Trị (đ)'],
+                  ['payout_amount', 'Số Tiền Thực Giải Ngân (đ)'],
+                ]}
+                actions={(row) => (
+                  <button
+                    type="button"
+                    onClick={() => setDetail(row)}
+                    className="px-2.5 py-1 text-xs font-medium text-[#10542C] bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Chi tiết
+                  </button>
+                )}
+              />
+              <Pagination
+                currentPage={documentsPaging.safePage}
+                totalPages={documentsPaging.totalPages}
+                onPageChange={setDocumentsPage}
+                className="py-3 pt-4"
+              />
+            </>
           )}
         </div>
       )}
@@ -783,83 +1063,94 @@ export default function AdminAccountingPage() {
             <div className="space-y-3 text-xs">
               <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between font-bold text-emerald-950 text-sm">
-                  <span>Tổng tiền Buyer đã nộp sàn:</span>
+                  <span>Tổng tiền Thương lái đã thanh toán:</span>
                   <span className="font-mono text-base">
                     {Number(selectedContractLedger.totalBuyerPaid || 0).toLocaleString('vi-VN')} đ
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px] text-emerald-800 pt-1 border-t border-emerald-200/60">
-                  <div>Cọc 30% Escrow: {Number(selectedContractLedger.depositAmount || 0).toLocaleString('vi-VN')} đ</div>
-                  <div>Thanh toán nốt 70%: {Number(selectedContractLedger.balanceAmount || 0).toLocaleString('vi-VN')} đ</div>
+                  <div>Tiền đặt cọc (30%): {Number(selectedContractLedger.depositAmount || 0).toLocaleString('vi-VN')} đ</div>
+                  <div>Thanh toán phần còn lại (70%): {Number(selectedContractLedger.balanceAmount || 0).toLocaleString('vi-VN')} đ</div>
                 </div>
               </div>
 
-              {/* DÒNG TIỀN VỀ TÚI HONA */}
+              {/* DOANH THU SÀN & THUẾ */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between font-bold text-[#10542C] text-sm">
-                  <span>TIỀN THỰC SỰ VỀ TÚI HONA (TK 5113):</span>
+                  <span>Doanh thu dịch vụ Sàn HoNa giữ lại:</span>
                   <span className="font-mono text-base">
                     + {Number(selectedContractLedger.honaRealPocket || 0).toLocaleString('vi-VN')} đ
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-600 space-y-1 pt-1 border-t border-slate-200">
                   <div className="flex justify-between">
-                    <span>Phí hoa hồng sàn HoNa (2.5%):</span>
+                    <span>Phí hoa hồng sàn ({Number(selectedContractLedger.platform_fee_rate ?? 2.5)}% trên tiền hàng):</span>
                     <strong className="font-mono">{Number(selectedContractLedger.platformFeeAmount || 0).toLocaleString('vi-VN')} đ</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span>Phí vận chuyển xe tải lạnh:</span>
+                    <span>Cước vận chuyển lạnh thu hồi:</span>
                     <strong className="font-mono">{Number(selectedContractLedger.logisticsFeeAmount || 0).toLocaleString('vi-VN')} đ</strong>
                   </div>
                   <div className="flex justify-between text-slate-500">
-                    <span>Thuế VAT 8% thu hộ (TK 3331):</span>
+                    <span>Thuế GTGT dịch vụ phải nộp Nhà nước (VAT {Number(selectedContractLedger.service_vat_rate ?? 8)}%):</span>
                     <span className="font-mono">{Number(selectedContractLedger.serviceVatAmount || 0).toLocaleString('vi-VN')} đ</span>
                   </div>
                 </div>
               </div>
 
-              {/* DÒNG TIỀN PAYOUT CHO NÔNG DÂN */}
+              {/* DÒNG TIỀN GIẢI NGÂN CHO NÔNG DÂN */}
               <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between font-bold text-indigo-950 text-sm">
-                  <span>TIỀN GIẢI NGÂN CHO NÔNG DÂN (PAYOUT):</span>
+                  <span>Số tiền thực chuyển cho Nông dân:</span>
                   <span className="font-mono text-base text-indigo-900">
                     {Number(selectedContractLedger.farmerPayoutAmount || 0).toLocaleString('vi-VN')} đ
                   </span>
                 </div>
                 <div className="text-[11px] text-indigo-800 space-y-0.5 pt-1 border-t border-indigo-200/60">
                   <p><strong>Người thụ hưởng:</strong> {selectedContractLedger.farmer_name} ({selectedContractLedger.farmer_company})</p>
-                  <p><strong>Ngân hàng thụ hưởng:</strong> Vietcombank · 0123456789 (NGUYEN VAN NONG)</p>
-                  <p><strong>Mã giao dịch giải ngân:</strong> {selectedContractLedger.payout_ref || selectedContractLedger.bank_transfer_ref || 'PAY-SUCCESS'}</p>
+                  <p>
+                    <strong>Ngân hàng thụ hưởng:</strong>{' '}
+                    {selectedContractLedger.farmer_bank_name || 'Chưa cập nhật ngân hàng'} ·{' '}
+                    <span className="font-mono font-bold">{selectedContractLedger.farmer_bank_account || 'Chưa có STK'}</span>{' '}
+                    ({selectedContractLedger.farmer_bank_owner || selectedContractLedger.farmer_name})
+                  </p>
+                  <p><strong>Trạng thái giải ngân:</strong> {selectedContractLedger.cashflowStatusLabel || (selectedContractLedger.cashflowStatus === 'SETTLED_COMPLETED' ? 'Đã giải ngân hoàn tất' : 'Chờ Kế toán giải ngân')}</p>
+                  <p><strong>Mã giao dịch giải ngân:</strong> {selectedContractLedger.payout_ref || selectedContractLedger.bank_transfer_ref || 'Chưa giải ngân'}</p>
                 </div>
               </div>
 
-              {/* Bút toán định khoản liên quan */}
+              {/* Lịch sử giao dịch dòng tiền liên quan */}
               {selectedLines.length > 0 && (
                 <div className="space-y-2 pt-2">
-                  <strong className="text-slate-800 block text-xs">Các bút toán kế toán kép liên quan (TK 112, 3388, 5113, 3331):</strong>
+                  <strong className="text-slate-800 block text-xs">Chi tiết các giao dịch thu / chi của hợp đồng:</strong>
                   <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 overflow-x-auto">
                     <table className="w-full text-left text-[11px]">
                       <thead>
                         <tr className="border-b border-slate-200 text-slate-500 font-bold">
-                          <th className="py-1 px-2">Mã Sự Kiện</th>
-                          <th className="py-1 px-2">Tài Khoản (TK)</th>
-                          <th className="py-1 px-2 text-right text-emerald-800">Nợ (Debit)</th>
-                          <th className="py-1 px-2 text-right text-rose-800">Có (Credit)</th>
+                          <th className="py-1.5 px-2">Giao Dịch</th>
+                          <th className="py-1.5 px-2">Mục Tiền</th>
+                          <th className="py-1.5 px-2 text-right text-emerald-800">Tiền Vào / Tăng</th>
+                          <th className="py-1.5 px-2 text-right text-rose-800">Tiền Ra / Phân Bổ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {selectedLines.map((l, i) => (
-                          <tr key={i}>
-                            <td className="py-1 px-2 font-mono">Entry #{String(l.entry_id)}</td>
-                            <td className="py-1 px-2 font-bold font-mono text-slate-800">TK {String(l.account)}</td>
-                            <td className="py-1 px-2 text-right font-mono text-emerald-700">
-                              {Number(l.debit || 0) > 0 ? Number(l.debit).toLocaleString('vi-VN') + ' đ' : '-'}
-                            </td>
-                            <td className="py-1 px-2 text-right font-mono text-rose-700">
-                              {Number(l.credit || 0) > 0 ? Number(l.credit).toLocaleString('vi-VN') + ' đ' : '-'}
-                            </td>
-                          </tr>
-                        ))}
+                        {selectedLines.map((l, i) => {
+                          const entry = selectedEntries.find((e) => String(e.id) === String(l.entry_id));
+                          const eventLabel = entry ? formatAccountingEvent(entry.event) : `Giao dịch #${String(l.entry_id)}`;
+                          const accountLabel = formatAccountingAccount(l.account);
+                          return (
+                            <tr key={i}>
+                              <td className="py-1.5 px-2 font-semibold text-slate-700">{eventLabel}</td>
+                              <td className="py-1.5 px-2 text-slate-800">{accountLabel}</td>
+                              <td className="py-1.5 px-2 text-right font-mono text-emerald-700">
+                                {Number(l.debit || 0) > 0 ? Number(l.debit).toLocaleString('vi-VN') + ' đ' : '-'}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono text-rose-700">
+                                {Number(l.credit || 0) > 0 ? Number(l.credit).toLocaleString('vi-VN') + ' đ' : '-'}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -916,6 +1207,52 @@ export default function AdminAccountingPage() {
             </dl>
           </div>
         </div>
+      )}
+      {/* MODAL 4: XÁC NHẬN GIẢI NGÂN CHO NÔNG DÂN */}
+      {settlingContract && (
+        <SettlementStatementModal
+          isOpen
+          quote={settlementQuoteData}
+          contract={{
+            id: settlingContract.contract_id,
+            contract_code: settlingContract.contract_code,
+            product_name: settlingContract.product_name,
+            buyer_name: settlingContract.buyer_company || settlingContract.buyer_name,
+            farmer_name: settlingContract.farmer_company || settlingContract.farmer_name,
+            total_goods_amount: settlingContract.totalGoodsAmount,
+            deposit_received: settlingContract.depositAmount,
+          }}
+          onClose={() => {
+            setSettlingContract(null);
+            setSettlementQuoteData(null);
+          }}
+          onConfirmSettlement={async (data) => {
+            await api(`admin/contracts/${settlingContract.contract_id}/settle`, 'POST', {
+              status: 'SETTLED',
+              reference: data.reference,
+              amount: data.amount,
+              bankTransferRef: data.bankTransferRef,
+              farmerBankName: data.farmerBankName,
+              farmerBankAccount: data.farmerBankAccount,
+              farmerBankOwner: data.farmerBankOwner,
+            });
+            b2bWebSocket.publish('/topic/contracts', {
+              action: 'SETTLED',
+              contractId: settlingContract.contract_id,
+              contractCode: settlingContract.contract_code,
+              status: 'SETTLED',
+            });
+            b2bWebSocket.publish('/topic/dispatch', {
+              action: 'SETTLED',
+              contractId: settlingContract.contract_id,
+              contractCode: settlingContract.contract_code,
+            });
+            setActionMsg(`Đã giải ngân thành công ${Number(data.amount || 0).toLocaleString('vi-VN')} đ cho hợp đồng ${settlingContract.contract_code}!`);
+            setSettlingContract(null);
+            setSettlementQuoteData(null);
+            await loadData();
+          }}
+        />
       )}
     </div>
   );

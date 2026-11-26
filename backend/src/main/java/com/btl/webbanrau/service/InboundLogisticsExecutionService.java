@@ -77,7 +77,14 @@ public class InboundLogisticsExecutionService {
             fleetDriverRepository.save(driver);
         }
 
-        b2bRealtimeService.notifyDispatchTripUpdated("TRIP_DEPARTED", trip.getId(), trip);
+        b2bRealtimeService.notifyDispatchTripUpdated("TRIP_DEPARTED", trip.getId(), Map.of("tripId", trip.getId(), "tripCode", trip.getTripCode(), "status", trip.getStatus()));
+        if (trip.getStops() != null) {
+            for (PickupTripStop s : trip.getStops()) {
+                if (s.getContract() != null) {
+                    b2bRealtimeService.notifyContractUpdated("PICKUP_DISPATCHED", s.getContract().getContractCode(), Map.of("id", s.getContract().getId(), "status", s.getContract().getStatus()));
+                }
+            }
+        }
         log.info("Trip {} departed, vehicle and driver set to ON_TRIP", trip.getTripCode());
         return trip;
     }
@@ -94,7 +101,10 @@ public class InboundLogisticsExecutionService {
         stop.setArrivedAt(LocalDateTime.now());
         PickupTripStop saved = pickupTripStopRepository.save(stop);
 
-        b2bRealtimeService.notifyDispatchTripUpdated("STOP_ARRIVED", stop.getTrip().getId(), saved);
+        b2bRealtimeService.notifyDispatchTripUpdated("STOP_ARRIVED", stop.getTrip().getId(), Map.of("stopId", saved.getId(), "tripId", stop.getTrip().getId(), "status", saved.getStatus()));
+        if (stop.getContract() != null) {
+            b2bRealtimeService.notifyContractUpdated("DRIVER_ARRIVED_FARM", stop.getContract().getContractCode(), Map.of("id", stop.getContract().getId(), "stopId", saved.getId()));
+        }
         return saved;
     }
 
@@ -179,7 +189,11 @@ public class InboundLogisticsExecutionService {
         stop.setIssueNotes(request.getIssueNotes());
         PickupTripStop saved = pickupTripStopRepository.save(stop);
 
-        b2bRealtimeService.notifyDispatchTripUpdated("STOP_ISSUE_REPORTED", stop.getTrip().getId(), saved);
+        String issueText = saved.getIssueReason() != null ? saved.getIssueReason() : "";
+        b2bRealtimeService.notifyDispatchTripUpdated("STOP_ISSUE_REPORTED", stop.getTrip().getId(), Map.of("stopId", saved.getId(), "tripId", stop.getTrip().getId(), "issue", issueText));
+        if (stop.getContract() != null) {
+            b2bRealtimeService.notifyContractUpdated("DRIVER_ISSUE_REPORTED", stop.getContract().getContractCode(), Map.of("id", stop.getContract().getId(), "issue", issueText));
+        }
         log.warn("Issue reported on stop {}: {}", stopId, request.getIssueReason());
         return saved;
     }
@@ -195,6 +209,19 @@ public class InboundLogisticsExecutionService {
         trip.setStatus("RETURNING");
         trip.setReturningTime(LocalDateTime.now());
         PickupTrip saved = pickupTripRepository.save(trip);
+
+        // Chuyển các hợp đồng đã bốc hàng trong chuyến sang Mốc 4 (AT_HUB_QC) để Buyer & Farmer thấy ngay
+        if (trip.getStops() != null) {
+            for (PickupTripStop stop : trip.getStops()) {
+                if ("LOADED".equalsIgnoreCase(stop.getStatus()) && stop.getContract() != null) {
+                    B2bContract contract = stop.getContract();
+                    contract.setStatus("AT_HUB_QC");
+                    contract.setFulfillmentStatus("AT_HUB_QC");
+                    b2bContractRepository.save(contract);
+                    b2bRealtimeService.notifyContractUpdated("AT_HUB_QC", contract.getContractCode(), contract);
+                }
+            }
+        }
 
         b2bRealtimeService.notifyDispatchTripUpdated("TRIP_RETURNING", trip.getId(), saved);
         log.info("Trip {} is returning to hub {}", trip.getTripCode(), trip.getWarehouse().getHubCode());
@@ -274,11 +301,19 @@ public class InboundLogisticsExecutionService {
                 }
 
                 if (overrideItem != null) {
-                    contract.setHubWarehouseZone(overrideItem.getColdZone() != null ? overrideItem.getColdZone() : "Zone A (Rau lá 2-4°C)");
-                    contract.setHubRackBin(overrideItem.getRackBin() != null ? overrideItem.getRackBin() : "R-01 / Bin A-01");
+                    String zone = (overrideItem.getColdZone() != null && !overrideItem.getColdZone().isBlank())
+                            ? overrideItem.getColdZone() : "Zone A — Kho Lạnh Rau Ăn Lá & Thảo Mộc";
+                    String rackBin = (overrideItem.getRackBin() != null && !overrideItem.getRackBin().isBlank() && !"BIN-IN-01".equalsIgnoreCase(overrideItem.getRackBin().trim()))
+                            ? overrideItem.getRackBin() : "R-01 / BIN A-01";
+                    contract.setHubWarehouseZone(zone);
+                    contract.setHubRackBin(rackBin);
                 } else {
-                    contract.setHubWarehouseZone("Zone A (Rau lá 2-4°C)");
-                    contract.setHubRackBin("R-01 / Bin A-0" + Math.min(stop.getStopOrder(), 4));
+                    contract.setHubWarehouseZone("Zone A — Kho Lạnh Rau Ăn Lá & Thảo Mộc");
+                    contract.setHubRackBin("R-01 / BIN A-0" + Math.min(stop.getStopOrder(), 4));
+                }
+
+                if (trip.getWarehouse() != null && (contract.getHubName() == null || contract.getHubName().isBlank())) {
+                    contract.setHubName(trip.getWarehouse().getHubName());
                 }
 
                 contract.setInboundNetWeightKg(recWeight);

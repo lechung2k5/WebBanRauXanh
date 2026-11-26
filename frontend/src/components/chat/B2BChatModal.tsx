@@ -77,16 +77,16 @@ export default function B2BChatModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const partnerInfo = useMemo(() => {
-    if (!rfq) return { name: 'Đối tác B2B', roleLabel: 'Thành viên B2B' };
+    if (!rfq) return { name: 'Đối tác', roleLabel: 'Đối tác' };
     if (currentUser.role === 'BUYER') {
       return {
-        name: rfq.farmerCompany || rfq.farmerName || 'Nhà Vườn / Hợp Tác Xã',
-        roleLabel: 'Nhà Vườn VietGAP',
+        name: rfq.farmerCompany || rfq.farmerName || 'Nhà vườn',
+        roleLabel: 'Nhà vườn',
       };
     }
     return {
-      name: rfq.buyerCompany || rfq.buyerName || 'Thương Lái Thu Mua',
-      roleLabel: 'Bên Thu Mua B2B',
+      name: rfq.buyerCompany || rfq.buyerName || 'Thương lái',
+      roleLabel: 'Thương lái',
     };
   }, [rfq, currentUser.role]);
 
@@ -303,7 +303,7 @@ export default function B2BChatModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
       <div className="bg-white rounded-3xl max-w-2xl w-full h-[88vh] max-h-[760px] flex flex-col overflow-hidden shadow-2xl border border-emerald-100">
-        {/* ================= HEADER PHÒNG CHAT CHUẨN REALTIME ================= */}
+        {/* ================= HEADER PHÒNG CHAT ================= */}
         <div className="bg-[#10542C] text-white p-4 shrink-0 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/10 text-white flex items-center justify-center font-bold shrink-0 border border-white/20">
@@ -315,12 +315,16 @@ export default function B2BChatModal({
                   {rfq.rfqCode}
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-200">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Trực Tuyến Realtime (Socket)</span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-300'
+                    }`}
+                  />
+                  <span>{isSocketConnected ? 'Đang trực tuyến' : 'Đang kết nối lại...'}</span>
                 </span>
               </div>
               <h3 className="font-heading font-black text-sm sm:text-base text-white mt-0.5 truncate max-w-[280px] sm:max-w-md">
-                Đàm Phán: {partnerInfo.name}
+                {partnerInfo.name}
               </h3>
             </div>
           </div>
@@ -330,129 +334,172 @@ export default function B2BChatModal({
               type="button"
               onClick={onClose}
               className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center font-bold cursor-pointer transition text-base"
-              title="Đóng phòng chat"
+              title="Đóng cửa sổ chat"
             >
               ✕
             </button>
           </div>
         </div>
 
-        {/* ================= TÓM TẮT ĐƠN ĐÀM PHÁN ================= */}
-        <div className="bg-emerald-50/70 border-b border-emerald-100 px-4 py-2.5 flex items-center justify-between text-xs text-gray-700 shrink-0">
+        {/* ================= TÓM TẮT ĐƠN HÀNG ================= */}
+        <div className="bg-emerald-50/70 border-b border-emerald-100 px-4 py-2 flex items-center justify-between text-xs text-gray-700 shrink-0">
           <div className="flex items-center gap-2 truncate">
             <Sprout className="w-4 h-4 text-emerald-800 shrink-0" />
             <span className="truncate">
-              Lô: <strong className="text-gray-900">{rfq.productName || 'Nông sản VietGAP'}</strong>{' '}
+              <strong className="text-gray-900">{rfq.productName || 'Nông sản'}</strong>{' '}
               {rfq.harvestLotCode && `(${rfq.harvestLotCode})`}
             </span>
           </div>
           <div className="flex items-center gap-3 shrink-0 font-mono text-[11px]">
             {rfq.requestedQuantity && (
               <span>
-                SL: <strong className="text-emerald-900">{rfq.requestedQuantity.toLocaleString()} kg</strong>
+                <strong className="text-emerald-900">{rfq.requestedQuantity.toLocaleString()} kg</strong>
               </span>
             )}
             {rfq.targetPrice && (
               <span>
-                Giá: <strong className="text-[#10542C]">{rfq.targetPrice.toLocaleString()} đ/kg</strong>
+                <strong className="text-[#10542C]">{rfq.targetPrice.toLocaleString()} đ/kg</strong>
               </span>
             )}
           </div>
         </div>
 
-        {/* ================= DANH SÁCH TIN NHẮN (REALTIME FEED) ================= */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 bg-[#FAFBF9]">
+        {/* ================= DANH SÁCH TIN NHẮN ================= */}
+        <div className="flex-1 overflow-y-auto px-3.5 sm:px-5 py-4 bg-[#F3F5F2]">
           {isLoadingHistory ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 text-xs py-8">
               <Loader2 className="w-6 h-6 animate-spin text-emerald-600 mb-2" />
-              <span>Đang đồng bộ dữ liệu cuộc trò chuyện từ Database...</span>
+              <span>Đang tải lịch sử trò chuyện...</span>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 text-xs py-10 space-y-2">
               <div className="w-12 h-12 rounded-full bg-emerald-100/60 text-emerald-800 flex items-center justify-center">
                 <MessageSquare className="w-6 h-6 text-emerald-700" />
               </div>
-              <p className="font-semibold text-gray-700">Chưa có tin nhắn nào trong phiên này</p>
+              <p className="font-semibold text-gray-700">Chưa có tin nhắn nào</p>
               <p className="text-[11px] text-gray-500 max-w-xs">
-                Hai bên có thể trao đổi trực tiếp về quy cách đóng gói, chất lượng nông sản và tiến độ giao nhận trạm lạnh.
+                Hãy gửi tin nhắn để trao đổi về chất lượng sản phẩm, giá cả và thời gian giao nhận hàng.
               </p>
             </div>
           ) : (
             messages.map((msg, idx) => {
-              const isMe = String(msg.senderId) === String(currentUser.id) || msg.senderRole === currentUser.role;
+              if (msg.senderRole === 'SYSTEM') {
+                return (
+                  <div key={msg.id || idx} className="flex justify-center my-3">
+                    <span className="text-[11px] bg-white text-gray-600 border border-gray-200 px-3 py-1 rounded-full font-medium shadow-2xs">
+                      {msg.content}
+                    </span>
+                  </div>
+                );
+              }
+
+              const isSenderMe = (item: ChatMessageItem) =>
+                item.senderRole && (item.senderRole === 'BUYER' || item.senderRole === 'FARMER')
+                  ? item.senderRole === currentUser.role
+                  : String(item.senderId) === String(currentUser.id);
+
+              const isMe = isSenderMe(msg);
+              const prevMsg = idx > 0 ? messages[idx - 1] : null;
+              const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null;
+
+              const isFirstInGroup =
+                !prevMsg || prevMsg.senderRole === 'SYSTEM' || isSenderMe(prevMsg) !== isMe;
+              const isLastInGroup =
+                !nextMsg || nextMsg.senderRole === 'SYSTEM' || isSenderMe(nextMsg) !== isMe;
+
+              const partnerDisplayName = msg.senderName || partnerInfo.name;
 
               return (
                 <div
                   key={msg.id || idx}
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1 animate-in fade-in duration-100`}
+                  className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'} ${
+                    idx === 0 ? '' : isFirstInGroup ? 'mt-3.5' : 'mt-1'
+                  } animate-in fade-in duration-100`}
                 >
-                  {/* Tên và vai trò */}
-                  <span className="text-[10px] text-gray-400 px-1 font-semibold flex items-center gap-1">
-                    {isMe ? 'Bạn' : msg.senderName || partnerInfo.name}
-                    {!isMe && (
-                      <span className="text-[9px] bg-gray-200 text-gray-700 px-1.5 py-0.2 rounded font-bold">
-                        {msg.senderRole === 'BUYER' ? 'Thương Lái' : msg.senderRole === 'FARMER' ? 'Nhà Vườn' : 'Hệ Thống'}
+                  {/* Cột avatar bên trái cho tin nhắn đối tác */}
+                  {!isMe && (
+                    <div className="w-7 shrink-0 flex justify-center">
+                      {isLastInGroup ? (
+                        <div
+                          className="w-7 h-7 rounded-full bg-white text-gray-700 flex items-center justify-center border border-gray-200 shadow-2xs"
+                          title={partnerDisplayName}
+                        >
+                          {msg.senderRole === 'FARMER' ? (
+                            <Sprout className="w-3.5 h-3.5 text-emerald-700" />
+                          ) : (
+                            <Building2 className="w-3.5 h-3.5 text-sky-700" />
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[78%] sm:max-w-[68%]`}>
+                    {/* Chỉ hiện tên đối tác ở đầu mỗi nhóm tin nhắn bên trái */}
+                    {!isMe && isFirstInGroup && (
+                      <span className="text-[11px] text-gray-500 px-1 mb-1 font-medium">
+                        {partnerDisplayName}
                       </span>
                     )}
-                  </span>
 
-                  {/* Bong bóng tin nhắn */}
-                  <div
-                    className={`max-w-[85%] sm:max-w-[72%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed transition-all ${
-                      isMe
-                        ? 'bg-[#10542C] text-white rounded-tr-xs'
-                        : 'bg-white text-gray-900 border border-gray-200 rounded-tl-xs'
-                    }`}
-                  >
-                    {/* Hình ảnh đính kèm (Lưu dạng link URL trong Database) */}
-                    {msg.imageUrl && (
-                      <div className="mb-2 overflow-hidden rounded-xl relative group">
-                        <img
-                          src={msg.imageUrl}
-                          alt="Ảnh đính kèm cuộc đàm phán"
-                          loading="lazy"
-                          className="max-h-60 w-auto object-cover rounded-xl cursor-pointer hover:opacity-95 transition bg-black/5"
-                          onClick={() => setZoomImage(msg.imageUrl || null)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setZoomImage(msg.imageUrl || null)}
-                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                          title="Xem ảnh phóng to"
-                        >
-                          <Maximize2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Nội dung tin nhắn văn bản */}
-                    {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
-
-                    {/* Timestamp & Trạng thái gửi tin */}
+                    {/* Bong bóng tin nhắn co giãn tự nhiên theo nội dung */}
                     <div
-                      className={`text-[9px] mt-1 flex items-center justify-end gap-1 ${
-                        isMe ? 'text-emerald-200/90' : 'text-gray-400'
+                      className={`w-fit max-w-full rounded-2xl px-3.5 py-2 text-xs sm:text-sm shadow-2xs leading-relaxed transition-all ${
+                        isMe
+                          ? `bg-[#10542C] text-white ${isLastInGroup ? 'rounded-br-xs' : ''}`
+                          : `bg-white text-gray-900 border border-gray-200/80 ${isLastInGroup ? 'rounded-bl-xs' : ''}`
                       }`}
                     >
-                      <span>
-                        {msg.createdAt
-                          ? new Date(msg.createdAt).toLocaleTimeString('vi-VN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          : ''}
-                      </span>
-                      {isMe && (
-                        <span>
-                          {msg.status === 'SENDING' ? (
-                            <Clock className="w-3 h-3 text-emerald-300 animate-spin" />
-                          ) : msg.status === 'FAILED' ? (
-                            <span className="text-rose-300 font-bold">Lỗi</span>
-                          ) : (
-                            <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
-                          )}
-                        </span>
+                      {/* Hình ảnh đính kèm */}
+                      {msg.imageUrl && (
+                        <div className="mb-1.5 overflow-hidden rounded-xl relative group">
+                          <img
+                            src={msg.imageUrl}
+                            alt="Ảnh đính kèm"
+                            loading="lazy"
+                            className="max-h-60 w-auto object-cover rounded-xl cursor-pointer hover:opacity-95 transition bg-black/5"
+                            onClick={() => setZoomImage(msg.imageUrl || null)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setZoomImage(msg.imageUrl || null)}
+                            className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                            title="Xem ảnh phóng to"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
+
+                      {/* Nội dung tin nhắn văn bản */}
+                      {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
+
+                      {/* Thời gian & Trạng thái gửi tin */}
+                      <div
+                        className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${
+                          isMe ? 'text-emerald-200/90' : 'text-gray-400'
+                        }`}
+                      >
+                        <span>
+                          {msg.createdAt
+                            ? new Date(msg.createdAt).toLocaleTimeString('vi-VN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : ''}
+                        </span>
+                        {isMe && (
+                          <span>
+                            {msg.status === 'SENDING' ? (
+                              <Clock className="w-3 h-3 text-emerald-300 animate-spin" />
+                            ) : msg.status === 'FAILED' ? (
+                              <span className="text-rose-300 font-bold">Lỗi</span>
+                            ) : (
+                              <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -491,7 +538,7 @@ export default function B2BChatModal({
                   {selectedImage?.name || 'Ảnh đính kèm'}
                 </span>
                 <span className="text-[10px] text-emerald-800 font-semibold">
-                  Sẽ được tải lên và lưu đường link vĩnh viễn
+                  Ảnh đã sẵn sàng để gửi
                 </span>
               </div>
             </div>
@@ -526,7 +573,7 @@ export default function B2BChatModal({
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
             className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
-            title="Đính kèm hình ảnh nông sản (Lưu link ảnh vào Database)"
+            title="Đính kèm hình ảnh"
           >
             <ImageIcon className="w-5 h-5 text-gray-600" />
           </button>
@@ -536,7 +583,7 @@ export default function B2BChatModal({
             type="text"
             value={inputText}
             onChange={handleInputChange}
-            placeholder="Nhập tin nhắn đàm phán realtime (Enter để gửi)..."
+            placeholder="Nhập tin nhắn... (Nhấn Enter để gửi)"
             disabled={isUploading}
             className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs sm:text-sm focus:outline-none focus:border-[#10542C] focus:bg-white transition"
           />

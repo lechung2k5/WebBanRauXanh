@@ -32,6 +32,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { b2bWebSocket } from '@/services/websocketService';
 import { adminFarmHandover } from '@/services/b2bSyncService';
+import ImageUploadField from '@/components/ImageUploadField';
 import DriverOutboundDeliveryConsole from './DriverOutboundDeliveryConsole';
 
 export default function DriverInboundPickupConsole() {
@@ -105,12 +106,29 @@ export default function DriverInboundPickupConsole() {
     }
   };
 
-  // Giai đoạn 3: Bắt đầu xuất bến
-  const handleDepart = async (tripId: number) => {
+  // Giai đoạn 3: Bắt đầu xuất bến (có modal xác nhận & chụp ảnh xe lên hàng)
+  const [departModalTrip, setDepartModalTrip] = useState<PickupTripDto | null>(null);
+  const [departurePhotoUrl, setDeparturePhotoUrl] = useState<string>('');
+  const [departureNotes, setDepartureNotes] = useState<string>('Đã kiểm tra xe lạnh và sẵn sàng xuất bến đi thu gom.');
+
+  const openDepartModal = (trip: PickupTripDto) => {
+    setDepartModalTrip(trip);
+    setDeparturePhotoUrl('');
+    setDepartureNotes('Đã kiểm tra xe lạnh và sẵn sàng xuất bến đi thu gom.');
+    setError(null);
+  };
+
+  const handleConfirmDepart = async () => {
+    if (!departModalTrip) return;
+    if (!departurePhotoUrl) {
+      setError('Vui lòng chụp ảnh xe trước khi xuất bến đi thu gom');
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
-      await fleetDispatchApi.departTrip(tripId);
+      await fleetDispatchApi.departTrip(departModalTrip.id);
+      setDepartModalTrip(null);
       setSuccessMsg('Đã xuất bến thành công! Hệ thống đã thông báo cho nhà vườn.');
       await loadTrips();
     } catch (err) {
@@ -252,21 +270,22 @@ export default function DriverInboundPickupConsole() {
   return (
     <main className="min-h-screen bg-[#F4F6F0] text-slate-900 pb-12">
       {/* 1. TOP NAVIGATION BAR */}
-      <header className="sticky top-0 z-40 bg-[#10542C] text-white px-4 py-3 shadow-md">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="font-extrabold text-lg tracking-tight text-white flex items-center gap-2">
-              <span className="w-8 h-8 rounded-xl bg-white text-[#10542C] flex items-center justify-center font-black text-sm shadow-inner">
-                HN
-              </span>
-              <span>HoNa Fresh</span>
-            </Link>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-800/80 border border-emerald-600/40 text-emerald-200 font-bold uppercase tracking-wider">
+      <header className="fixed top-0 left-0 right-0 w-full z-40 bg-[#10542C] text-white px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 shadow-md">
+        <div className="w-full flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="inline-flex items-center shrink-0">
+              <img
+                src="/assets/logo/Logo_full.png"
+                alt="HoNa Fresh"
+                className="h-11 w-auto object-contain [filter:drop-shadow(1px_0_0_#fff)_drop-shadow(-1px_0_0_#fff)_drop-shadow(0_1px_0_#fff)_drop-shadow(0_-1px_0_#fff)_drop-shadow(0_0_4px_rgba(255,255,255,0.65))]"
+              />
+            </div>
+            <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-800/80 border border-emerald-600/40 text-emerald-200 font-bold uppercase tracking-wider whitespace-nowrap">
               Tài Xế Lạnh
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={loadTrips}
               disabled={loading}
@@ -286,54 +305,66 @@ export default function DriverInboundPickupConsole() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 pt-4 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 pt-20 space-y-4">
         {/* Profile Card */}
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-[#10542C] flex items-center justify-center font-bold text-lg">
-              <Truck className="w-6 h-6" />
+        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-[#10542C] flex items-center justify-center font-bold shrink-0">
+              <Truck className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                {currentUser?.fullName || 'Tài xế chuyên trách'}
-              </h2>
-              <p className="text-xs text-slate-500 flex items-center gap-2">
-                <span>SĐT: <strong className="font-mono text-slate-700">{currentUser?.phone || '0901.888.xxx'}</strong></span>
-                <span>·</span>
-                <span className="text-emerald-700 font-semibold">Đội xe chuỗi lạnh HoNa Fresh</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h2 className="text-sm font-bold text-slate-900 truncate">
+                  {currentUser?.fullName || 'Tài xế chuyên trách'}
+                </h2>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+                  HoNa Cold Express
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
+                <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                <strong className="font-mono text-slate-700">{currentUser?.phone || '0901.888.xxx'}</strong>
               </p>
             </div>
           </div>
 
           {selectedTrip && (
-            <div className="text-right">
+            <div className="bg-slate-50 sm:bg-transparent border border-slate-200/80 sm:border-0 rounded-xl px-3 py-2 sm:p-0 flex items-center justify-between sm:block sm:text-right shrink-0">
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Xe phân công</span>
-              <span className="font-mono font-black text-slate-900 text-base">{selectedTrip.vehicle?.plateNumber}</span>
-              <span className="text-[11px] text-slate-500 block">({selectedTrip.vehicle?.vehicleModel})</span>
+              <div className="text-right">
+                <span className="font-mono font-black text-slate-900 text-sm sm:text-base">{selectedTrip.vehicle?.plateNumber}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 block">{selectedTrip.vehicle?.vehicleModel}</span>
+              </div>
             </div>
           )}
         </div>
 
         {/* Chuyển chế độ Vận chuyển: Inbound Thu Gom vs Outbound Xuất Giao */}
-        <div className="flex rounded-2xl bg-slate-200/80 p-1 font-bold text-xs">
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-200/80 p-1 font-bold text-xs">
           <button
             onClick={() => setConsoleMode('INBOUND')}
-            className={`flex-1 py-2.5 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+            className={`py-2.5 px-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
               consoleMode === 'INBOUND' ? 'bg-[#10542C] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Boxes className="w-4 h-4" />
-            <span>1. Thu Gom Rẫy (Inbound)</span>
-            {trips.length > 0 && <span className="px-1.5 py-0.2 rounded-full bg-emerald-700 text-[10px]">{trips.length}</span>}
+            <Boxes className="w-4 h-4 shrink-0" />
+            <span>Thu Gom Rẫy</span>
+            <span className="hidden sm:inline">(Inbound)</span>
+            {trips.length > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${consoleMode === 'INBOUND' ? 'bg-emerald-700 text-white' : 'bg-slate-300 text-slate-700'}`}>
+                {trips.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setConsoleMode('OUTBOUND')}
-            className={`flex-1 py-2.5 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+            className={`py-2.5 px-2 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
               consoleMode === 'OUTBOUND' ? 'bg-blue-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Truck className="w-4 h-4" />
-            <span>2. Xuất Giao Buyer & Ký ePOD (Outbound)</span>
+            <Truck className="w-4 h-4 shrink-0" />
+            <span>Giao Hàng ePOD</span>
+            <span className="hidden sm:inline">(Outbound)</span>
           </button>
         </div>
 
@@ -396,16 +427,16 @@ export default function DriverInboundPickupConsole() {
         {selectedTrip && (
           <div className="space-y-4">
             {/* Banner trạng thái & Tiến trình 7 giai đoạn */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-[#10542C] text-white flex items-center justify-center font-bold">
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-2xl bg-[#10542C] text-white flex items-center justify-center font-bold shrink-0">
                     <Navigation className="w-5 h-5 text-emerald-300" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-base text-slate-900">{selectedTrip.tripCode}</span>
-                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase ${
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono font-bold text-sm sm:text-base text-slate-900 whitespace-nowrap">{selectedTrip.tripCode}</span>
+                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase whitespace-nowrap ${
                         selectedTrip.status === 'COMPLETED'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                           : selectedTrip.status === 'RETURNING'
@@ -441,18 +472,18 @@ export default function DriverInboundPickupConsole() {
                       className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Tiếp Nhận Chuyến (GĐ 2)</span>
+                      <span>Tiếp Nhận Chuyến</span>
                     </button>
                   )}
 
                   {selectedTrip.status === 'ACKNOWLEDGED' && (
                     <button
-                      onClick={() => handleDepart(selectedTrip.id)}
+                      onClick={() => openDepartModal(selectedTrip)}
                       disabled={submitting}
                       className="px-4 py-2 rounded-xl bg-[#10542C] hover:bg-emerald-900 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                     >
                       <Truck className="w-4 h-4 text-emerald-300" />
-                      <span>Xuất Bến Đi Lấy Hàng (GĐ 3)</span>
+                      <span>Xuất Bến Đi Lấy Hàng</span>
                     </button>
                   )}
 
@@ -463,7 +494,7 @@ export default function DriverInboundPickupConsole() {
                       className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                     >
                       <RotateCw className="w-4 h-4" />
-                      <span>Bắt Đầu Quay Về Hub (GĐ 6)</span>
+                      <span>Bắt Đầu Quay Về Hub</span>
                     </button>
                   )}
                 </div>
@@ -636,7 +667,7 @@ export default function DriverInboundPickupConsole() {
                           className="px-4 py-1.5 rounded-xl bg-[#10542C] hover:bg-emerald-900 text-white font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-xs"
                         >
                           <Boxes className="w-3.5 h-3.5 text-emerald-300" />
-                          <span>Cân Hàng & Bốc Lên Xe (GĐ 4)</span>
+                          <span>Cân Hàng & Bốc Lên Xe</span>
                         </button>
                       )}
                     </div>
@@ -703,15 +734,13 @@ export default function DriverInboundPickupConsole() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  Link ảnh biên bản bàn giao / Ảnh chụp sọt hàng
-                </label>
-                <input
-                  type="text"
+                <ImageUploadField
+                  name="handoverPhotoUrl"
+                  label="Ảnh biên bản bàn giao / Ảnh chụp sọt hàng"
                   value={photoUrl}
-                  onChange={(e) => setPhotoUrl(e.target.value)}
-                  placeholder="https://... (URL ảnh biên bản bàn giao có chữ ký nông dân)"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-emerald-600"
+                  onChange={(url) => setPhotoUrl(url)}
+                  purpose="EPOD"
+                  hint="Chụp trực tiếp bằng camera hoặc tải ảnh biên bản có chữ ký nông dân"
                 />
               </div>
 
@@ -823,6 +852,70 @@ export default function DriverInboundPickupConsole() {
               >
                 <AlertTriangle className="w-4 h-4" />
                 <span>Gửi Cảnh Báo Cho Điều Phối</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL XÁC NHẬN XUẤT BẾN & CHỤP ẢNH XE LÊN HÀNG (INBOUND) */}
+      {departModalTrip && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+              <div className="flex items-start gap-2 text-[#10542C] min-w-0">
+                <Camera className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 leading-snug">
+                    Xác Nhận Xe Xuất Bến Đi Lấy Hàng
+                  </h3>
+                  <span className="font-mono text-xs font-bold text-emerald-700">{departModalTrip.tripCode}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDepartModalTrip(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-lg font-bold flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+
+            <ImageUploadField
+              name="inboundDeparturePhoto"
+              label="Ảnh chụp xe lên hàng / kiểm tra thùng lạnh *"
+              value={departurePhotoUrl}
+              onChange={(url) => setDeparturePhotoUrl(url)}
+              purpose="EPOD"
+              capture="environment"
+              hint="Chụp trực tiếp bằng camera hình ảnh xe trước khi xuất bến"
+            />
+
+            <div className="text-xs">
+              <label className="font-bold text-slate-700 block mb-1">Ghi chú xuất bến</label>
+              <textarea
+                rows={2}
+                value={departureNotes}
+                onChange={(e) => setDepartureNotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-emerald-600"
+              />
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDepartModalTrip(null)}
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDepart}
+                disabled={submitting}
+                className="w-full sm:w-auto px-5 py-3 sm:py-2 rounded-xl bg-[#10542C] hover:bg-emerald-900 text-white font-bold text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Truck className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span>{submitting ? 'Đang xuất bến...' : 'Xác Nhận Xuất Bến'}</span>
               </button>
             </div>
           </div>

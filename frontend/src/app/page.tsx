@@ -24,6 +24,10 @@ import { ProductDetailModal } from '@/components/ProductDetailModal';
 import AiAssistantModal from '@/components/AiAssistantModal';
 import Pagination from '@/components/Pagination';
 import { trackProductView } from '@/services/recommendationService';
+import { Hero3DScene } from '@/components/home/Hero3DScene';
+import { Tilt3DCard } from '@/components/home/Tilt3DCard';
+import { SupplyChain3DFlow } from '@/components/home/SupplyChain3DFlow';
+import { RevealSection } from '@/components/home/RevealSection';
 import {
   ShieldCheck,
   Truck,
@@ -247,290 +251,168 @@ export default function HomePage() {
         onOpenAi={() => setIsAiOpen(true)}
       />
 
+      {/* FULL-BLEED 3D SPATIAL HERO STAGE & LIVE MARKET TICKER */}
+      <Hero3DScene
+        featuredLots={products.length > 0 ? products.slice(0, 6) : [featuredHarvestLot]}
+        onOpenProcurement={() => setIsProcurementModalOpen(true)}
+        onNegotiate={(lot) => setNegotiatingProduct(lot)}
+        onDeposit={(lot) => setDepositingProduct(lot)}
+      />
+
       {/* Main Container width 1240px according to RuleLayout Section 0 */}
-      <div className="max-w-[1240px] mx-auto px-4 w-full py-6 space-y-8 flex-1">
-        {/* B2B HERO BANNER & LÔ THU HÁI RỘ NỔI BẬT */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          {/* Cột trái (8 cột): Hero Banner B2B */}
-          <div className="lg:col-span-8 bg-gradient-to-r from-[#10542C] via-[#0E4926] to-[#176637] rounded-3xl overflow-hidden p-6 sm:p-8 text-white relative shadow-sm flex flex-col justify-between min-h-[380px]">
-            {/* Background Glow */}
-            <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 rounded-full bg-[#8BC34A]/20 blur-3xl pointer-events-none" />
-            <div className="absolute bottom-0 left-1/3 -mb-20 w-64 h-64 rounded-full bg-[#4CAF50]/15 blur-2xl pointer-events-none" />
+      <div className="max-w-[1240px] mx-auto px-4 w-full py-8 space-y-8 flex-1">
 
-            {/* Content */}
-            <div className="space-y-4 relative z-10 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-[#8BC34A] text-xs font-bold border border-white/20 backdrop-blur-md">
-                <Boxes className="w-3.5 h-3.5 text-[#8BC34A]" />
-                <span>NỀN TẢNG THƯƠNG MẠI ĐIỆN TỬ NÔNG SẢN B2B VIỆT NAM</span>
-              </div>
-
-              <h1 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
-                Cầu Nối Số Trực Tiếp <br />
-                <span className="text-[#8BC34A]">Nông Trại & Thương Lái</span>
-              </h1>
-
-              <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed font-normal">
-                Giải quyết bài toán phụ thuộc tầng nấc trung gian. Chào bán nông sản theo lô/vụ thu hoạch với giá xuất vườn minh bạch, đàm phán giá sỉ trực tuyến, truy xuất mã số vùng trồng PUC và kiểm soát chất lượng chuỗi lạnh.
-              </p>
-            </div>
-
-            {/* Live B2B Key Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-4 my-2 border-y border-white/15 relative z-10">
-              <div>
-                <span className="block font-heading text-xl font-black text-white">12.500+</span>
-                <span className="text-[11px] text-emerald-200/80 font-medium">Tấn giao dịch/tháng</span>
+        {/* 4 TRỤ CỘT NỀN TẢNG B2B AGRI-TRADE (3D BENTO GRID) */}
+        <RevealSection>
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Tilt3DCard
+              maxTilt={7}
+              glowColor="rgba(16, 84, 44, 0.14)"
+              className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-xs flex items-start gap-3"
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
+                <TrendingUp className="w-5 h-5" />
               </div>
               <div>
-                <span className="block font-heading text-xl font-black text-[#8BC34A]">520+</span>
-                <span className="text-[11px] text-emerald-200/80 font-medium">Hợp tác xã liên kết</span>
+                <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Minh Bạch Giá Sỉ</h4>
+                <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
+                  Bỏ qua 2-3 tầng trung gian, kết nối báo giá trực tiếp từ HTX.
+                </p>
+              </div>
+            </Tilt3DCard>
+
+            <Tilt3DCard
+              maxTilt={7}
+              glowColor="rgba(16, 84, 44, 0.14)"
+              className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-xs flex items-start gap-3"
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
+                <FileCheck2 className="w-5 h-5" />
               </div>
               <div>
-                <span className="block font-heading text-xl font-black text-white">2.800+</span>
-                <span className="text-[11px] text-emerald-200/80 font-medium">Thương lái & Đơn vị mua</span>
+                <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Hợp Đồng &amp; Cọc Lô 30%</h4>
+                <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
+                  Ký quỹ giao dịch bảo chứng, bảo vệ quyền lợi nông dân &amp; thương lái.
+                </p>
+              </div>
+            </Tilt3DCard>
+
+            <Tilt3DCard
+              maxTilt={7}
+              glowColor="rgba(16, 84, 44, 0.14)"
+              className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-xs flex items-start gap-3"
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
+                <Award className="w-5 h-5" />
               </div>
               <div>
-                <span className="block font-heading text-xl font-black text-[#8BC34A]">100%</span>
-                <span className="text-[11px] text-emerald-200/80 font-medium">Mã PUC & VietGAP</span>
+                <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Kiểm Định Mã PUC</h4>
+                <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
+                  100% nông sản có mã số vùng trồng, đạt chuẩn VietGAP &amp; GlobalGAP.
+                </p>
               </div>
-            </div>
+            </Tilt3DCard>
 
-            {/* CTA Buttons */}
-            <div className="flex flex-wrap items-center gap-3 pt-2 relative z-10">
-              <a
-                href="#catalog-section"
-                className="px-6 py-3 bg-[#4CAF50] hover:bg-[#3d9140] text-white font-heading font-bold text-xs rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
-              >
-                <span>Xem lô hàng đang thu hoạch</span>
-                <ArrowRight className="w-4 h-4" />
-              </a>
-
-              <button
-                type="button"
-                onClick={() => setIsProcurementModalOpen(true)}
-                className="px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/25 text-white font-heading font-bold text-xs rounded-xl backdrop-blur-md transition-all flex items-center gap-2 cursor-pointer"
-              >
-                <PlusCircle className="w-4 h-4 text-[#8BC34A]" />
-                <span>Đăng tin tìm nguồn cung sỉ</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Cột phải (4 cột): Lô Thu Hái Rộ Tiêu Biểu */}
-          <div className="lg:col-span-4 bg-white rounded-3xl border border-[#EAECE8] overflow-hidden shadow-xs flex flex-col justify-between">
-            {/* Header Lô Thu Hái */}
-            <div className="bg-[#10542C] text-white p-3.5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#8BC34A] animate-ping" />
-                <span className="font-heading font-black text-xs uppercase tracking-wider text-[#8BC34A]">
-                  LÔ ĐANG THU HÁI RỘ
-                </span>
+            <Tilt3DCard
+              maxTilt={7}
+              glowColor="rgba(16, 84, 44, 0.14)"
+              className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-xs flex items-start gap-3"
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
+                <ThermometerSnowflake className="w-5 h-5" />
               </div>
-              <span className="text-[11px] font-mono font-bold bg-white/15 px-2 py-0.5 rounded text-emerald-100">
-                {featuredHarvestLot.pucCode || 'VN-LD-74401'}
-              </span>
-            </div>
-
-            {/* Content Lô Tiêu Biểu */}
-            <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-              <div className="flex gap-3 items-center">
-                <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-[#F9F9F5] border border-[#EAECE8] shrink-0">
-                  <img
-                    src={featuredHarvestLot.imageUrl}
-                    alt={featuredHarvestLot.name}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (!target.src.includes('unsplash')) {
-                        target.src = 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80';
-                      }
-                    }}
-                  />
-                  <span className="absolute top-1 left-1 bg-[#10542C] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
-                    {featuredHarvestLot.certification || 'VietGAP'}
-                  </span>
-                </div>
-
-                <div className="space-y-1 flex-1">
-                  <h4 className="font-heading text-xs sm:text-sm font-bold text-[#2C3E2E] line-clamp-2 leading-tight">
-                    {featuredHarvestLot.name}
-                  </h4>
-                  <div className="text-[11px] text-[#6B7280] flex items-center gap-1">
-                    <Building2 className="w-3 h-3 text-[#10542C]" />
-                    <span className="truncate">{featuredHarvestLot.farmName || 'HTX Đơn Dương'}</span>
-                  </div>
-                  <div className="text-[11px] text-[#6B7280]">
-                    MOQ: <strong className="text-[#10542C]">{featuredHarvestLot.moq || 500} kg</strong>
-                  </div>
-                  <div className="flex items-baseline gap-1.5 pt-0.5">
-                    <span className="font-heading text-base font-black text-[#10542C]">
-                      {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(featuredHarvestLot.price)}
-                    </span>
-                    <span className="text-[10px] text-[#6B7280]">/ kg</span>
-                  </div>
-                </div>
+              <div>
+                <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Logistics Chuỗi Lạnh</h4>
+                <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
+                  Kiểm soát bảo quản 2-8°C từ kho nhà vườn tới chợ đầu mối.
+                </p>
               </div>
+            </Tilt3DCard>
+          </section>
+        </RevealSection>
 
-              {/* Tiến độ sản lượng lô */}
-              <div className="p-3 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-1.5">
-                <div className="flex justify-between text-[11px] font-bold text-[#2C3E2E]">
-                  <span>Tổng lô: {featuredHarvestLot.totalLotVolume || 15} Tấn</span>
-                  <span className="text-[#4CAF50]">Còn: {featuredHarvestLot.availableVolume || 9.5} Tấn</span>
-                </div>
-                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-[#4CAF50] to-[#10542C] rounded-full w-[45%]" />
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-[#6B7280]">
-                  <span>Thu hái: {featuredHarvestLot.harvestDate || 'Hôm nay'}</span>
-                  <span className="text-[#FB8C00] font-semibold">Đã cọc 45%</span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setNegotiatingProduct(featuredHarvestLot)}
-                  className="w-full py-2.5 bg-white hover:bg-[#F4F5F1] text-[#10542C] border border-[#10542C] font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
-                >
-                  <Scale className="w-3.5 h-3.5" />
-                  <span>Đàm phán giá</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDepositingProduct(featuredHarvestLot)}
-                  className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white font-heading font-bold rounded-xl text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer"
-                >
-                  <HeartHandshake className="w-3.5 h-3.5 text-[#8BC34A]" />
-                  <span>Đặt cọc giữ lô</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 4 TRỤ CỘT NỀN TẢNG B2B AGRI-TRADE */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-2xs flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Minh Bạch Giá Sỉ</h4>
-              <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
-                Bỏ qua 2-3 tầng trung gian, kết nối báo giá trực tiếp từ HTX.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-2xs flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
-              <FileCheck2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Hợp Đồng & Cọc Lô 30%</h4>
-              <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
-                Ký quỹ giao dịch bảo chứng, bảo vệ quyền lợi nông dân & thương lái.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-2xs flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Kiểm Định Mã PUC</h4>
-              <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
-                100% nông sản có mã số vùng trồng, đạt chuẩn VietGAP & GlobalGAP.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl border border-[#EAECE8] shadow-2xs flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10542C] flex items-center justify-center shrink-0">
-              <ThermometerSnowflake className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-heading font-bold text-xs sm:text-sm text-[#10542C]">Logistics Chuỗi Lạnh</h4>
-              <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">
-                Kiểm soát bảo quản 2-8°C từ kho nhà vườn tới chợ đầu mối.
-              </p>
-            </div>
-          </div>
-        </section>
+        {/* QUY TRÌNH GIAO DỊCH B2B 3D TRỰC QUAN */}
+        <SupplyChain3DFlow />
 
         {/* SÀN CHÀO MUA B2B: THƯƠNG LÁI TÌM NGUỒN CUNG SỐ LƯỢNG LỚN */}
-        <div id="san-chao-mua">
-          <ProcurementBoardSection onOpenCreate={() => setIsProcurementModalOpen(true)} />
-        </div>
+        <RevealSection delayMs={60}>
+          <div id="san-chao-mua">
+            <ProcurementBoardSection onOpenCreate={() => setIsProcurementModalOpen(true)} />
+          </div>
+        </RevealSection>
 
         {/* MẠNG LƯỚI VÙNG TRỒNG & HỢP TÁC XÃ TIÊU BIỂU */}
-        <div id="vung-trong-htx">
-          <FarmCooperativesSection />
-        </div>
-
-        {/* QUY CÁCH NÔNG SẢN XUẤT VƯỜN (B2B Categories) */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-heading text-lg font-bold text-[#10542C]">
-                Quy Cách Nông Sản Xuất Vườn
-              </h2>
-              <p className="text-xs text-[#6B7280]">Các nhóm hàng nông sản thu hái theo lô số lượng lớn</p>
-            </div>
-            <a href="#catalog-section" className="text-xs font-bold text-[#4CAF50] hover:underline flex items-center gap-1">
-              Xem toàn bộ lô hàng <ChevronRight className="w-3.5 h-3.5" />
-            </a>
+        <RevealSection delayMs={60}>
+          <div id="vung-trong-htx">
+            <FarmCooperativesSection />
           </div>
+        </RevealSection>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-            {[
-              {
-                id: 1,
-                name: 'Rau Ăn Lá Xuất Vườn',
-                desc: 'Bắp cải, xà lách, cải thảo (Lô từ 500kg)',
-                icon: '🥬',
-                bg: 'bg-emerald-50/80 border-emerald-100',
-              },
-              {
-                id: 2,
-                name: 'Củ Quả Vụ Mùa',
-                desc: 'Cà rốt, cà chua beef, khoai tây, bí giống Mỹ (Lô từ 1 Tấn)',
-                icon: '🥕',
-                bg: 'bg-amber-50/80 border-amber-100',
-              },
-              {
-                id: 3,
-                name: 'Nấm & Dược Liệu Tươi',
-                desc: 'Nấm kim châm, nấm rơm, nấm linh chi hữu cơ',
-                icon: '🍄',
-                bg: 'bg-stone-50/80 border-stone-200',
-              },
-              {
-                id: 4,
-                name: 'Nông Sản Sơ Chế Lạnh',
-                desc: 'Đóng khay hút chân không, cấp đông nhanh IQF',
-                icon: '❄️',
-                bg: 'bg-blue-50/80 border-blue-100',
-              },
-            ].map((cat) => (
-              <div
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`p-3.5 rounded-2xl border ${cat.bg} hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group`}
-              >
-                <span className="text-2xl group-hover:scale-110 transition-transform">{cat.icon}</span>
-                <div>
-                  <h4 className="font-heading text-xs sm:text-sm font-bold text-[#2C3E2E] group-hover:text-[#10542C]">
-                    {cat.name}
-                  </h4>
-                  <p className="text-[10px] sm:text-[11px] text-[#6B7280] line-clamp-1">{cat.desc}</p>
-                </div>
+        {/* QUY CÁCH NÔNG SẢN XUẤT VƯỜN (B2B Categories 3D) */}
+        <RevealSection>
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-heading text-lg font-bold text-[#10542C]">
+                  Quy Cách Nông Sản Xuất Vườn
+                </h2>
+                <p className="text-xs text-[#6B7280]">Các nhóm hàng nông sản thu hái theo lô số lượng lớn</p>
               </div>
-            ))}
-          </div>
-        </section>
+              <a href="#catalog-section" className="text-xs font-bold text-[#4CAF50] hover:underline flex items-center gap-1">
+                Xem toàn bộ lô hàng <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+              {[
+                {
+                  id: 1,
+                  name: 'Rau Ăn Lá Xuất Vườn',
+                  desc: 'Bắp cải, xà lách, cải thảo (Lô từ 500kg)',
+                  icon: '🥬',
+                  bg: 'bg-emerald-50/80 border-emerald-100',
+                },
+                {
+                  id: 2,
+                  name: 'Củ Quả Vụ Mùa',
+                  desc: 'Cà rốt, cà chua beef, khoai tây, bí giống Mỹ (Lô từ 1 Tấn)',
+                  icon: '🥕',
+                  bg: 'bg-amber-50/80 border-amber-100',
+                },
+                {
+                  id: 3,
+                  name: 'Nấm & Dược Liệu Tươi',
+                  desc: 'Nấm kim châm, nấm rơm, nấm linh chi hữu cơ',
+                  icon: '🍄',
+                  bg: 'bg-stone-50/80 border-stone-200',
+                },
+                {
+                  id: 4,
+                  name: 'Nông Sản Sơ Chế Lạnh',
+                  desc: 'Đóng khay hút chân không, cấp đông nhanh IQF',
+                  icon: '❄️',
+                  bg: 'bg-blue-50/80 border-blue-100',
+                },
+              ].map((cat) => (
+                <Tilt3DCard
+                  key={cat.id}
+                  maxTilt={8}
+                  glowColor="rgba(16, 84, 44, 0.14)"
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`p-3.5 rounded-2xl border ${cat.bg} hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group`}
+                >
+                  <span className="text-2xl group-hover:scale-110 transition-transform">{cat.icon}</span>
+                  <div>
+                    <h4 className="font-heading text-xs sm:text-sm font-bold text-[#2C3E2E] group-hover:text-[#10542C]">
+                      {cat.name}
+                    </h4>
+                    <p className="text-[10px] sm:text-[11px] text-[#6B7280] line-clamp-1">{cat.desc}</p>
+                  </div>
+                </Tilt3DCard>
+              ))}
+            </div>
+          </section>
+        </RevealSection>
 
         {/* C.1 & B.4: CATALOG & PRODUCT GRID (Sidebar lọc 25% + Lưới sản phẩm 75%) */}
         <section id="catalog-section" className="space-y-4 pt-2">
@@ -567,8 +449,8 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Sidebar Bộ Lọc B2B (25% ~ 3 cols) */}
-            <aside className="lg:col-span-3 bg-white p-4 rounded-2xl border border-[#EAECE8] shadow-2xs space-y-4">
+            {/* Sidebar Bộ Lọc B2B (Sticky & Glassmorphic) */}
+            <aside className="lg:col-span-3 lg:sticky lg:top-24 bg-white/95 backdrop-blur-md p-5 rounded-3xl border border-[#DCE8DF] shadow-md space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-[#EAECE8]">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#10542C]">
                   <Filter className="w-3.5 h-3.5" />
@@ -910,12 +792,20 @@ export default function HomePage() {
       />
 
       {/* B2B RFQ Negotiation Modal */}
-      <B2BDepositModal product={depositingProduct} isOpen={!!depositingProduct} onClose={() => setDepositingProduct(null)} />
-      <B2BNegotiationModal
-        product={negotiatingProduct}
-        isOpen={!!negotiatingProduct}
-        onClose={() => setNegotiatingProduct(null)}
-      />
+      {depositingProduct && (
+        <B2BDepositModal
+          product={depositingProduct}
+          isOpen={true}
+          onClose={() => setDepositingProduct(null)}
+        />
+      )}
+      {negotiatingProduct && (
+        <B2BNegotiationModal
+          product={negotiatingProduct}
+          isOpen={true}
+          onClose={() => setNegotiatingProduct(null)}
+        />
+      )}
 
       {/* B2B Create Procurement Modal */}
       <CreateProcurementModal

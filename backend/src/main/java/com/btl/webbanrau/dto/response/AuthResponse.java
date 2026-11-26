@@ -18,6 +18,7 @@ public class AuthResponse {
     private String phone;
     private String address;
     private List<String> roles;
+    private Long assignedHubId;
     private boolean enabled;
     private boolean emailVerified;
     private String companyName;

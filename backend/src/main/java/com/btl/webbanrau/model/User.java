@@ -64,6 +64,9 @@ public class User extends BaseEntity {
     @Builder.Default
     private long tokenVersion = 0;
 
+    @Column(name = "assigned_hub_id")
+    private Long assignedHubId;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = true; // Hỗ trợ khoá tài khoản

@@ -1,0 +1,20 @@
+﻿Task ID,Phân loại,Mô tả công việc,Phân chia người làm,Deadline,Mức độ cần làm,Trạng thái làm việc,Minh chứng làm xong,Trạng thái duyệt
+DOC-01,Làm tài liệu,Hoàn thiện Chương 1: Đặt vấn đề và Tổng quan sàn B2B Nông sản,Lê Chung,2026-11-25,Cao,Hoàn thành,doc/Bao_cao_do_an_HoNa_Fresh.docx (Mục 1.1 - 1.4),Được duyệt
+DOC-02,Làm tài liệu,"Hoàn thiện Chương 2: Cơ sở lý thuyết, ReactJS, Spring Boot, PostgreSQL",Lê Chung,2026-11-26,Cao,Hoàn thành,doc/Bao_cao_do_an_HoNa_Fresh.docx (Chương 2),Được duyệt
+DOC-03,Làm tài liệu,Cập nhật Sơ đồ Use case tổng quát (Hình 3.1) và bảng mô tả 4 tác nhân B2B,Gia Minh,2026-11-27,Khẩn cấp,Hoàn thành,docs/diagrams/use_case_diagram_b2b.png,Được duyệt
+DOC-04,Làm tài liệu,Thiết kế Sơ đồ lớp (Class Diagram) và bảng đặc tả phương thức Chương 3,Nhựt Tân,2026-11-28,Khẩn cấp,Đang làm,docs/NOI_DUNG_CHUONG_3_SO_DO_LOP_CLASS_DIAGRAM.md,Chưa duyệt
+DOC-05,Làm tài liệu,Vẽ sơ đồ cơ sở dữ liệu ERD và bảng từ điển dữ liệu (Data Dictionary),Phước Mai,2026-11-29,Cao,Đang làm,docs/DATABASE_ERD_AND_SCHEMA.md,Chưa duyệt
+DOC-06,Làm tài liệu,Soạn thảo Chương 4: Kịch bản thử nghiệm và ảnh chụp màn hình các role,Đan Quân,2026-11-30,Trung bình,Chưa bắt đầu,Link Google Drive / Thư mục ảnh demo,Chưa duyệt
+DOC-07,Làm tài liệu,"Viết Chương 5: Đánh giá kết quả, hướng phát triển và danh mục tài liệu tham khảo",Lê Chung,2026-12-01,Trung bình,Chưa bắt đầu,doc/Bao_cao_do_an_HoNa_Fresh.docx (Chương 5),Chưa duyệt
+DOC-08,Làm tài liệu,"Format toàn bộ văn bản Word theo chuẩn đồ án (Font, giãn dòng, mục lục)",Gia Minh,2026-12-02,Khẩn cấp,Chưa bắt đầu,File Word bản in PDF,Chưa duyệt
+DOC-09,Làm tài liệu,Thiết kế Slide PowerPoint bảo vệ khóa luận tốt nghiệp (15-20 slide),Nhựt Tân,2026-12-04,Cao,Chưa bắt đầu,docs/Slide_Bao_Ve_HoNa_Fresh.pptx,Chưa duyệt
+CODE-01,Code,Duy nhất 1 file SQL database/hona_fresh_db.sql chuẩn chỉnh và seed data,Lê Chung,2026-11-24,Khẩn cấp,Hoàn thành,database/hona_fresh_db.sql (Commit 7efc1d3),Được duyệt
+CODE-02,Code,Đồng bộ FSM hợp đồng B2B Contract giữa Farmer và Buyer qua API & Polling,Lê Chung,2026-11-25,Khẩn cấp,Hoàn thành,"B2bContractResponse.java, FarmerService.java",Được duyệt
+CODE-03,Code,Tích hợp cổng ký quỹ Escrow đợt 1 (30%) và đợt 2 (70%) qua SePay / VietQR,Phước Mai,2026-11-26,Cao,Đang làm,"SepayPaymentModal.tsx, SepayController.java",Chưa duyệt
+CODE-04,Code,"WebSocket STOMP realtime cập nhật trạng thái hợp đồng, chat B2B và thông báo chuông",Đan Quân,2026-11-27,Cao,Đang làm,"WebSocketConfig.java, websocketService.ts",Chưa duyệt
+CODE-05,Code,Module điều phối xe gom First-mile (Fleet pickup) và biên bản lấy hàng,Gia Minh,2026-11-28,Trung bình,Chưa bắt đầu,"DispatchFarmPickupModal.tsx, DriverInboundPickupConsole.tsx",Chưa duyệt
+CODE-06,Code,Module kiểm định chất lượng trạm Hub (Cold Storage QC & Inbound),Nhựt Tân,2026-11-29,Trung bình,Chưa bắt đầu,"WarehouseReceivingConsole.tsx, ColdWarehouseInboundModal.tsx",Chưa duyệt
+CODE-07,Code,Module giao hàng chặng cuối (Outbound) và ký số biên bản giao nhận điện tử ePOD,Lê Chung,2026-11-30,Cao,Chưa bắt đầu,"DriverOutboundDeliveryConsole.tsx, BuyerOutboundDeliveryController.java",Chưa duyệt
+CODE-08,Code,Bảng đối soát quyết toán tài chính cuối (Final Settlement) và giải ngân cho nhà vườn,Phước Mai,2026-12-01,Cao,Chưa bắt đầu,SettlementStatementModal.tsx,Chưa duyệt
+CODE-09,Code,"Kiểm thử toàn diện end-to-end các role: Guest, Buyer, Farmer, Driver, Admin Hub",Cả nhóm,2026-12-02,Khẩn cấp,Chưa bắt đầu,Video quay demo kịch bản test,Chưa duyệt
+CODE-10,Code,"Docker Compose đóng gói môi trường chạy backend, frontend, postgresql production",Lê Chung,2026-12-03,Trung bình,Chưa bắt đầu,docker-compose.yml,Chưa duyệt

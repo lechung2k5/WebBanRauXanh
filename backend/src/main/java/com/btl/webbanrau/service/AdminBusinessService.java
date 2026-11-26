@@ -24,7 +24,45 @@ public class AdminBusinessService {
         rows.forEach(row->row.put("tier_pricing_json",Objects.toString(row.get("tier_pricing_json"),"[]")));
         return rows;
     }
-    public List<Map<String,Object>> contracts() { return db.queryForList("select c.*, l.product_name, l.lot_code, u.company_name buyer_name, u.company_name buyer_company, u.phone buyer_phone, u.warehouse_address buyer_warehouse, case when u.username='buyer_coop' then 'Nguyễn Thị Minh Hạnh' when u.username='buyer_winmart' then 'Phạm Hoàng Nam' when u.username='buyer_lotte' then 'Lê Trọng Đạt' else u.full_name end buyer_contact, f.company_name farmer_name, f.company_name farmer_company, f.phone farmer_phone, f.full_name farmer_contact from b2b_contracts c join harvest_lots l on l.id=coalesce(c.lot_id, c.harvest_lot_id) join users u on u.id=c.buyer_id left join users f on f.id=c.farmer_id order by c.id desc limit 500"); }
+    private Long resolveScopedHubId(Long requestedHubId) {
+        try {
+            User actor = AuthService.current();
+            if (actor != null
+                    && !AuthService.has(actor, "ADMIN")
+                    && !AuthService.has(actor, "ACCOUNTANT")
+                    && AuthService.has(actor, "WAREHOUSE_MANAGER")
+                    && actor.getAssignedHubId() != null) {
+                return actor.getAssignedHubId();
+            }
+        } catch (Exception ignored) {}
+        return requestedHubId;
+    }
+
+    public List<Map<String,Object>> contracts() { return contracts(null); }
+
+    public List<Map<String,Object>> contracts(Long hubId) {
+        Long scopedHubId = resolveScopedHubId(hubId);
+        String whereHub = scopedHubId != null ? " where (" + CONTRACT_HUB_ID_EXPR + ") = " + scopedHubId : "";
+        return db.queryForList(
+                "select c.*, (" + CONTRACT_HUB_ID_EXPR + ") as resolved_hub_id, " +
+                "l.product_name, l.lot_code, " +
+                "r.rfq_code, r.shipping_option, r.hub_location, " +
+                "u.company_name buyer_name, u.company_name buyer_company, u.phone buyer_phone, u.warehouse_address buyer_warehouse, " +
+                "coalesce(nullif(u.warehouse_address, ''), nullif(c.delivery_address, ''), nullif(r.hub_location, ''), u.address) as resolved_buyer_address, " +
+                "case when u.username='buyer_coop' then 'Nguyễn Thị Minh Hạnh' when u.username='buyer_winmart' then 'Phạm Hoàng Nam' when u.username='buyer_lotte' then 'Lê Trọng Đạt' else u.full_name end buyer_contact, " +
+                "coalesce(nullif(fp.farm_name, ''), f.company_name) farmer_name, " +
+                "coalesce(nullif(fp.farm_name, ''), f.company_name) farmer_company, " +
+                "f.phone farmer_phone, f.full_name farmer_contact, " +
+                "coalesce(nullif(fp.location, ''), f.address) farmer_address, " +
+                "coalesce(nullif(fp.puc_code, ''), nullif(l.puc_code, ''), f.puc_code) puc_code " +
+                "from b2b_contracts c " +
+                "join harvest_lots l on l.id=coalesce(c.lot_id, c.harvest_lot_id) " +
+                "left join rfq_negotiations r on r.id=c.rfq_id " +
+                "join users u on u.id=c.buyer_id " +
+                "left join users f on f.id=c.farmer_id " +
+                "left join farmer_profiles fp on fp.user_id=f.id" +
+                whereHub + " order by c.id desc limit 500");
+    }
     public List<Map<String,Object>> assets() { return db.queryForList("select a.*,coalesce((select sum(i.qualified_weight_kg) from hub_inspections i join b2b_contracts c on c.id=i.contract_id where i.cold_room_id=a.id and c.status='AT_HUB_QC'),0) occupied_kg from cold_assets a order by a.id"); }
     public List<Map<String,Object>> inspections() { return db.queryForList("select i.*,c.status contract_status,l.product_name,l.expiry_date,(l.expiry_date-CURRENT_DATE) fefo_priority_score,c.contract_code from hub_inspections i join b2b_contracts c on c.id=i.contract_id join harvest_lots l on l.id=coalesce(c.lot_id, c.harvest_lot_id) order by l.expiry_date,i.id"); }
     public List<Map<String,Object>> shipments() { return db.queryForList("select s.*,c.contract_code,c.delivery_address,l.product_name,a.asset_code,a.current_temp,a.current_humidity from shipments s join b2b_contracts c on c.id=s.contract_id join harvest_lots l on l.id=coalesce(c.lot_id, c.harvest_lot_id) join cold_assets a on a.id=s.truck_id order by s.id desc limit 500"); }
@@ -74,6 +112,7 @@ public class AdminBusinessService {
         if(asLong(lot,"farmer_id").equals(buyerId)&&!AuthService.has(buyer,"ADMIN")) bad("Không tự giao dịch với chính mình");
         BigDecimal weight=number(n,"weightKg",new BigDecimal("100"),decimal(lot,"available_weight_kg")), price=number(n,"pricePerKg",BigDecimal.ONE,new BigDecimal("1000000000"));
         var cfg=settings();BigDecimal total=money(weight.multiply(price)), deposit=money(total.multiply(decimal(cfg,"deposit_rate")).divide(new BigDecimal("100"))), fee=money(total.multiply(decimal(cfg,"platform_fee_rate")).divide(new BigDecimal("100")));
+        String contractCode = code("HD");
         long id=db.queryForObject("""
             insert into b2b_contracts(
                 contract_code, lot_id, harvest_lot_id, farmer_id, buyer_id, buyer_name, buyer_phone,
@@ -81,17 +120,19 @@ public class AdminBusinessService {
                 unit_price, agreed_price_per_kg, offered_price_per_kg,
                 total_amount, total_goods_amount, deposit_amount, deposit_30_amount,
                 platform_fee_rate, platform_fee_amount, logistics_fee_amount, service_vat_rate,
-                delivery_address, status, deposit_status, fulfillment_status,
+                delivery_address, hub_name, status, deposit_status, fulfillment_status,
                 created_at, updated_at
-            ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RFQ_SENT','PENDING_DEPOSIT','WAITING_HARVEST',NOW(),NOW()) returning id
+            ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RFQ_SENT','PENDING_DEPOSIT','WAITING_HARVEST',NOW(),NOW()) returning id
             """, Long.class,
-            code("HD"), lot.get("id"), lot.get("id"), lot.get("farmer_id"), buyerId, buyer.getFullName(), buyer.getPhone(),
+            contractCode, lot.get("id"), lot.get("id"), lot.get("farmer_id"), buyerId, buyer.getFullName(), buyer.getPhone(),
             weight.doubleValue(), weight, weight,
             price, price, price,
             total, total, deposit, deposit,
             cfg.get("platform_fee_rate"), fee, number(n,"logisticsFee",BigDecimal.ZERO,total), cfg.get("service_vat_rate"),
-            text(n,"deliveryAddress"));
-        audit("CREATE_RFQ",id);return id;
+            text(n,"deliveryAddress"), lot.get("warehouse_location"));
+        audit("CREATE_RFQ",id);
+        b2bRealtimeService.notifyContractUpdated("CONTRACT_CREATED", contractCode, Map.of("id", id, "contractCode", contractCode, "status", "RFQ_SENT"));
+        return id;
     }
     @Transactional public void transition(long id,JsonNode n) {
         var c=lock("b2b_contracts",id);String current=c.get("status").toString(), next=text(n,"status");
@@ -118,7 +159,7 @@ public class AdminBusinessService {
         if(next.equals("AGREED")) {
             var lot=lock("harvest_lots",asLong(c,"lot_id"));BigDecimal weight=decimal(c,"offered_weight_kg");
             if(!"OPEN".equals(lot.get("status"))||decimal(lot,"available_weight_kg").compareTo(weight)<0||LocalDate.parse(lot.get("expiry_date").toString()).isBefore(LocalDate.now())) bad("Lô không đủ sản lượng hoặc không còn mở bán");
-            db.update("update harvest_lots set available_weight_kg=available_weight_kg-? where id=?",weight,lot.get("id"));
+            db.update("update harvest_lots set available_weight_kg=GREATEST(0, available_weight_kg-?), status=CASE WHEN available_weight_kg-? <= 0 THEN 'SOLD_OUT' ELSE 'OPEN' END where id=?",weight,weight,lot.get("id"));
         } else if(next.equals("DEPOSIT_PAID")) {
             String ref=n.has("reference") ? text(n,"reference") : "DEP-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
             BigDecimal amount=decimal(c,"deposit_30_amount");
@@ -203,7 +244,9 @@ public class AdminBusinessService {
             db.update("update b2b_contracts set fulfillment_status=? where id=?", next, id);
         } else if(next.equals("DELIVERED")) {
             db.update("update shipments set status='DELIVERED',delivered_at=CURRENT_TIMESTAMP,delivered_weight_kg=COALESCE(delivered_weight_kg,loaded_weight_kg) where contract_id=? and status<>'DELIVERED'", id);
-            BigDecimal due=money(deliveredGoods(c).subtract(decimal(c,"deposit_received")));
+            BigDecimal logisticsFee = decimal(c, "logistics_fee_amount");
+            BigDecimal totalInvoice = deliveredGoods(c).add(logisticsFee);
+            BigDecimal due = money(totalInvoice.subtract(decimal(c,"deposit_received")));
             if(due.signum()>0) {
                 String ref=n.has("reference") ? text(n,"reference") : "BAL-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
                 journal(id,"BALANCE",ref,List.of(line("112",due,true),line("3388",due,false)));
@@ -213,18 +256,85 @@ public class AdminBusinessService {
         } else if(next.equals("SETTLED")) {
             if(db.queryForObject("select count(*) from spoilage_claims where contract_id=? and status='OPEN'",Integer.class,id)>0) bad("Còn tranh chấp chưa xử lý");
             BigDecimal held=held(c);
-            BigDecimal fee=money(deliveredGoods(c).multiply(decimal(c,"platform_fee_rate")).divide(new BigDecimal("100"))).add(decimal(c,"logistics_fee_amount"));
-            BigDecimal vat=money(fee.multiply(decimal(c,"service_vat_rate")).divide(new BigDecimal("100"))), payout=money(held.subtract(fee).subtract(vat));
+            BigDecimal goods = deliveredGoods(c);
+            BigDecimal logisticsFee = decimal(c, "logistics_fee_amount");
+            BigDecimal feeRate = c.get("platform_fee_rate") != null ? decimal(c, "platform_fee_rate") : new BigDecimal("2.5");
+            BigDecimal commissionFee = money(goods.multiply(feeRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            BigDecimal honaRevenue = commissionFee.add(logisticsFee);
+            BigDecimal vatRate = c.get("service_vat_rate") != null && decimal(c, "service_vat_rate").signum() > 0
+                    ? decimal(c, "service_vat_rate")
+                    : new BigDecimal("8.0");
+            BigDecimal vat = money(honaRevenue.multiply(vatRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            BigDecimal payout = money(held.subtract(honaRevenue).subtract(vat));
             if(payout.signum()<0) bad("Phí vượt số tiền có thể giải ngân");
             String ref=n.has("reference") ? text(n,"reference") : "PAY-" + UUID.randomUUID().toString().substring(0,8).toUpperCase();
-            var lines=new ArrayList<Map<String,Object>>();lines.add(line("3388",held,true));if(fee.signum()>0)lines.add(line("5113",fee,false));if(vat.signum()>0)lines.add(line("3331",vat,false));if(payout.signum()>0)lines.add(line("112",payout,false));
+            var lines=new ArrayList<Map<String,Object>>();
+            lines.add(line("3388",held,true));
+            if(honaRevenue.signum()>0) lines.add(line("5113",honaRevenue,false));
+            if(vat.signum()>0) lines.add(line("3331",vat,false));
+            if(payout.signum()>0) lines.add(line("112",payout,false));
             journal(id,"SETTLEMENT",ref,lines);
             String bankRef = n.path("bankTransferRef").asText(ref);
             String bankName = n.path("farmerBankName").asText("");
             String bankAcc = n.path("farmerBankAccount").asText("");
             String bankOwner = n.path("farmerBankOwner").asText("");
-            db.update("update b2b_contracts set payout_ref=?,payout_amount=?,farmer_payout_amount=?,settled_at=CURRENT_TIMESTAMP,fulfillment_status='SETTLED',bank_transfer_ref=?,farmer_bank_name=COALESCE(NULLIF(?,''),farmer_bank_name),farmer_bank_account=COALESCE(NULLIF(?,''),farmer_bank_account),farmer_bank_owner=COALESCE(NULLIF(?,''),farmer_bank_owner) where id=?",
-                    ref, payout, payout, bankRef, bankName, bankAcc, bankOwner, id);
+            db.update("update b2b_contracts set platform_fee_amount=?,payout_ref=?,payout_amount=?,farmer_payout_amount=?,settled_at=CURRENT_TIMESTAMP,fulfillment_status='SETTLED',bank_transfer_ref=?,farmer_bank_name=COALESCE(NULLIF(?,''),farmer_bank_name),farmer_bank_account=COALESCE(NULLIF(?,''),farmer_bank_account),farmer_bank_owner=COALESCE(NULLIF(?,''),farmer_bank_owner) where id=?",
+                    commissionFee, ref, payout, payout, bankRef, bankName, bankAcc, bankOwner, id);
+
+            // Đồng bộ tạo bản ghi bảng settlements để Farmer thấy ngay trong "Bảng Kê Chi Tiết Các Khoản Giải Ngân"
+            Integer existingSettlements = db.queryForObject(
+                    "select count(*) from settlements where contract_id=?",
+                    Integer.class, id);
+            Long farmerId = asLong(c, "farmer_id");
+            if ((existingSettlements == null || existingSettlements == 0) && farmerId != null) {
+                BigDecimal unitPriceVal = decimal(c, "agreed_price_per_kg").signum() > 0
+                        ? decimal(c, "agreed_price_per_kg")
+                        : (decimal(c, "offered_price_per_kg").signum() > 0
+                            ? decimal(c, "offered_price_per_kg")
+                            : decimal(c, "unit_price"));
+                BigDecimal weightVal = decimal(c, "actual_delivered_weight_kg").signum() > 0
+                        ? decimal(c, "actual_delivered_weight_kg")
+                        : (decimal(c, "quantity_kg").signum() > 0
+                            ? decimal(c, "quantity_kg")
+                            : decimal(c, "offered_weight_kg"));
+                if (weightVal.signum() <= 0 && unitPriceVal.signum() > 0 && goods.signum() > 0) {
+                    weightVal = goods.divide(unitPriceVal, 2, RoundingMode.HALF_UP);
+                }
+                String resolvedBankName = !bankName.isBlank() ? bankName : Objects.toString(c.get("farmer_bank_name"), "Agribank");
+                String resolvedBankAcc = !bankAcc.isBlank() ? bankAcc : Objects.toString(c.get("farmer_bank_account"), "");
+                String resolvedBankOwner = !bankOwner.isBlank() ? bankOwner : Objects.toString(c.get("farmer_bank_owner"), "");
+                String taxFormType = "FORM_01_TNDN";
+                try {
+                    var profileRows = db.queryForList(
+                            "select farmer_type, bank_name, bank_account, bank_account_name from farmer_profiles where user_id=? limit 1",
+                            farmerId);
+                    if (!profileRows.isEmpty()) {
+                        var prof = profileRows.getFirst();
+                        if ("COOPERATIVE".equalsIgnoreCase(Objects.toString(prof.get("farmer_type"), ""))) {
+                            taxFormType = "HOA_DON_KCT";
+                        }
+                        if (resolvedBankAcc.isBlank()) resolvedBankAcc = Objects.toString(prof.get("bank_account"), "");
+                        if (resolvedBankName.isBlank()) resolvedBankName = Objects.toString(prof.get("bank_name"), "Agribank");
+                        if (resolvedBankOwner.isBlank()) resolvedBankOwner = Objects.toString(prof.get("bank_account_name"), "");
+                    }
+                } catch (Exception ignored) {}
+
+                String settlementCode = "STL-" + java.time.Year.now().getValue() + "-"
+                        + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+                BigDecimal deductedFee = goods.subtract(payout).max(BigDecimal.ZERO);
+                db.update("""
+                        INSERT INTO settlements(
+                            settlement_code, contract_id, farmer_id, qualified_weight, unit_price,
+                            gross_amount, platform_fee_percent, platform_fee, payout_amount,
+                            bank_account, bank_name, bank_account_name, bank_reference,
+                            is_paid, paid_at, tax_form_type, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        settlementCode, id, farmerId, weightVal.doubleValue(), unitPriceVal,
+                        goods, feeRate.doubleValue(), deductedFee, payout,
+                        resolvedBankAcc, resolvedBankName, resolvedBankOwner, bankRef,
+                        taxFormType);
+            }
         }
         db.update("update b2b_contracts set status=?,updated_at=CURRENT_TIMESTAMP where id=?",next,id);audit("CONTRACT_"+next,id);
         var updatedContract = db.queryForMap("select * from b2b_contracts where id=?", id);
@@ -238,17 +348,28 @@ public class AdminBusinessService {
         String subject = "Cập nhật trạng thái hợp đồng " + contractCode;
         String body = "Hợp đồng " + contractCode + " vừa chuyển sang trạng thái: " + nextStatus + ".\n"
                 + "Vui lòng đăng nhập HoNa Fresh để xem chi tiết tiến trình và thao tác tiếp theo.";
+        List<String> recipients = new java.util.ArrayList<>();
         for (String column : List.of("buyer_id", "farmer_id")) {
             try {
                 Long partyId = asLong(contract, column);
                 if (partyId == null) continue;
                 String email = db.queryForObject("select email from users where id=?", String.class, partyId);
-                if (email != null && !email.isBlank()) mail.send(email, subject, body);
+                if (email != null && !email.isBlank()) recipients.add(email);
             } catch (Exception ex) {
-                // SMTP là kênh thông báo phụ; không rollback giao dịch nếu mail server lỗi/chưa cấu hình.
-                log.warn("Không gửi được email trạng thái hợp đồng {}: {}", contractCode, ex.getMessage());
+                log.warn("Không lấy được email trạng thái hợp đồng {}: {}", contractCode, ex.getMessage());
             }
         }
+        if (recipients.isEmpty()) return;
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            for (String email : recipients) {
+                try {
+                    mail.send(email, subject, body);
+                } catch (Exception ex) {
+                    // SMTP là kênh thông báo phụ; không rollback giao dịch nếu mail server lỗi/chưa cấu hình.
+                    log.warn("Không gửi được email trạng thái hợp đồng {}: {}", contractCode, ex.getMessage());
+                }
+            }
+        });
     }
     public BigDecimal deliveredGoods(Map<String,Object> c) { var rows=db.queryForList("select delivered_weight_kg from shipments where contract_id=?",c.get("id"));return rows.isEmpty()||rows.getFirst().get("delivered_weight_kg")==null?decimal(c,"total_goods_amount"):money(decimal(rows.getFirst(),"delivered_weight_kg").multiply(decimal(c,"offered_price_per_kg"))); }
     @Transactional public long createAsset(JsonNode n) {
@@ -354,11 +475,23 @@ public class AdminBusinessService {
 
     @Transactional public void approvePackaging(long id, JsonNode n) {
         var c = lock("b2b_contracts", id);
-        db.update("update b2b_contracts set packaging_approved=true,packaging_approved_at=CURRENT_TIMESTAMP,fulfillment_status='PACKAGING_APPROVED',status='PACKAGING_APPROVED',updated_at=CURRENT_TIMESTAMP where id=?", id);
+        db.update("update b2b_contracts set packaging_approved=true,packaging_approved_at=CURRENT_TIMESTAMP,delivery_notes=NULL,fulfillment_status='PACKAGING_APPROVED',status='PACKAGING_APPROVED',updated_at=CURRENT_TIMESTAMP where id=?", id);
         audit("APPROVE_PACKAGING", id);
         var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
         notifyContractParties(updated, "PACKAGING_APPROVED");
         b2bRealtimeService.notifyContractUpdated("PACKAGING_APPROVED", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
+
+    @Transactional public void rejectPackaging(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        String reason = n != null && n.has("reason") && !n.path("reason").asText("").isBlank()
+                ? n.path("reason").asText().trim()
+                : "Ban Quản Trị yêu cầu kiểm tra và làm lại biên bản thu hoạch / đóng gói.";
+        db.update("update b2b_contracts set packaging_approved=false,packaging_approved_at=NULL,delivery_notes=?,fulfillment_status='HARVESTING',status='HARVEST_REJECTED',updated_at=CURRENT_TIMESTAMP where id=?", reason, id);
+        audit("REJECT_PACKAGING", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "PACKAGING_REJECTED");
+        b2bRealtimeService.notifyContractUpdated("PACKAGING_REJECTED", Objects.toString(updated.get("contract_code"), ""), updated);
     }
 
     @Transactional public void dispatchPickup(long id, JsonNode n) {
@@ -440,10 +573,10 @@ public class AdminBusinessService {
         db.update("""
             update b2b_contracts
             set hub_warehouse_zone=?, hub_rack_bin=?, max_storage_days=?,
-                hub_inbound_at=CURRENT_TIMESTAMP, qc_status='QC_PASSED', qc_passed_at=CURRENT_TIMESTAMP,
+                hub_inbound_at=COALESCE(hub_inbound_at, CURRENT_TIMESTAMP), qc_status='QC_PASSED', qc_passed_at=CURRENT_TIMESTAMP,
                 qc_cert_url=?, inbound_gross_weight_kg=?, inbound_tare_weight_kg=?, inbound_net_weight_kg=?,
                 qc_brix=?, qc_nitrate_ppm=?, qc_pesticide_safe=?,
-                fulfillment_status='AT_HUB_QC', status='AT_HUB_QC', updated_at=CURRENT_TIMESTAMP
+                fulfillment_status='QC_PASSED', status='QC_PASSED', updated_at=CURRENT_TIMESTAMP
             where id=?
             """,
             zone, rackBin, maxDays, certUrl, gross, tare, net, brix, nitrate, pesticideSafe, id);
@@ -502,8 +635,110 @@ public class AdminBusinessService {
 
         audit("WAREHOUSE_INBOUND_QC", id);
         var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
-        notifyContractParties(updated, "AT_HUB_QC");
-        b2bRealtimeService.notifyContractUpdated("AT_HUB_QC", Objects.toString(updated.get("contract_code"), ""), updated);
+        notifyContractParties(updated, "QC_PASSED");
+        b2bRealtimeService.notifyContractUpdated("QC_PASSED", Objects.toString(updated.get("contract_code"), ""), updated);
+    }
+
+    @Transactional
+    public Map<String, Object> rejectQcLab(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        BigDecimal brix = n.has("brix") ? new BigDecimal(n.path("brix").asText("0")) : BigDecimal.ZERO;
+        BigDecimal nitrate = n.has("nitratePpm") ? new BigDecimal(n.path("nitratePpm").asText("0")) : BigDecimal.ZERO;
+        boolean pesticideSafe = !n.has("pesticideSafe") || n.path("pesticideSafe").asBoolean(false);
+        BigDecimal received = resolveSafeWeight(c);
+        BigDecimal rejected = n.has("rejectedWeightKg")
+                ? new BigDecimal(n.path("rejectedWeightKg").asText(received.toString()))
+                : received;
+        if (rejected.compareTo(BigDecimal.ZERO) <= 0) rejected = received;
+        String reason = n.has("reason") && !n.path("reason").asText("").isBlank()
+                ? n.path("reason").asText().trim()
+                : n.path("qcNotes").asText("Không đạt tiêu chuẩn kiểm định QC HoNa Fresh.");
+
+        db.update("""
+            update b2b_contracts
+            set qc_status='QC_FAILED', qc_passed_at=CURRENT_TIMESTAMP,
+                qc_brix=?, qc_nitrate_ppm=?, qc_pesticide_safe=?,
+                delivery_notes=?, fulfillment_status='QC_FAILED', status='QC_FAILED', updated_at=CURRENT_TIMESTAMP
+            where id=?
+            """, brix, nitrate, pesticideSafe, reason, id);
+
+        Long coldRoomId = db.queryForList("select id from cold_assets where asset_type='COLD_ROOM' limit 1").stream()
+                .findFirst().map(m -> ((Number) m.get("id")).longValue()).orElse(null);
+        if (coldRoomId == null) {
+            coldRoomId = db.queryForObject("insert into cold_assets(asset_code,asset_type,asset_name,capacity_kg) values (?,'COLD_ROOM','Kho lạnh trung tâm HoNa',100000) returning id", Long.class, code("CR"));
+        }
+        Long qcStaffId = 1L;
+        try { if (AuthService.current() != null) qcStaffId = AuthService.current().getId(); } catch (Exception ignored) {}
+
+        List<Long> existingIns = db.queryForList("select id from hub_inspections where contract_id=?", Long.class, id);
+        if (!existingIns.isEmpty()) {
+            db.update("update hub_inspections set received_weight_kg=?, qualified_weight_kg=0, rejected_weight_kg=?, brix_degree=?, nitrate_ppm=?, pesticide_residue_pass=false, qc_passed=false, qc_notes=? where contract_id=?",
+                    received, rejected, brix, nitrate, reason, id);
+        } else {
+            db.update("insert into hub_inspections(inspection_code,contract_id,cold_room_id,qc_staff_id,received_weight_kg,qualified_weight_kg,rejected_weight_kg,brix_degree,nitrate_ppm,moisture_pct,pesticide_residue_pass,qc_passed,qc_notes) values (?,?,?,?,?,0,?,?,?,85.0,false,false,?)",
+                    code("QC"), id, coldRoomId, qcStaffId, received, rejected, brix, nitrate, reason);
+        }
+
+        List<Long> openClaims = db.queryForList("select id from spoilage_claims where contract_id=? and status='OPEN'", Long.class, id);
+        if (openClaims.isEmpty()) {
+            createClaim(c, rejected.min(received), "QC Lab Không Đạt: " + reason, "FARMER");
+        }
+
+        audit("WAREHOUSE_QC_FAILED", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "QC_FAILED");
+        b2bRealtimeService.notifyContractUpdated("QC_FAILED", Objects.toString(updated.get("contract_code"), ""), updated);
+        return Map.of(
+                "contractCode", Objects.toString(updated.get("contract_code"), ""),
+                "qcStatus", "QC_FAILED",
+                "reason", reason
+        );
+    }
+
+    @Transactional
+    public Map<String, Object> processQcReturnRefund(long id, JsonNode n) {
+        var c = lock("b2b_contracts", id);
+        String currentStatus = Objects.toString(c.get("status"), "");
+        if ("SETTLED".equals(currentStatus) || "COMPLETED".equals(currentStatus)) {
+            bad("Hợp đồng đã quyết toán, không thể hoàn cọc tại bước QC.");
+        }
+        String returnMethod = n.path("returnMethod").asText("Trả hàng trực tiếp cho Nhà vườn tại Kho HoNa");
+        String returnNotes = n.path("returnNotes").asText("Hàng không đạt QC, đã lập biên bản hoàn trả & hoàn cọc.");
+        String reference = n.has("reference") && !n.path("reference").asText("").isBlank()
+                ? n.path("reference").asText().trim()
+                : "REF-QC-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+
+        BigDecimal refundAmount = decimal(c, "deposit_received");
+        if (refundAmount.signum() <= 0) refundAmount = decimal(c, "deposit_30_amount");
+        if (refundAmount.signum() <= 0) refundAmount = decimal(c, "deposit_amount");
+
+        if (refundAmount.signum() > 0) {
+            journal(id, "REFUND", reference, List.of(line("3388", refundAmount, true), line("112", refundAmount, false)));
+        }
+
+        String fullNote = returnMethod + " · " + returnNotes + " (Mã GD hoàn cọc: " + reference + ")";
+        db.update("""
+            update b2b_contracts
+            set status='CANCELLED', fulfillment_status='QC_RETURNED_REFUNDED', qc_status='QC_RETURNED',
+                refund_amount=?, delivery_notes=?, updated_at=CURRENT_TIMESTAMP
+            where id=?
+            """, refundAmount, fullNote, id);
+
+        db.update("update spoilage_claims set status='REFUNDED', resolution_note=?, resolution_ref=? where contract_id=? and status='OPEN'",
+                fullNote, reference, id);
+        db.update("update shipments set status='CANCELLED' where contract_id=?", id);
+
+        audit("QC_RETURN_AND_REFUND", id);
+        var updated = db.queryForMap("select * from b2b_contracts where id=?", id);
+        notifyContractParties(updated, "QC_RETURNED_REFUNDED");
+        b2bRealtimeService.notifyContractUpdated("QC_RETURNED_REFUNDED", Objects.toString(updated.get("contract_code"), ""), updated);
+        return Map.of(
+                "contractCode", Objects.toString(updated.get("contract_code"), ""),
+                "status", "CANCELLED",
+                "fulfillmentStatus", "QC_RETURNED_REFUNDED",
+                "refundAmount", refundAmount,
+                "reference", reference
+        );
     }
 
     @Transactional public void outboundDispatch(long id, JsonNode n) {
@@ -585,98 +820,160 @@ public class AdminBusinessService {
         audit("RESOLVE_"+action,contractId);
     }
     @Transactional public void updateSettings(JsonNode n) {
-        BigDecimal min=number(n,"tempMin",new BigDecimal("-40"),new BigDecimal("50")),max=number(n,"tempMax",new BigDecimal("-40"),new BigDecimal("50"));if(max.compareTo(min)<=0)bad("Khoảng nhiệt độ không hợp lệ");
+        var cur = settings();
+        BigDecimal min = n.hasNonNull("tempMin") ? number(n,"tempMin",new BigDecimal("-40"),new BigDecimal("50")) : decimal(cur, "temp_min");
+        BigDecimal max = n.hasNonNull("tempMax") ? number(n,"tempMax",new BigDecimal("-40"),new BigDecimal("50")) : decimal(cur, "temp_max");
+        if(max.compareTo(min)<=0)bad("Khoảng nhiệt độ không hợp lệ");
         BigDecimal vat=number(n,"serviceVatRate",new BigDecimal("8"),new BigDecimal("10"));if(!Set.of(8,10).contains(vat.intValue())||vat.stripTrailingZeros().scale()>0)bad("Thuế dịch vụ là 8 hoặc 10");
         db.update("update platform_settings set platform_fee_rate=?,deposit_rate=?,temp_min=?,temp_max=?,service_vat_rate=? where id=1",number(n,"platformFeeRate",BigDecimal.ONE,new BigDecimal("5")),number(n,"depositRate",BigDecimal.ONE,new BigDecimal("100")),min,max,vat);audit("SETTINGS",1L);
     }
-    public Map<String,Object> reports() { return Map.of("entries",db.queryForList("select e.*,c.contract_code from gl_journal_entries e join b2b_contracts c on c.id=e.contract_id order by e.id desc limit 500"),"lines",db.queryForList("select * from gl_journal_lines order by id desc limit 2000"),"documents",db.queryForList("select c.contract_code,c.status,c.total_goods_amount,c.payout_amount,c.platform_fee_amount,c.logistics_fee_amount,u.full_name,u.company_name,u.tax_code,u.household_farmer,case when u.household_farmer then '01/TNDN - bản kê nội bộ' else 'KCT - bản kê nội bộ' end document_type from b2b_contracts c join users u on u.id=c.farmer_id where c.status='SETTLED' order by c.id desc")); }
+    private static final String CONTRACT_HUB_ID_EXPR = """
+            COALESCE(
+              (SELECT ot.hub_id FROM outbound_delivery_stops os JOIN outbound_delivery_trips ot ON ot.id = os.trip_id WHERE os.contract_id = c.id AND os.status <> 'CANCELLED' ORDER BY os.id DESC LIMIT 1),
+              (SELECT pt.warehouse_id FROM pickup_trip_stops ps JOIN pickup_trips pt ON pt.id = ps.trip_id WHERE ps.contract_id = c.id ORDER BY ps.id DESC LIMIT 1),
+              (SELECT wh.id FROM warehouse_hubs wh WHERE c.hub_name IS NOT NULL AND (wh.hub_name = c.hub_name OR c.hub_name ILIKE '%' || wh.hub_name || '%') LIMIT 1),
+              (SELECT wh2.id FROM harvest_lots hl JOIN warehouse_hubs wh2 ON (
+                hl.warehouse_location ILIKE '%' || wh2.hub_code || '%'
+                OR hl.warehouse_location ILIKE '%' || wh2.hub_name || '%'
+                OR (wh2.id = 1 AND hl.warehouse_location ILIKE '%Củ Chi%')
+                OR (wh2.id = 2 AND hl.warehouse_location ILIKE '%Đức Trọng%')
+                OR (wh2.id = 3 AND hl.warehouse_location ILIKE '%Cái Bè%')
+                OR (wh2.id = 4 AND hl.warehouse_location ILIKE '%Buôn Hồ%')
+                OR (wh2.id = 5 AND hl.warehouse_location ILIKE '%Hà Nội%')
+              ) WHERE hl.id = COALESCE(c.lot_id, c.harvest_lot_id) LIMIT 1)
+            )
+            """;
 
-    public Map<String, Object> cashflowSummary() {
+    public Map<String,Object> reports() { return reports(null); }
+
+    public Map<String,Object> reports(Long hubId) {
+        hubId = resolveScopedHubId(hubId);
+        String hubFilterClause = hubId != null ? " WHERE (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId : "";
+        String docHubFilterClause = hubId != null ? " AND (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId : "";
+        String entrySql = "select e.*, c.contract_code from gl_journal_entries e join b2b_contracts c on c.id=e.contract_id"
+                + hubFilterClause + " order by e.id desc limit 500";
+        String lineSql = hubId != null
+                ? "select l.* from gl_journal_lines l join gl_journal_entries e on e.id=l.entry_id join b2b_contracts c on c.id=e.contract_id where ("
+                  + CONTRACT_HUB_ID_EXPR + ") = " + hubId + " order by l.id desc limit 2000"
+                : "select * from gl_journal_lines order by id desc limit 2000";
+        String docSql = "select c.contract_code,c.status,c.total_goods_amount,c.payout_amount,c.platform_fee_amount,c.logistics_fee_amount,u.full_name,u.company_name,u.tax_code,u.household_farmer,case when u.household_farmer then '01/TNDN - Bảng kê thu mua nông sản' else 'Hóa đơn điện tử KCT' end document_type from b2b_contracts c join users u on u.id=c.farmer_id where c.status='SETTLED'"
+                + docHubFilterClause + " order by c.id desc";
+        return Map.of("entries", db.queryForList(entrySql), "lines", db.queryForList(lineSql), "documents", db.queryForList(docSql));
+    }
+
+    public Map<String, Object> cashflowSummary() { return cashflowSummary(null); }
+
+    public Map<String, Object> cashflowSummary(Long hubId) {
+        hubId = resolveScopedHubId(hubId);
         Map<String, Object> result = new LinkedHashMap<>();
+
+        // 0. Danh sách các trạm kiểm toán
+        List<Map<String, Object>> hubs = db.queryForList("select id, hub_code, hub_name from warehouse_hubs order by id asc");
+        result.put("hubs", hubs);
+        result.put("selectedHubId", hubId);
+
+        String lineJoinHub = hubId != null
+                ? " join gl_journal_entries e2 on e2.id = gl_journal_lines.entry_id join b2b_contracts c on c.id = e2.contract_id where (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId + " and "
+                : " where ";
 
         // 1. KPI Tài chính Dòng tiền
         Map<String, Object> kpi = new LinkedHashMap<>();
-        BigDecimal bankBalance = db.queryForObject("select coalesce(sum(debit-credit),0) from gl_journal_lines where account='112'", BigDecimal.class);
-        BigDecimal escrowHeld = db.queryForObject("select coalesce(sum(credit-debit),0) from gl_journal_lines where account='3388'", BigDecimal.class);
-        BigDecimal honaRevenue = db.queryForObject("select coalesce(sum(credit-debit),0) from gl_journal_lines where account='5113'", BigDecimal.class);
-        BigDecimal vatPayable = db.queryForObject("select coalesce(sum(credit-debit),0) from gl_journal_lines where account='3331'", BigDecimal.class);
-        BigDecimal farmerPayouts = db.queryForObject("""
-            select coalesce(sum(l.credit),0) 
-            from gl_journal_lines l 
-            join gl_journal_entries e on e.id = l.entry_id 
-            where l.account = '112' and e.event = 'SETTLEMENT'
-            """, BigDecimal.class);
-        BigDecimal gmv = db.queryForObject("select coalesce(sum(total_goods_amount),0) from b2b_contracts where status not in ('RFQ_SENT','CANCELLED')", BigDecimal.class);
-
-        kpi.put("totalBankBalance", bankBalance != null ? bankBalance : BigDecimal.ZERO);
-        kpi.put("totalHonaRevenue", honaRevenue != null ? honaRevenue : BigDecimal.ZERO);
-        kpi.put("totalEscrowHeld", escrowHeld != null ? escrowHeld : BigDecimal.ZERO);
-        kpi.put("totalVatPayable", vatPayable != null ? vatPayable : BigDecimal.ZERO);
-        kpi.put("totalFarmerPayouts", farmerPayouts != null ? farmerPayouts : BigDecimal.ZERO);
-        kpi.put("totalGmv", gmv != null ? gmv : BigDecimal.ZERO);
-        result.put("kpi", kpi);
+        BigDecimal bankBalance = db.queryForObject("select coalesce(sum(gl_journal_lines.debit-gl_journal_lines.credit),0) from gl_journal_lines" + lineJoinHub + "gl_journal_lines.account='112'", BigDecimal.class);
+        BigDecimal escrowHeld = db.queryForObject("select coalesce(sum(gl_journal_lines.credit-gl_journal_lines.debit),0) from gl_journal_lines" + lineJoinHub + "gl_journal_lines.account='3388'", BigDecimal.class);
+        BigDecimal honaRevenue = db.queryForObject("select coalesce(sum(gl_journal_lines.credit-gl_journal_lines.debit),0) from gl_journal_lines" + lineJoinHub + "gl_journal_lines.account='5113'", BigDecimal.class);
+        BigDecimal vatPayable = db.queryForObject("select coalesce(sum(gl_journal_lines.credit-gl_journal_lines.debit),0) from gl_journal_lines" + lineJoinHub + "gl_journal_lines.account='3331'", BigDecimal.class);
+        String payoutSql = hubId != null
+                ? "select coalesce(sum(l.credit),0) from gl_journal_lines l join gl_journal_entries e on e.id = l.entry_id join b2b_contracts c on c.id = e.contract_id where l.account = '112' and e.event = 'SETTLEMENT' and (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId
+                : "select coalesce(sum(l.credit),0) from gl_journal_lines l join gl_journal_entries e on e.id = l.entry_id where l.account = '112' and e.event = 'SETTLEMENT'";
+        BigDecimal farmerPayouts = db.queryForObject(payoutSql, BigDecimal.class);
+        String gmvSql = hubId != null
+                ? "select coalesce(sum(c.total_goods_amount),0) from b2b_contracts c where c.status not in ('RFQ_SENT','CANCELLED') and (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId
+                : "select coalesce(sum(c.total_goods_amount),0) from b2b_contracts c where c.status not in ('RFQ_SENT','CANCELLED')";
+        BigDecimal gmv = db.queryForObject(gmvSql, BigDecimal.class);
 
         // 2. Bảng đối soát dòng tiền chi tiết theo hợp đồng
         String sql = """
             select c.id as contract_id, c.contract_code, c.status, c.fulfillment_status,
+                   (%s) as hub_id,
+                   (select wh2.hub_name from warehouse_hubs wh2 where wh2.id = (%s) limit 1) as hub_name,
                    coalesce(c.total_goods_amount, c.total_amount, 0) as total_goods_amount,
                    c.offered_weight_kg, c.unit_price, c.offered_price_per_kg,
                    c.deposit_30_amount, c.deposit_received, c.deposit_ref, c.deposit_paid_at,
                    c.balance_received, c.balance_ref, c.remaining_amount, c.remaining_payment_status, c.remaining_paid_at,
                    c.platform_fee_rate, c.platform_fee_amount, c.logistics_fee_amount, c.service_vat_rate,
                    c.payout_amount, c.farmer_payout_amount, c.payout_ref, c.settled_at, c.bank_transfer_ref,
-                   c.farmer_bank_name, c.farmer_bank_account, c.farmer_bank_owner,
+                   COALESCE(NULLIF(c.farmer_bank_name, ''), NULLIF(fp.bank_name, ''), NULLIF(u_f.bank_name, ''), '') as farmer_bank_name,
+                   COALESCE(NULLIF(c.farmer_bank_account, ''), NULLIF(fp.bank_account, ''), NULLIF(u_f.bank_account_no, ''), '') as farmer_bank_account,
+                   COALESCE(NULLIF(c.farmer_bank_owner, ''), NULLIF(fp.bank_account_name, ''), NULLIF(u_f.full_name, ''), '') as farmer_bank_owner,
                    c.buyer_name, coalesce(u_b.company_name, c.buyer_name) as buyer_company, u_b.phone as buyer_phone,
                    coalesce(u_f.full_name, 'Nhà vườn') as farmer_name, coalesce(u_f.company_name, 'Hợp tác xã') as farmer_company, u_f.phone as farmer_phone,
                    coalesce(l.product_name, 'Nông sản VietGAP') as product_name
             from b2b_contracts c
             left join users u_b on u_b.id = c.buyer_id
             left join users u_f on u_f.id = c.farmer_id
+            left join farmer_profiles fp on fp.user_id = c.farmer_id
             left join harvest_lots l on l.id = c.harvest_lot_id or l.id = c.lot_id
             where c.status not in ('RFQ_SENT', 'CANCELLED')
+            %s
             order by c.id desc limit 200
-            """;
+            """.formatted(
+                CONTRACT_HUB_ID_EXPR,
+                CONTRACT_HUB_ID_EXPR,
+                hubId != null ? "and (" + CONTRACT_HUB_ID_EXPR + ") = " + hubId : ""
+            );
         List<Map<String, Object>> rows = db.queryForList(sql);
         List<Map<String, Object>> ledger = new ArrayList<>();
+        BigDecimal pendingDisbursementAmount = BigDecimal.ZERO;
 
         for (Map<String, Object> r : rows) {
             Map<String, Object> item = new LinkedHashMap<>(r);
             BigDecimal goods = decimal(r, "total_goods_amount");
-            BigDecimal deposit = r.get("deposit_received") != null ? decimal(r, "deposit_received")
-                    : (r.get("deposit_30_amount") != null ? decimal(r, "deposit_30_amount") : goods.multiply(new BigDecimal("0.3")));
+            BigDecimal logisticsFee = r.get("logistics_fee_amount") != null ? decimal(r, "logistics_fee_amount") : BigDecimal.ZERO;
+            BigDecimal totalInvoice = goods.add(logisticsFee);
+            BigDecimal deposit = r.get("deposit_received") != null && decimal(r, "deposit_received").signum() > 0
+                    ? decimal(r, "deposit_received")
+                    : (r.get("deposit_30_amount") != null ? decimal(r, "deposit_30_amount") : money(totalInvoice.multiply(new BigDecimal("0.3"))));
             BigDecimal balance = r.get("balance_received") != null ? decimal(r, "balance_received") : BigDecimal.ZERO;
             String status = Objects.toString(r.get("status"), "");
-
-            BigDecimal buyerPaid;
-            if ("SETTLED".equals(status) || "DELIVERED".equals(status)) {
-                buyerPaid = deposit.add(balance.signum() > 0 ? balance : goods.subtract(deposit));
-            } else {
-                buyerPaid = deposit;
-            }
+            String remainingStatus = Objects.toString(r.get("remaining_payment_status"), "UNPAID");
 
             BigDecimal feeRate = r.get("platform_fee_rate") != null ? decimal(r, "platform_fee_rate") : new BigDecimal("2.5");
             BigDecimal platformFee = r.get("platform_fee_amount") != null && decimal(r, "platform_fee_amount").signum() > 0
                     ? decimal(r, "platform_fee_amount")
                     : money(goods.multiply(feeRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
-            BigDecimal logisticsFee = r.get("logistics_fee_amount") != null ? decimal(r, "logistics_fee_amount") : BigDecimal.ZERO;
-            BigDecimal vatRate = r.get("service_vat_rate") != null ? decimal(r, "service_vat_rate") : new BigDecimal("8.0");
-            BigDecimal vatFee = money(platformFee.add(logisticsFee).multiply(vatRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
-
+            BigDecimal vatRate = r.get("service_vat_rate") != null && decimal(r, "service_vat_rate").signum() > 0
+                    ? decimal(r, "service_vat_rate")
+                    : new BigDecimal("8.0");
             BigDecimal honaRealPocket = platformFee.add(logisticsFee);
-            BigDecimal payout = r.get("farmer_payout_amount") != null && decimal(r, "farmer_payout_amount").signum() > 0
+            BigDecimal vatFee = money(honaRealPocket.multiply(vatRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            BigDecimal payout = "SETTLED".equals(status) && r.get("farmer_payout_amount") != null && decimal(r, "farmer_payout_amount").signum() > 0
                     ? decimal(r, "farmer_payout_amount")
-                    : goods.subtract(platformFee).subtract(logisticsFee).subtract(vatFee);
+                    : goods.subtract(platformFee).subtract(vatFee);
 
             String cashflowStatus;
+            String cashflowStatusLabel;
+            BigDecimal buyerPaid;
             if ("SETTLED".equals(status)) {
                 cashflowStatus = "SETTLED_COMPLETED";
-            } else if ("DELIVERED".equals(status)) {
+                cashflowStatusLabel = "Đã giải ngân hoàn tất cho Nông dân";
+                buyerPaid = deposit.add(balance.signum() > 0 ? balance : totalInvoice.subtract(deposit));
+            } else if ("DELIVERED".equals(status) && "PAID".equalsIgnoreCase(remainingStatus)) {
                 cashflowStatus = "BUYER_PAID_100";
+                cashflowStatusLabel = "Buyer đã trả đủ 100% · Chờ giải ngân Nông dân";
+                buyerPaid = deposit.add(balance.signum() > 0 ? balance : totalInvoice.subtract(deposit));
+                pendingDisbursementAmount = pendingDisbursementAmount.add(payout.max(BigDecimal.ZERO));
+            } else if ("DELIVERED".equals(status)) {
+                cashflowStatus = "WAITING_BUYER_70";
+                cashflowStatusLabel = "Đã giao hàng · Chờ Buyer trả nốt 70%";
+                buyerPaid = deposit;
             } else {
                 cashflowStatus = "ESCROW_HOLDING_30";
+                cashflowStatusLabel = "Đang giữ cọc 30% bảo chứng";
+                buyerPaid = deposit;
             }
 
             item.put("totalGoodsAmount", goods);
+            item.put("totalInvoiceAmount", totalInvoice);
             item.put("depositAmount", deposit);
             item.put("balanceAmount", balance);
             item.put("totalBuyerPaid", buyerPaid);
@@ -686,24 +983,47 @@ public class AdminBusinessService {
             item.put("honaRealPocket", honaRealPocket);
             item.put("farmerPayoutAmount", payout);
             item.put("cashflowStatus", cashflowStatus);
+            item.put("cashflowStatusLabel", cashflowStatusLabel);
 
             ledger.add(item);
         }
+
+        kpi.put("totalBankBalance", bankBalance != null ? bankBalance : BigDecimal.ZERO);
+        kpi.put("totalHonaRevenue", honaRevenue != null ? honaRevenue : BigDecimal.ZERO);
+        kpi.put("totalEscrowHeld", escrowHeld != null ? escrowHeld : BigDecimal.ZERO);
+        kpi.put("totalVatPayable", vatPayable != null ? vatPayable : BigDecimal.ZERO);
+        kpi.put("totalFarmerPayouts", farmerPayouts != null ? farmerPayouts : BigDecimal.ZERO);
+        kpi.put("pendingDisbursementAmount", pendingDisbursementAmount);
+        kpi.put("totalGmv", gmv != null ? gmv : BigDecimal.ZERO);
+        result.put("kpi", kpi);
         result.put("contractLedger", ledger);
 
         // 3. Biến động dòng tiền theo ngày
-        List<Map<String, Object>> daily = db.queryForList("""
-            select date(e.created_at) as day,
-                   coalesce(sum(case when l.account = '112' and l.debit > 0 then l.debit else 0 end), 0) as incoming,
-                   coalesce(sum(case when l.account = '112' and l.credit > 0 then l.credit else 0 end), 0) as outgoing
-            from gl_journal_entries e
-            join gl_journal_lines l on l.entry_id = e.id
-            where l.account = '112'
-            group by date(e.created_at)
-            order by day desc
-            limit 30
-            """);
-        result.put("dailyCashflow", daily);
+        String dailySql = hubId != null
+                ? """
+                    select date(e.created_at) as day,
+                           coalesce(sum(case when l.account = '112' and l.debit > 0 then l.debit else 0 end), 0) as incoming,
+                           coalesce(sum(case when l.account = '112' and l.credit > 0 then l.credit else 0 end), 0) as outgoing
+                    from gl_journal_entries e
+                    join gl_journal_lines l on l.entry_id = e.id
+                    join b2b_contracts c on c.id = e.contract_id
+                    where l.account = '112' and (%s) = %d
+                    group by date(e.created_at)
+                    order by day desc
+                    limit 30
+                    """.formatted(CONTRACT_HUB_ID_EXPR, hubId)
+                : """
+                    select date(e.created_at) as day,
+                           coalesce(sum(case when l.account = '112' and l.debit > 0 then l.debit else 0 end), 0) as incoming,
+                           coalesce(sum(case when l.account = '112' and l.credit > 0 then l.credit else 0 end), 0) as outgoing
+                    from gl_journal_entries e
+                    join gl_journal_lines l on l.entry_id = e.id
+                    where l.account = '112'
+                    group by date(e.created_at)
+                    order by day desc
+                    limit 30
+                    """;
+        result.put("dailyCashflow", db.queryForList(dailySql));
 
         return result;
     }
@@ -712,28 +1032,54 @@ public class AdminBusinessService {
         BigDecimal goods = deliveredGoods(c);
         BigDecimal feeRate = c.get("platform_fee_rate") != null ? decimal(c, "platform_fee_rate") : new BigDecimal("2.5");
         BigDecimal logisticsFee = c.get("logistics_fee_amount") != null ? decimal(c, "logistics_fee_amount") : BigDecimal.ZERO;
-        BigDecimal fee = money(goods.multiply(feeRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)).add(logisticsFee);
-        BigDecimal vatRate = c.get("service_vat_rate") != null ? decimal(c, "service_vat_rate") : new BigDecimal("8.0");
-        BigDecimal vat = money(fee.multiply(vatRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+        BigDecimal totalInvoice = goods.add(logisticsFee);
+        BigDecimal commissionFee = money(goods.multiply(feeRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+        BigDecimal honaRevenue = commissionFee.add(logisticsFee);
+        BigDecimal vatRate = c.get("service_vat_rate") != null && decimal(c, "service_vat_rate").signum() > 0
+                ? decimal(c, "service_vat_rate")
+                : new BigDecimal("8.0");
+        BigDecimal vat = money(honaRevenue.multiply(vatRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
 
-        BigDecimal deposit = c.get("deposit_received") != null ? decimal(c, "deposit_received")
-                : (c.get("deposit_30_amount") != null ? decimal(c, "deposit_30_amount")
-                : (c.get("deposit_amount") != null ? decimal(c, "deposit_amount")
-                : goods.multiply(new BigDecimal("0.3"))));
-        BigDecimal balanceDue = goods.subtract(deposit);
+        BigDecimal deposit = c.get("deposit_received") != null && decimal(c, "deposit_received").signum() > 0
+                ? decimal(c, "deposit_received")
+                : (c.get("deposit_30_amount") != null && decimal(c, "deposit_30_amount").signum() > 0
+                ? decimal(c, "deposit_30_amount")
+                : (c.get("deposit_amount") != null && decimal(c, "deposit_amount").signum() > 0
+                ? decimal(c, "deposit_amount")
+                : money(totalInvoice.multiply(new BigDecimal("0.3")))));
+        BigDecimal balanceDue = totalInvoice.subtract(deposit);
         if (balanceDue.signum() < 0) balanceDue = BigDecimal.ZERO;
 
-        BigDecimal heldFunds = held(c);
-        if (heldFunds == null) heldFunds = BigDecimal.ZERO;
-        BigDecimal payout = goods.subtract(fee).subtract(vat);
+        BigDecimal payout = goods.subtract(commissionFee).subtract(vat);
         if (payout.signum() < 0) payout = BigDecimal.ZERO;
+
+        var bankRows = db.queryForList("""
+                SELECT COALESCE(NULLIF(c.farmer_bank_name, ''), NULLIF(fp.bank_name, ''), NULLIF(u.bank_name, ''), '') AS bank_name,
+                       COALESCE(NULLIF(c.farmer_bank_account, ''), NULLIF(fp.bank_account, ''), NULLIF(u.bank_account_no, ''), '') AS bank_account,
+                       COALESCE(NULLIF(c.farmer_bank_owner, ''), NULLIF(fp.bank_account_name, ''), NULLIF(u.full_name, ''), '') AS bank_owner
+                FROM b2b_contracts c
+                LEFT JOIN users u ON u.id = c.farmer_id
+                LEFT JOIN farmer_profiles fp ON fp.user_id = c.farmer_id
+                WHERE c.id = ?
+                """, id);
+        String farmerBankName = bankRows.isEmpty() ? "" : Objects.toString(bankRows.getFirst().get("bank_name"), "");
+        String farmerBankAccount = bankRows.isEmpty() ? "" : Objects.toString(bankRows.getFirst().get("bank_account"), "");
+        String farmerBankOwner = bankRows.isEmpty() ? "" : Objects.toString(bankRows.getFirst().get("bank_owner"), "");
 
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("goods", goods);
+        map.put("logisticsFee", logisticsFee);
+        map.put("totalInvoice", totalInvoice);
         map.put("balanceDue", balanceDue);
-        map.put("serviceFee", fee);
+        map.put("feeRate", feeRate);
+        map.put("serviceFee", commissionFee);
+        map.put("honaRevenue", honaRevenue);
+        map.put("vatRate", vatRate);
         map.put("vat", vat);
         map.put("payout", payout);
+        map.put("farmerBankName", farmerBankName);
+        map.put("farmerBankAccount", farmerBankAccount);
+        map.put("farmerBankOwner", farmerBankOwner);
         return map;
     }
     private BigDecimal held(Map<String,Object> contract) { return db.queryForObject("select coalesce(sum(l.credit-l.debit),0) from gl_journal_lines l join gl_journal_entries e on e.id=l.entry_id where e.contract_id=? and l.account='3388'",BigDecimal.class,contract.get("id")); }

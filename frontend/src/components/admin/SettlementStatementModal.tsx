@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DollarSign,
   Receipt,
@@ -41,26 +41,42 @@ export const SettlementStatementModal: React.FC<SettlementStatementModalProps> =
     `VCB-${Date.now().toString().slice(-6)}-FT`
   );
   const [farmerBankName, setFarmerBankName] = useState(
-    contract.farmer_bank_name || 'Vietcombank (Chi nhánh Lâm Đồng)'
+    quote?.farmerBankName || contract.farmer_bank_name || ''
   );
   const [farmerBankAccount, setFarmerBankAccount] = useState(
-    contract.farmer_bank_account || '0071001234567'
+    quote?.farmerBankAccount || contract.farmer_bank_account || ''
   );
   const [farmerBankOwner, setFarmerBankOwner] = useState(
-    contract.farmer_bank_owner || contract.farmer_name || 'NGUYEN VAN HAI'
+    quote?.farmerBankOwner || contract.farmer_bank_owner || contract.farmer_name || ''
   );
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (quote?.farmerBankName || contract.farmer_bank_name) {
+      setFarmerBankName(quote?.farmerBankName || contract.farmer_bank_name || '');
+    }
+    if (quote?.farmerBankAccount || contract.farmer_bank_account) {
+      setFarmerBankAccount(quote?.farmerBankAccount || contract.farmer_bank_account || '');
+    }
+    if (quote?.farmerBankOwner || contract.farmer_bank_owner || contract.farmer_name) {
+      setFarmerBankOwner(quote?.farmerBankOwner || contract.farmer_bank_owner || contract.farmer_name || '');
+    }
+  }, [quote, contract]);
+
   if (!isOpen) return null;
 
-  const weight = Number(contract.offered_weight_kg || contract.quantityKg) || 0;
+  const weight = Number(contract.delivered_weight_kg || contract.offered_weight_kg || contract.quantity || contract.quantityKg) || 0;
   const unitPrice = Number(contract.offered_price_per_kg || contract.price_per_kg || contract.agreedPricePerKg) || 0;
   const calculatedGoods = (weight > 0 && unitPrice > 0) ? (weight * unitPrice) : 0;
-  const totalGoods = Number(quote?.goods || calculatedGoods || contract.total_goods_amount || contract.total_amount || 0);
-  const depositPaid = Number(contract.deposit_received || contract.deposit_30_amount || (totalGoods * 0.3));
-  const serviceFee = Number(quote?.serviceFee || (totalGoods * 0.03));
-  const vat = Number(quote?.vat || (serviceFee * 0.1));
-  const finalPayout = Number(quote?.payout || (totalGoods - serviceFee - vat));
+  const totalGoods = Number(quote?.goods || calculatedGoods || contract.total_goods_amount || 0);
+  const logisticsFee = Number(quote?.logisticsFee ?? contract.logistics_fee_amount ?? contract.shipping_fee ?? 0);
+  const totalInvoice = Number(quote?.totalInvoice ?? (totalGoods + logisticsFee));
+  const depositPaid = Number(contract.deposit_received || contract.deposit_30_amount || Math.round(totalInvoice * 0.3));
+  const feeRate = Number(quote?.feeRate ?? contract.platform_fee_rate ?? 2.5);
+  const serviceFee = Number(quote?.serviceFee ?? Math.round((totalGoods * feeRate) / 100));
+  const vatRate = Number(quote?.vatRate ?? contract.service_vat_rate ?? 8);
+  const vat = Number(quote?.vat ?? Math.round(((serviceFee + logisticsFee) * vatRate) / 100));
+  const finalPayout = Number(quote?.payout ?? Math.max(0, totalGoods - serviceFee - vat));
 
   const formatVnd = (val: number) =>
     val.toLocaleString('vi-VN', { maximumFractionDigits: 0 }) + ' ₫';
@@ -129,19 +145,27 @@ export const SettlementStatementModal: React.FC<SettlementStatementModalProps> =
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-700">
-                <span>Tổng giá trị tiền hàng thực tế:</span>
+                <span>Tiền nông sản (Số lượng × Đơn giá):</span>
                 <span className="font-mono font-bold text-gray-900">{formatVnd(totalGoods)}</span>
               </div>
+              <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-700">
+                <span>Cước vận chuyển HoNa thu hồi:</span>
+                <span className="font-mono font-bold text-gray-900">{formatVnd(logisticsFee)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-800 font-semibold">
+                <span>Tổng giá trị hóa đơn Buyer đã thanh toán (100%):</span>
+                <span className="font-mono font-bold text-emerald-800">{formatVnd(totalInvoice)}</span>
+              </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-600">
-                <span>Tiền cọc 30% Escrow sàn đã thu giữ:</span>
+                <span>Trong đó tiền cọc 30% đã thu trước:</span>
                 <span className="font-mono text-emerald-700 font-bold">{formatVnd(depositPaid)}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-600">
-                <span>Phí dịch vụ sàn HoNa Fresh (3%):</span>
-                <span className="font-mono text-rose-600">- {formatVnd(serviceFee)}</span>
+                <span>HoNa giữ lại: Cước vận chuyển + Hoa hồng {feeRate}% tiền hàng:</span>
+                <span className="font-mono text-rose-600">- {formatVnd(logisticsFee + serviceFee)}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-200 text-gray-600">
-                <span>Thuế GTGT dịch vụ sàn (10%):</span>
+                <span>Thuế GTGT dịch vụ Sàn nộp Nhà nước (VAT {vatRate}% - TK 3331):</span>
                 <span className="font-mono text-rose-600">- {formatVnd(vat)}</span>
               </div>
 

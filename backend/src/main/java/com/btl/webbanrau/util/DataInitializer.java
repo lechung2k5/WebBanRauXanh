@@ -156,7 +156,7 @@ public class DataInitializer implements CommandLineRunner {
             """);
             log.info("Normalized farmer Vietnamese font encoding in DataInitializer");
         } catch (Exception ignored) {}
-        for (String name : List.of("ADMIN","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER","USER")) {
+        for (String name : List.of("ADMIN","WAREHOUSE_MANAGER","ACCOUNTANT","WAREHOUSE_QC","DRIVER","FARMER","BUYER","USER")) {
             roleRepository.findByName("ROLE_"+name).orElseGet(()->roleRepository.save(new Role("ROLE_"+name,name)));
         }
         Role roleAdmin = roleRepository.findByName("ROLE_ADMIN").orElseThrow();
@@ -279,12 +279,46 @@ public class DataInitializer implements CommandLineRunner {
                 .password(passwordEncoder.encode("Qcstaff@123456"))
                 .fullName("Kỹ Thuật Viên Kiểm Định 01")
                 .phone("0933112233")
-                .address("Trạm Trung Chuyển Dầu Giây, Đồng Nai")
+                .address("Trạm Trung Chuyển Đức Trọng, Lâm Đồng")
+                .assignedHubId(2L)
                 .emailVerified(true)
                 .kycStatus("VERIFIED")
                 .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_WAREHOUSE_QC").orElseThrow())))
                 .build());
             log.info("Seeded default QC account: qc_tram1 / Qcstaff@123456");
+        }
+
+        // 4b. Seed Quản lý kho theo Trạm (ROLE_WAREHOUSE_MANAGER)
+        Role roleWarehouseManager = roleRepository.findByName("ROLE_WAREHOUSE_MANAGER").orElseThrow();
+        if (!userRepository.existsByUsername("qlkho_ductrong")) {
+            userRepository.save(User.builder()
+                .username("qlkho_ductrong")
+                .email("qlkho.ductrong@honafresh.vn")
+                .password(passwordEncoder.encode("Manager@123456"))
+                .fullName("Quản Lý Kho Đức Trọng")
+                .phone("0938112202")
+                .address("Trạm Trung Chuyển Đức Trọng (Hub Trung Tâm Lâm Đồng)")
+                .assignedHubId(2L)
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleWarehouseManager)))
+                .build());
+            log.info("Seeded Warehouse Manager (Hub 2): qlkho_ductrong / Manager@123456");
+        }
+        if (!userRepository.existsByUsername("qlkho_cuchi")) {
+            userRepository.save(User.builder()
+                .username("qlkho_cuchi")
+                .email("qlkho.cuchi@honafresh.vn")
+                .password(passwordEncoder.encode("Manager@123456"))
+                .fullName("Quản Lý Kho Củ Chi")
+                .phone("0938112201")
+                .address("Tổng Kho Chuỗi Lạnh Củ Chi (Hub TP.HCM)")
+                .assignedHubId(1L)
+                .emailVerified(true)
+                .kycStatus("VERIFIED")
+                .roles(new HashSet<>(Set.of(roleWarehouseManager)))
+                .build());
+            log.info("Seeded Warehouse Manager (Hub 1): qlkho_cuchi / Manager@123456");
         }
 
         // 5. Seed Tài xế vận tải lạnh TMS (ROLE_DRIVER)
@@ -295,7 +329,8 @@ public class DataInitializer implements CommandLineRunner {
                 .password(passwordEncoder.encode("Driver@123456"))
                 .fullName("Tài Xế Nguyễn Văn Tài")
                 .phone("0944556677")
-                .address("Đội xe Lạnh HoNa Express, TP.HCM")
+                .address("Trạm Trung Chuyển Đức Trọng, Lâm Đồng")
+                .assignedHubId(2L)
                 .emailVerified(true)
                 .kycStatus("VERIFIED")
                 .roles(new HashSet<>(Set.of(roleRepository.findByName("ROLE_DRIVER").orElseThrow())))

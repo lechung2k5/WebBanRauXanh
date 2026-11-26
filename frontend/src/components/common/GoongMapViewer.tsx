@@ -35,6 +35,12 @@ interface GoongMapViewerProps {
     lng: number;
     name?: string;
   };
+  currentPosition?: {
+    lat: number;
+    lng: number;
+    updatedAt?: string;
+    label?: string;
+  };
   center?: Coordinates;
   zoom?: number;
   height?: number;
@@ -121,6 +127,7 @@ function loadMapLibreScript(): Promise<MapLibreGlobal> {
 export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
   origin = { lat: 11.9404, lng: 108.4583, name: 'Trạm Trung Chuyển Đức Trọng - Đà Lạt' },
   destination = { lat: 10.8231, lng: 106.6297, name: 'Kho Tổng Hợp Thủ Đức - TP.HCM' },
+  currentPosition,
   center,
   zoom = 9,
   height = 360,
@@ -240,6 +247,33 @@ export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
             )
             .addTo(map);
 
+          // Tạo Marker Xe Tài Xế (GPS Live) nếu có currentPosition
+          if (currentPosition) {
+            const elTruck = document.createElement('div');
+            elTruck.innerHTML = `
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div style="width:34px;height:34px;border-radius:9999px;background:#ea580c;color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(234,88,12,0.5);">
+                  🚚
+                </div>
+                <span style="margin-top:2px;padding:1px 6px;border-radius:9999px;background:#0f172a;color:#fde047;font-size:9px;font-weight:800;white-space:nowrap;border:1px solid #fde047;">
+                  ${currentPosition.label || truckCode || 'GPS Live'}
+                </span>
+              </div>
+            `;
+            new maplibregl.Marker({ element: elTruck })
+              .setLngLat([currentPosition.lng, currentPosition.lat])
+              .setPopup(
+                new maplibregl.Popup({ offset: 15 }).setHTML(
+                  `<div style="font-family:sans-serif;font-size:12px;padding:4px;">
+                    <strong style="color:#ea580c;">Vị Trí Tài Xế (GPS)</strong>
+                    <p style="margin:2px 0 0;color:#374151;">${driverName || 'Tài xế HoNa'} · ${truckCode || ''}</p>
+                    ${currentPosition.updatedAt ? `<p style="margin:2px 0 0;color:#64748b;font-size:10px;">Cập nhật: ${new Date(currentPosition.updatedAt).toLocaleString('vi-VN')}</p>` : ''}
+                  </div>`
+                )
+              )
+              .addTo(map);
+          }
+
           // Vẽ Route Polyline nếu đã giải mã được tọa độ
           const coords = routeInfo?.polyline ? decodePolyline(routeInfo.polyline) : [];
           if (coords.length > 0) {
@@ -270,14 +304,20 @@ export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
               },
             });
 
-            // Tự động căn góc nhìn (Fit Bounds)
+            // Tự động căn góc nhìn (Fit Bounds) bao gồm cả vị trí GPS tài xế
             const bounds = new maplibregl.LngLatBounds();
             coords.forEach((c) => bounds.extend(c));
-            map.fitBounds(bounds, { padding: 40 });
+            if (currentPosition?.lat && currentPosition?.lng) {
+              bounds.extend([currentPosition.lng, currentPosition.lat]);
+            }
+            map.fitBounds(bounds, { padding: 45 });
           } else {
             const bounds = new maplibregl.LngLatBounds();
             bounds.extend([origin.lng, origin.lat]);
             bounds.extend([destination.lng, destination.lat]);
+            if (currentPosition?.lat && currentPosition?.lng) {
+              bounds.extend([currentPosition.lng, currentPosition.lat]);
+            }
             map.fitBounds(bounds, { padding: 50 });
           }
         });
@@ -304,7 +344,7 @@ export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
         mapInstanceRef.current = null;
       }
     };
-  }, [mapMode, origin.lat, origin.lng, destination.lat, destination.lng, routeInfo?.polyline, zoom, mapCenter.lat, mapCenter.lng]);
+  }, [mapMode, origin.lat, origin.lng, destination.lat, destination.lng, currentPosition?.lat, currentPosition?.lng, routeInfo?.polyline, zoom, mapCenter.lat, mapCenter.lng]);
 
   // Sinh URL bản đồ tĩnh Goong Route Static Map chuẩn
   const staticMapUrl = getRouteStaticMapUrl({
@@ -504,7 +544,7 @@ export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
         )}
 
         {/* Overlay Chú thích Marker & Goong Branding */}
-        <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-xl shadow-md border border-[#EAECE8] text-[11px] flex items-center gap-2 pointer-events-none z-10">
+        <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-xl shadow-md border border-[#EAECE8] text-[11px] flex flex-wrap items-center gap-2 pointer-events-none z-10">
           <span className="flex items-center gap-1 text-emerald-700 font-bold">
             <span className="w-2 h-2 rounded-full bg-emerald-500" /> A: Trạm xuất phát
           </span>
@@ -512,6 +552,15 @@ export const GoongMapViewer: React.FC<GoongMapViewerProps> = ({
           <span className="flex items-center gap-1 text-rose-700 font-bold">
             <span className="w-2 h-2 rounded-full bg-rose-500" /> B: Điểm giao hàng
           </span>
+          {currentPosition && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="flex items-center gap-1 text-amber-700 font-bold">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                Xe tài xế ({currentPosition.lat.toFixed(4)}, {currentPosition.lng.toFixed(4)})
+              </span>
+            </>
+          )}
         </div>
 
         <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-lg shadow-sm border border-[#EAECE8] text-[10px] font-bold text-[#10542C] flex items-center gap-1 pointer-events-none z-10">

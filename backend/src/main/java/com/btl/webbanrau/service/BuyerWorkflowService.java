@@ -318,43 +318,87 @@ public class BuyerWorkflowService {
         BigDecimal weight = weightDouble != null ? BigDecimal.valueOf(weightDouble) : new BigDecimal("100");
         Long lotId = rfq.getHarvestLot() != null ? rfq.getHarvestLot().getId() : 1L;
 
-        long contractId;
-        try {
-            ObjectNode contractRequest = objectMapper.createObjectNode()
-                    .put("lotId", lotId)
-                    .put("weightKg", weight.doubleValue())
-                    .put("pricePerKg", price)
-                    .put("deliveryAddress", rfq.getHubLocation() == null ? "" : rfq.getHubLocation())
-                    .put("logisticsFee", 0);
-            contractId = business.createContract(contractRequest, buyer.getId());
-            ObjectNode transition = objectMapper.createObjectNode().put("status", "AGREED");
-            business.transition(contractId, transition);
-            db.update("UPDATE b2b_contracts SET rfq_id=? WHERE id=?", rfq.getId(), contractId);
-        } catch (Exception ex) {
-            log.warn("createContract through business failed, inserting fallback contract for RFQ {}: {}", rfq.getRfqCode(), ex.getMessage());
-            String fallbackCode = "HD-" + java.time.Year.now().getValue() + "-" + java.util.UUID.randomUUID().toString().substring(0, 4).toUpperCase();
-            BigDecimal totalGoods = weight.multiply(price);
-            BigDecimal deposit30 = totalGoods.multiply(new BigDecimal("0.3"));
-            Long farmerId = rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null
+        List<Long> existingContractIds = db.queryForList(
+                "SELECT id FROM b2b_contracts WHERE rfq_id = ? LIMIT 1",
+                Long.class,
+                rfq.getId()
+        );
+        if (existingContractIds.isEmpty()) {
+            Map<String, Object> lotRow = db.queryForMap(
+                "SELECT available_weight_kg, status FROM harvest_lots WHERE id = ? FOR UPDATE",
+                lotId
+            );
+            BigDecimal currentAvailable = lotRow.get("available_weight_kg") != null
+                ? new BigDecimal(String.valueOf(lotRow.get("available_weight_kg")))
+                : BigDecimal.ZERO;
+            String lotStatus = lotRow.get("status") != null ? String.valueOf(lotRow.get("status")) : "OPEN";
+            if (!"OPEN".equalsIgnoreCase(lotStatus) || currentAvailable.compareTo(weight) < 0) {
+                throw new AuthException(400, "LOT_UNAVAILABLE", "Lô hàng không đủ sản lượng khả dụng (" + currentAvailable + " kg) hoặc đã đóng.");
+            }
+
+            String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + java.util.UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+            BigDecimal totalGoods = weight.multiply(price).setScale(0, java.math.RoundingMode.HALF_UP);
+            String rawOpt = rfq.getShippingOption() != null ? rfq.getShippingOption().trim().toUpperCase() : "";
+            boolean isSelfPickup = rawOpt.equals("PA3") || rawOpt.equals("FARM_PICKUP") || rawOpt.equals("BUYER_SELF_TRANSPORT")
+                    || rawOpt.contains("PICKUP") || rawOpt.contains("SELF")
+                    || rawOpt.contains("TỰ VẬN CHUYỂN") || rawOpt.contains("TỰ CHỞ") || rawOpt.contains("TỰ LẤY");
+            BigDecimal logisticsFee;
+            if (isSelfPickup) {
+                logisticsFee = weight.multiply(new BigDecimal("550")).max(new BigDecimal("120000")).setScale(0, java.math.RoundingMode.HALF_UP);
+            } else if (rawOpt.contains("DIRECT") || rawOpt.equals("PA1")) {
+                logisticsFee = weight.multiply(new BigDecimal("1200")).add(new BigDecimal("450000")).setScale(0, java.math.RoundingMode.HALF_UP);
+            } else {
+                logisticsFee = weight.multiply(new BigDecimal("850")).add(new BigDecimal("250000")).setScale(0, java.math.RoundingMode.HALF_UP);
+            }
+            BigDecimal grandTotal = totalGoods.add(logisticsFee);
+            var cfgList = db.queryForList("SELECT platform_fee_rate, deposit_rate, service_vat_rate FROM platform_settings WHERE id = 1");
+            Map<String, Object> cfg = cfgList.isEmpty() ? Map.of() : cfgList.getFirst();
+            BigDecimal depositRatePct = cfg.get("deposit_rate") != null ? new BigDecimal(String.valueOf(cfg.get("deposit_rate"))) : new BigDecimal("30");
+            BigDecimal feeRate = cfg.get("platform_fee_rate") != null ? new BigDecimal(String.valueOf(cfg.get("platform_fee_rate"))) : new BigDecimal("2.50");
+            BigDecimal vatRate = cfg.get("service_vat_rate") != null ? new BigDecimal(String.valueOf(cfg.get("service_vat_rate"))) : new BigDecimal("8.00");
+            BigDecimal deposit30 = isSelfPickup
+                    ? grandTotal
+                    : grandTotal.multiply(depositRatePct).divide(new BigDecimal("100"), 0, java.math.RoundingMode.HALF_UP);
+            BigDecimal remaining70 = grandTotal.subtract(deposit30).max(BigDecimal.ZERO);
+            BigDecimal feeAmount = totalGoods.multiply(feeRate).divide(new BigDecimal("100"), 0, java.math.RoundingMode.HALF_UP);
+            Long farmerId = rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmerId() != null
+                    ? rfq.getHarvestLot().getFarmerId()
+                    : (rfq.getHarvestLot() != null && rfq.getHarvestLot().getFarmer() != null
                     ? rfq.getHarvestLot().getFarmer().getId()
-                    : buyer.getId();
-            contractId = db.queryForObject("""
+                    : buyer.getId());
+
+            db.queryForObject("""
                 INSERT INTO b2b_contracts (
                     contract_code, lot_id, harvest_lot_id, rfq_id, farmer_id, buyer_id, buyer_name, buyer_phone,
                     quantity, quantity_kg, offered_weight_kg, unit_price, agreed_price_per_kg, offered_price_per_kg,
-                    total_amount, total_goods_amount, deposit_amount, deposit_30_amount,
+                    total_amount, total_goods_amount, deposit_amount, deposit_30_amount, remaining_amount,
+                    platform_fee_rate, platform_fee_amount, logistics_fee_amount, service_vat_rate,
+                    delivery_address, hub_delivery_date, hub_name,
                     status, deposit_status, fulfillment_status, created_at, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
-                    'AGREED', 'WAITING_DEPOSIT', 'WAITING_HARVEST', NOW(), NOW()
+                    ?, ?, ?,
+                    'AGREED', 'PENDING_DEPOSIT', 'WAITING_HARVEST', NOW(), NOW()
                 ) RETURNING id
             """, Long.class,
-                fallbackCode, lotId, lotId, rfq.getId(), farmerId,
-                buyer.getId(), buyer.getFullName(), buyer.getPhone(),
+                contractCode, lotId, lotId, rfq.getId(), farmerId,
+                buyer.getId(),
+                rfq.getBuyerName() != null ? rfq.getBuyerName() : buyer.getFullName(),
+                rfq.getBuyerPhone() != null ? rfq.getBuyerPhone() : buyer.getPhone(),
                 weight.doubleValue(), weight, weight, price, price, price,
-                totalGoods, totalGoods, deposit30, deposit30
+                grandTotal, totalGoods, deposit30, deposit30, remaining70,
+                feeRate, feeAmount, logisticsFee, vatRate,
+                rfq.getHubLocation() != null ? rfq.getHubLocation() : "",
+                rfq.getDeliveryDate(),
+                rfq.getHubLocation()
+            );
+
+            db.update(
+                "UPDATE harvest_lots SET available_weight_kg = GREATEST(0, COALESCE(available_weight_kg, 0) - ?), status = CASE WHEN COALESCE(available_weight_kg, 0) - ? <= 0 THEN 'SOLD_OUT' ELSE 'OPEN' END WHERE id = ?",
+                weight, weight, lotId
             );
         }
 
@@ -374,7 +418,7 @@ public class BuyerWorkflowService {
     public List<Map<String, Object>> contracts() {
         User buyer = currentBuyer();
         List<Map<String, Object>> list = db.queryForList("""
-                SELECT c.id, c.contract_code, c.status, c.deposit_status, c.fulfillment_status, c.total_goods_amount, c.deposit_30_amount,
+                SELECT c.id, c.contract_code, c.status, c.deposit_status, c.fulfillment_status, c.total_amount, c.total_goods_amount, c.logistics_fee_amount, c.platform_fee_rate, c.platform_fee_amount, c.deposit_30_amount,
                        c.deposit_received, c.balance_received, c.refund_amount, c.delivery_address,
                        c.remaining_amount, c.remaining_payment_status, c.remaining_paid_at, c.settled_at,
                        c.offered_weight_kg, c.offered_price_per_kg, c.created_at, c.lot_id,
@@ -382,17 +426,38 @@ public class BuyerWorkflowService {
                        c.harvest_proof_image_url, c.package_count, c.package_type, c.qr_code_data,
                        c.grade1_ratio, c.farm_pickup_address, c.pickup_truck_plate,
                        c.pickup_driver_name, c.pickup_driver_phone, c.farm_handover_temp,
+                       c.qc_status, c.qc_brix, c.qc_nitrate_ppm, c.qc_pesticide_safe,
+                       c.qc_cert_url, c.qc_passed_at, c.delivery_notes,
+                       c.hub_warehouse_zone, c.hub_rack_bin, c.hub_inbound_at, c.hub_name,
+                       c.outbound_truck_plate, c.outbound_driver_name, c.outbound_dispatched_at,
+                       ot.trip_code AS outbound_trip_code,
+                       ot.current_lat AS driver_gps_lat,
+                       ot.current_lng AS driver_gps_lng,
+                       ot.gps_updated_at AS driver_gps_updated_at,
                        l.product_name, l.lot_code, l.puc_code, l.image_url,
-                       c.rfq_id, r.rfq_code,
+                       c.rfq_id, r.rfq_code, r.shipping_option,
                        COALESCE(c.buyer_name, bu.full_name) AS buyer_name,
                        COALESCE(c.buyer_phone, bu.phone) AS buyer_phone,
+                       bu.company_name AS buyer_company,
+                       COALESCE(NULLIF(bu.warehouse_address, ''), NULLIF(c.delivery_address, ''), NULLIF(r.hub_location, ''), bu.address) AS resolved_buyer_address,
                        fu.full_name AS farmer_name, fu.phone AS farmer_phone,
-                       fu.company_name AS farmer_company
+                       COALESCE(NULLIF(fp.farm_name, ''), fu.company_name) AS farmer_company,
+                       COALESCE(NULLIF(fp.location, ''), fu.address) AS farmer_address,
+                       COALESCE(NULLIF(fp.puc_code, ''), NULLIF(l.puc_code, ''), fu.puc_code) AS farmer_puc_code
                 FROM b2b_contracts c
                 JOIN harvest_lots l ON l.id = COALESCE(c.lot_id, c.harvest_lot_id)
                 LEFT JOIN rfq_negotiations r ON r.id=c.rfq_id
                 LEFT JOIN users bu ON bu.id=c.buyer_id
                 LEFT JOIN users fu ON fu.id=c.farmer_id
+                LEFT JOIN farmer_profiles fp ON fp.user_id=fu.id
+                LEFT JOIN LATERAL (
+                    SELECT t.trip_code, t.current_lat, t.current_lng, t.gps_updated_at
+                    FROM outbound_delivery_stops s
+                    JOIN outbound_delivery_trips t ON t.id = s.trip_id
+                    WHERE s.contract_id = c.id AND s.status <> 'CANCELLED' AND t.status <> 'CANCELLED'
+                    ORDER BY t.id DESC
+                    LIMIT 1
+                ) ot ON TRUE
                 WHERE c.buyer_id=? ORDER BY c.id DESC
                 """, buyer.getId());
 
@@ -405,14 +470,17 @@ public class BuyerWorkflowService {
             String fs = row.get("fulfillment_status") != null ? String.valueOf(row.get("fulfillment_status")) : "WAITING_HARVEST";
             Boolean pa = row.get("packaging_approved") != null ? Boolean.valueOf(String.valueOf(row.get("packaging_approved"))) : false;
 
-            int step = FarmerService.computeFulfillmentStep(st, ds, fs);
-            String stepName = FarmerService.computeFulfillmentStatusName(st, ds, fs, pa);
+            String qs = row.get("qc_status") != null ? String.valueOf(row.get("qc_status")) : null;
+            String rps = row.get("remaining_payment_status") != null ? String.valueOf(row.get("remaining_payment_status")) : null;
+            int step = FarmerService.computeFulfillmentStep(st, ds, fs, rps);
+            String stepName = FarmerService.computeFulfillmentStatusName(st, ds, fs, pa, qs, rps);
 
             row.put("status", st);
             row.put("depositStatus", ds);
             row.put("fulfillmentStatus", fs);
             row.put("fulfillmentStep", step);
             row.put("fulfillmentStatusName", stepName);
+            row.put("shippingOption", row.get("shipping_option"));
             enriched.add(row);
         }
         return enriched;
@@ -420,14 +488,14 @@ public class BuyerWorkflowService {
 
     @Transactional
     public Map<String, Object> depositQr(Long contractId) {
-        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
+        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), total_amount=COALESCE(total_goods_amount,total_amount,0)+COALESCE(logistics_fee_amount,0), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
         Map<String, Object> contract = ownedContract(contractId);
         BigDecimal amount = decimal(contract, "deposit_30_amount");
         if (amount.signum() <= 0) amount = decimal(contract, "deposit_amount");
         if (amount.signum() <= 0) {
-            BigDecimal totalGoods = decimal(contract, "total_goods_amount");
-            if (totalGoods.signum() <= 0) totalGoods = decimal(contract, "total_amount");
-            amount = totalGoods.multiply(new BigDecimal("0.3"));
+            BigDecimal totalInvoice = decimal(contract, "total_goods_amount").add(decimal(contract, "logistics_fee_amount"));
+            if (totalInvoice.signum() <= 0) totalInvoice = decimal(contract, "total_amount");
+            amount = totalInvoice.multiply(new BigDecimal("0.3")).setScale(0, java.math.RoundingMode.HALF_UP);
         }
         return new LinkedHashMap<>(Map.of(
                 "contractId", contractId,
@@ -442,14 +510,14 @@ public class BuyerWorkflowService {
 
     @Transactional
     public Map<String, Object> confirmDeposit(Long contractId) {
-        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
+        db.update("UPDATE b2b_contracts SET lot_id=COALESCE(lot_id,harvest_lot_id), deposit_30_amount=COALESCE(deposit_30_amount,deposit_amount), total_goods_amount=COALESCE(total_goods_amount,total_amount), total_amount=COALESCE(total_goods_amount,total_amount,0)+COALESCE(logistics_fee_amount,0), offered_weight_kg=COALESCE(offered_weight_kg, quantity_kg, quantity), offered_price_per_kg=COALESCE(offered_price_per_kg, agreed_price_per_kg, unit_price) WHERE id=?", contractId);
         Map<String, Object> contract = ownedContract(contractId);
         BigDecimal depositAmount = decimal(contract, "deposit_30_amount");
         if (depositAmount.signum() <= 0) depositAmount = decimal(contract, "deposit_amount");
         if (depositAmount.signum() <= 0) {
-            BigDecimal totalGoods = decimal(contract, "total_goods_amount");
-            if (totalGoods.signum() <= 0) totalGoods = decimal(contract, "total_amount");
-            depositAmount = totalGoods.multiply(new BigDecimal("0.3"));
+            BigDecimal totalInvoice = decimal(contract, "total_goods_amount").add(decimal(contract, "logistics_fee_amount"));
+            if (totalInvoice.signum() <= 0) totalInvoice = decimal(contract, "total_amount");
+            depositAmount = totalInvoice.multiply(new BigDecimal("0.3")).setScale(0, java.math.RoundingMode.HALF_UP);
         }
         if (depositAmount.signum() <= 0) {
             throw new AuthException(400, "INVALID_DEPOSIT", "Hợp đồng chưa có số tiền cọc hợp lệ.");
@@ -541,16 +609,70 @@ public class BuyerWorkflowService {
                     .put("status", "DELIVERED")
                     .put("reference", "BAL-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase());
             business.transition(contractId, paymentRequest);
-            db.update("UPDATE b2b_contracts SET remaining_paid_at=CURRENT_TIMESTAMP WHERE id=?", contractId);
+            db.update("UPDATE b2b_contracts SET remaining_payment_status='PAID', remaining_paid_at=CURRENT_TIMESTAMP, fulfillment_status='COMPLETED' WHERE id=?", contractId);
         }
 
-        ObjectNode settlementRequest = objectMapper.createObjectNode()
-                .put("status", "SETTLED")
-                .put("reference", "SET-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase())
-                .put("bankTransferRef", "BAL-" + UUID.randomUUID().toString().substring(0, 10).toUpperCase());
-        business.transition(contractId, settlementRequest);
         Map<String, Object> updated = ownedContract(contractId);
-        b2bRealtimeService.notifyContractUpdated("SETTLED", (String) updated.get("contract_code"), updated);
+        b2bRealtimeService.notifyContractUpdated("BALANCE_PAID", (String) updated.get("contract_code"), updated);
+        return updated;
+    }
+
+    @Transactional
+    public Map<String, Object> dispatchSelfPickup(Long contractId, Map<String, Object> body) {
+        User buyer = currentBuyer();
+        List<Map<String, Object>> rows = db.queryForList("""
+                SELECT c.*, r.shipping_option
+                FROM b2b_contracts c
+                LEFT JOIN rfq_negotiations r ON r.id = c.rfq_id
+                WHERE c.id = ? AND c.buyer_id = ?
+                """, contractId, buyer.getId());
+        if (rows.isEmpty()) {
+            throw new AuthException(404, "CONTRACT_NOT_FOUND", "Không tìm thấy hợp đồng hoặc bạn không có quyền thao tác.");
+        }
+        Map<String, Object> c = rows.getFirst();
+        String rawOpt = c.get("shipping_option") != null ? String.valueOf(c.get("shipping_option")).trim().toUpperCase() : "";
+        boolean isSelfPickup = rawOpt.equals("PA3") || rawOpt.equals("FARM_PICKUP")
+                || rawOpt.equals("BUYER_SELF_TRANSPORT") || rawOpt.contains("PICKUP") || rawOpt.contains("SELF");
+        if (!isSelfPickup) {
+            throw new AuthException(400, "INVALID_SHIPPING_OPTION", "Chỉ đơn phương án PA3 (Tự lấy tại kho HoNa) mới dùng tính năng tự điều xe.");
+        }
+
+        String qcStatus = c.get("qc_status") != null ? String.valueOf(c.get("qc_status")).trim().toUpperCase() : "";
+        String status = c.get("status") != null ? String.valueOf(c.get("status")).trim().toUpperCase() : "";
+        boolean isQcPassed = "QC_PASSED".equals(qcStatus) || "PASSED".equals(qcStatus)
+                || "QC_PASSED".equals(status) || "READY_OUTBOUND".equals(status);
+        if (!isQcPassed) {
+            throw new AuthException(400, "QC_NOT_PASSED", "Lô hàng chưa hoàn tất kiểm định QC đạt chuẩn tại kho HoNa.");
+        }
+
+        String truckPlate = body.get("truckPlate") != null ? String.valueOf(body.get("truckPlate")).trim().toUpperCase() : "";
+        String driverName = body.get("driverName") != null ? String.valueOf(body.get("driverName")).trim() : "";
+        String driverPhone = body.get("driverPhone") != null ? String.valueOf(body.get("driverPhone")).trim() : "";
+        String etaText = body.get("etaText") != null ? String.valueOf(body.get("etaText")).trim() : "";
+        String notes = body.get("notes") != null ? String.valueOf(body.get("notes")).trim() : "";
+
+        if (truckPlate.isBlank() || driverName.isBlank() || driverPhone.isBlank()) {
+            throw new AuthException(400, "MISSING_TRUCK_INFO", "Vui lòng nhập đầy đủ biển số xe, tên tài xế và số điện thoại tài xế.");
+        }
+
+        String driverDisplay = driverName + " (" + driverPhone + ")";
+        String noteSummary = "[PA3 Xe thương lái đang đến] Biển số: " + truckPlate
+                + " | Tài xế: " + driverDisplay
+                + (etaText.isBlank() ? "" : " | Dự kiến đến: " + etaText)
+                + (notes.isBlank() ? "" : " | Ghi chú: " + notes);
+
+        db.update("""
+                UPDATE b2b_contracts
+                SET outbound_truck_plate = ?,
+                    outbound_driver_name = ?,
+                    fulfillment_status = 'BUYER_TRUCK_EN_ROUTE',
+                    delivery_notes = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, truckPlate, driverDisplay, noteSummary, contractId);
+
+        Map<String, Object> updated = db.queryForMap("SELECT * FROM b2b_contracts WHERE id = ?", contractId);
+        b2bRealtimeService.notifyContractUpdated("BUYER_TRUCK_EN_ROUTE", String.valueOf(c.get("contract_code")), updated);
         return updated;
     }
 

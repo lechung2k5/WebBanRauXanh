@@ -170,50 +170,184 @@ export default function B2bContractViewModal({
   };
 
   const farmerPickupParsed = parsePickupDetails(contract.farmerAddress || contract.farmPickupAddress);
-  const cleanFarmerLocation = farmerPickupParsed.farmLocation || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng';
+  const rawFarmerAddr = cleanText(contract.farmerAddress);
+  const cleanFarmerLocation =
+    (rawFarmerAddr && !rawFarmerAddr.startsWith('Bốc hàng tại') ? rawFarmerAddr : '') ||
+    (farmerPickupParsed.farmLocation !== 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng' ? farmerPickupParsed.farmLocation : '') ||
+    'Chưa cập nhật địa chỉ vườn';
 
-  const farmerCompName = cleanText(contract.farmerCompany) || cleanText(contract.farmerName) || 'HTX Nông Nghiệp Đà Lạt GAP';
-  let farmerRepName = cleanText(contract.farmerRepresentative);
-  if (!farmerRepName || farmerRepName === farmerCompName) {
-    farmerRepName = (cleanText(contract.farmerName) && cleanText(contract.farmerName) !== farmerCompName)
-      ? cleanText(contract.farmerName)
-      : 'Nguyễn Văn Nông';
-  }
-  const farmerPhoneStr = cleanPhone(contract.farmerPhone, farmerPickupParsed.contactPhone || '0912.345.678');
+  const farmerCompName = cleanText(contract.farmerCompany) || cleanText(contract.farmerName) || 'Chưa cập nhật';
+  const farmerRepName = cleanText(contract.farmerRepresentative) || cleanText(contract.farmerName) || farmerCompName;
+  const farmerPhoneStr = cleanPhone(contract.farmerPhone, farmerPickupParsed.contactPhone || '');
 
-  let buyerCompName = cleanText(contract.buyerCompany);
-  let buyerRepName = cleanText(contract.buyerRepresentative);
-  if (!buyerCompName && !buyerRepName) {
-    buyerCompName = cleanText(contract.buyerName) || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
-    buyerRepName = 'Trần Thị Thương';
-  } else if (buyerCompName && !buyerRepName) {
-    buyerRepName = (cleanText(contract.buyerName) && cleanText(contract.buyerName) !== buyerCompName)
-      ? cleanText(contract.buyerName)
-      : 'Trần Thị Thương';
-  } else if (!buyerCompName && buyerRepName) {
-    buyerCompName = (cleanText(contract.buyerName) && cleanText(contract.buyerName) !== buyerRepName)
-      ? cleanText(contract.buyerName)
-      : 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
-  }
-  if (buyerCompName === buyerRepName) {
-    buyerCompName = 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
-  }
+  const buyerCompName = cleanText(contract.buyerCompany) || cleanText(contract.buyerName) || 'Chưa cập nhật';
+  const buyerRepName = cleanText(contract.buyerRepresentative) || cleanText(contract.buyerName) || buyerCompName;
 
-  const buyerPhoneStr = cleanPhone(contract.buyerPhone, '0987.654.321');
-  const deliveryAddressStr = cleanText(contract.deliveryAddress) || cleanText(contract.buyerAddress) || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM';
-  const rfqCodeStr = cleanText(contract.rfqCode) || (contract.contractCode ? `RFQ-${contract.contractCode.replace(/^HD-/, '')}` : 'RFQ-8915FD6E');
+  const buyerPhoneStr = cleanPhone(contract.buyerPhone, '');
+  const deliveryAddressStr = cleanText(contract.deliveryAddress) || cleanText(contract.buyerAddress) || 'Chưa cập nhật địa chỉ nhận';
+  const rfqCodeStr = cleanText(contract.rfqCode) || (contract.contractCode ? `RFQ-${contract.contractCode.replace(/^HD-/, '')}` : '');
 
   const formatVnd = (num?: number) => {
     if (num === undefined || num === null) return '0 đ';
     return num.toLocaleString('vi-VN') + ' đ';
   };
 
+  const createdDate = contract.createdAt ? new Date(contract.createdAt) : new Date();
+  const dayStr = String(createdDate.getDate()).padStart(2, '0');
+  const monthStr = String(createdDate.getMonth() + 1).padStart(2, '0');
+  const yearStr = String(createdDate.getFullYear());
+
   const handlePrint = () => {
-    if (contract.id) {
-      window.open(getContractPrintUrl(contract.id), '_blank');
-    } else {
-      window.print();
+    const win = window.open('', '_blank', 'width=900,height=780');
+    if (!win) {
+      if (contract.id) window.open(getContractPrintUrl(contract.id), '_blank');
+      else window.print();
+      return;
     }
+
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Hợp Đồng Mua Bán Hàng Hóa ${contract.contractCode}</title>
+          <style>
+            @page { size: A4; margin: 16mm; }
+            body { font-family: "Times New Roman", Times, serif; color: #0f172a; font-size: 13px; line-height: 1.55; max-width: 820px; margin: 0 auto; padding: 16px; }
+            .no-print { display: flex; justify-content: flex-end; gap: 8px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px dashed #cbd5e1; font-family: Arial, sans-serif; }
+            @media print { .no-print { display: none !important; } body { padding: 0; max-width: none; } }
+            h2.art { font-size: 13px; font-weight: bold; margin: 12px 0 4px; }
+            p { margin: 4px 0; text-align: justify; }
+            table { width: 100%; border-collapse: collapse; margin: 8px 0 10px; font-size: 12.5px; }
+            th, td { border: 1px solid #334155; padding: 6px 8px; }
+            th { background: #f1f5f9; text-align: center; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="no-print">
+            <button onclick="window.print()" style="background:#10542c;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:bold;cursor:pointer;">In Hợp Đồng (A4)</button>
+            <button onclick="window.close()" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:8px 14px;border-radius:8px;font-weight:bold;cursor:pointer;">Đóng</button>
+          </div>
+
+          <div style="text-align:center;margin-bottom:14px;">
+            <div style="font-weight:bold;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+            <div style="font-weight:bold;">Độc lập – Tự do – Hạnh phúc</div>
+            <div>——————-</div>
+            <h1 style="margin:8px 0 2px;font-size:18px;font-weight:bold;">HỢP ĐỒNG MUA BÁN HÀNG HÓA</h1>
+            <div><strong>Số: ${contract.contractCode}/HĐMB</strong></div>
+          </div>
+
+          <p><strong>Căn cứ:</strong></p>
+          <p>– Bộ luật Dân sự số 91/2015/QH13 ngày 24/11/2015 và các văn bản pháp luật liên quan;</p>
+          <p>– Luật Thương mại số 36/2005/QH11 ngày 14/06/2005 và các văn bản pháp luật liên quan;</p>
+          <p>– Nhu cầu và khả năng của các bên;</p>
+          <p style="margin-top:6px;">Hôm nay, ngày <strong>${dayStr}</strong> tháng <strong>${monthStr}</strong> năm <strong>${yearStr}</strong>, tại Sàn giao dịch nông sản B2B HoNa Fresh.</p>
+          <p>Chúng tôi gồm có:</p>
+
+          <div style="margin:8px 0;">
+            <p><strong>BÊN BÁN (Bên A): ${farmerCompName}</strong></p>
+            <p>Mã số / Mã vùng trồng (PUC): ${cleanText(contract.farmerPuc) || 'VN-PUC-VIETGAP'}</p>
+            <p>Địa chỉ trụ sở chính: ${cleanFarmerLocation}</p>
+            <p>Điện thoại: ${farmerPhoneStr}</p>
+            <p>Đại diện theo pháp luật: <strong>${farmerRepName}</strong> &nbsp;&nbsp;&nbsp; Chức vụ: Chủ trang trại / Giám đốc HTX</p>
+          </div>
+
+          <div style="margin:8px 0 12px;">
+            <p><strong>BÊN MUA (Bên B): ${buyerCompName}</strong></p>
+            <p>Địa chỉ trụ sở chính: ${deliveryAddressStr}</p>
+            <p>Điện thoại: ${buyerPhoneStr}</p>
+            <p>Đại diện theo pháp luật: <strong>${buyerRepName}</strong> &nbsp;&nbsp;&nbsp; Chức vụ: Giám đốc thu mua</p>
+          </div>
+
+          <p>Trên cơ sở thỏa thuận, hai bên thống nhất ký kết hợp đồng mua bán hàng hóa với các điều khoản như sau:</p>
+
+          <h2 class="art">Điều 1: TÊN HÀNG – SỐ LƯỢNG – CHẤT LƯỢNG – GIÁ TRỊ HỢP ĐỒNG</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>STT</th>
+                <th>Tên hàng hóa</th>
+                <th>Đơn vị</th>
+                <th>Số lượng</th>
+                <th>Đơn giá</th>
+                <th>Thành tiền</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="text-align:center;">1</td>
+                <td><strong>${contract.productName}</strong> (${contract.lotCode || rfqCodeStr})</td>
+                <td style="text-align:center;">kg</td>
+                <td style="text-align:right;font-weight:bold;">${Number(contract.quantityKg || 0).toLocaleString('vi-VN')}</td>
+                <td style="text-align:right;">${formatVnd(contract.unitPrice)}</td>
+                <td style="text-align:right;font-weight:bold;">${formatVnd(goodsAmount)}</td>
+                <td>Đạt chuẩn VietGAP / KCT (Không chịu VAT nông sản)</td>
+              </tr>
+              ${shippingFee > 0 ? `
+              <tr>
+                <td style="text-align:center;">2</td>
+                <td>Cước vận tải lạnh (${getShippingMethodLabel(contract.shippingOption).title})</td>
+                <td style="text-align:center;">Chuyến</td>
+                <td style="text-align:right;">1</td>
+                <td style="text-align:right;">${formatVnd(shippingFee)}</td>
+                <td style="text-align:right;">${formatVnd(shippingFee)}</td>
+                <td>Theo biểu phí sàn (Dịch vụ chịu VAT 8%)</td>
+              </tr>` : ''}
+            </tbody>
+          </table>
+          <p><strong>Tổng giá trị thanh toán hợp đồng: ${formatVnd(grandTotal)}</strong> (Đã bao gồm đặt cọc 30% Escrow: <strong>${formatVnd(calculatedDeposit)}</strong>; Số tiền còn lại 70%: <strong>${formatVnd(remainingAmount)}</strong>).</p>
+
+          <h2 class="art">Điều 2: THANH TOÁN</h2>
+          <p>1. Bên B phải thanh toán cọc 30% bảo chứng Escrow (${formatVnd(calculatedDeposit)}) ngay khi ký kết hợp đồng và thanh toán 70% phần còn lại (${formatVnd(remainingAmount)}) sau khi kiểm đếm, ký nhận Biên bản giao nhận điện tử (ePOD) tại kho Bên B.</p>
+          <p>2. Bên B thanh toán qua cổng VietQR / Chuyển khoản ngân hàng vào tài khoản ký quỹ bảo chứng của Sàn HoNa Fresh.</p>
+
+          <h2 class="art">Điều 3: THỜI GIAN, ĐỊA ĐIỂM VÀ PHƯƠNG THỨC GIAO HÀNG</h2>
+          <p>1. Địa điểm giao hàng: ${deliveryAddressStr} (${cleanText(contract.deliveryTimeSlot) || 'Theo lịch điều phối sàn'}).</p>
+          <p>2. Phương tiện vận chuyển và chi phí vận chuyển: ${getShippingMethodLabel(contract.shippingOption).title}.</p>
+          <p>3. Quy định lịch giao nhận hàng hóa: Nếu Bên B không đến nhận hàng đúng lịch thì phải chịu chi phí lưu kho lạnh; nếu Bên A không có hàng giao đúng cam kết thì phải chịu bồi hoàn theo quy định của Sàn.</p>
+          <p>4. Khi nhận hàng, Bên B có trách nhiệm kiểm nhận phẩm chất, quy cách hàng hóa tại chỗ và lập Biên bản giao nhận ePOD. Nếu phát hiện hàng thiếu hoặc không đúng tiêu chuẩn chất lượng thì ghi nhận ngay trên ePOD để đối soát.</p>
+          <p>5. Trường hợp giao nhận hàng theo nguyên đai, nguyên kiện, nếu phát hiện vi phạm chất lượng khi kiểm định KCS tại trạm trung chuyển, Bên A chịu trách nhiệm xử lý hoàn hàng hoặc bù hàng theo quy trình QC của HoNa Fresh.</p>
+          <p>6. Mỗi lô hàng khi giao nhận phải có xác nhận chất lượng bằng Biên bản kiểm định QA/QC và Phiếu xuất kho / Hợp đồng vận chuyển kèm theo.</p>
+
+          <h2 class="art">Điều 4: TRÁCH NHIỆM CỦA CÁC BÊN</h2>
+          <p>1. Bên bán chịu trách nhiệm đảm bảo chất lượng nông sản đúng tiêu chuẩn VietGAP và sản lượng đã cam kết; không chịu trách nhiệm về khiếm khuyết mà Bên mua đã biết tại thời điểm giao kết.</p>
+          <p>2. Trong thời hạn khiếu nại theo quy định của Luật Thương mại 2005, Bên bán chịu trách nhiệm về khiếm khuyết của hàng hóa phát sinh trước thời điểm chuyển rủi ro.</p>
+          <p>3. Bên mua có trách nhiệm thanh toán đầy đủ và nhận hàng theo đúng thời gian đã thỏa thuận.</p>
+
+          <h2 class="art">Điều 5: BẢO HÀNH VÀ HƯỚNG DẪN BẢO QUẢN HÀNG HÓA</h2>
+          <p>1. Bên A chịu trách nhiệm đảm bảo độ tươi, chỉ số an toàn thực phẩm (Brix, Nitrate, thuốc BVTV âm tính) của lô hàng <strong>${contract.productName}</strong> trong suốt thời gian lưu kho lạnh tiêu chuẩn (FEFO).</p>
+          <p>2. Quy cách đóng gói & bảo quản: ${cleanText(contract.packageType) || 'Thùng xốp niêm phong giữ nhiệt 2°C - 6°C'}.</p>
+
+          <h2 class="art">Điều 6: ĐIỀU KHOẢN PHẠT VI PHẠM HỢP ĐỒNG</h2>
+          <p>Hai bên cam kết thực hiện nghiêm túc các điều khoản đã thỏa thuận trên, không được đơn phương thay đổi hoặc hủy bỏ hợp đồng. Bên nào vi phạm hoặc đơn phương đình chỉ hợp đồng không có lý do chính đáng sẽ chịu phạt <strong>8%</strong> giá trị phần hợp đồng bị vi phạm theo Luật Thương mại.</p>
+
+          <h2 class="art">Điều 7: BẤT KHẢ KHÁNG VÀ GIẢI QUYẾT TRANH CHẤP</h2>
+          <p>1. Bất khả kháng là các sự kiện khách quan không thể lường trước (thiên tai, bão lụt, hỏa hoạn, chiến tranh, phong tỏa giao thông). Khi xảy ra bất khả kháng, bên gặp phải phải thông báo ngay cho bên kia để phối hợp giảm thiểu thiệt hại.</p>
+          <p>2. Mọi tranh chấp phát sinh ưu tiên giải quyết thông qua thương lượng và hòa giải trên Sàn HoNa Fresh; trường hợp không tự giải quyết được sẽ đưa ra Tòa án có thẩm quyền giải quyết.</p>
+
+          <h2 class="art">Điều 8: ĐIỀU KHOẢN CHUNG</h2>
+          <p>1. Hợp đồng này có hiệu lực từ ngày ký và tự động thanh lý kể từ khi Bên B đã nhận đủ hàng (ký ePOD) và Bên A đã nhận đủ tiền quyết toán.</p>
+          <p>2. Hợp đồng này thay thế mọi thỏa thuận trước đây giữa hai bên; mọi sửa đổi phải lập thành văn bản Phụ lục hợp đồng.</p>
+          <p>3. Hợp đồng được lập thành 02 bản có giá trị pháp lý như nhau (lưu trữ bản điện tử trên hệ thống HoNa Fresh), mỗi bên giữ 01 bản.</p>
+
+          <div style="display:flex;justify-content:space-between;gap:24px;margin-top:24px;text-align:center;">
+            <div style="flex:1;">
+              <div style="font-weight:bold;">ĐẠI DIỆN BÊN A (BÊN BÁN)</div>
+              <div style="font-size:11px;color:#475569;margin-bottom:46px;">(Ký tên, đóng dấu)</div>
+              <div style="font-weight:bold;">${farmerRepName}</div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:bold;">ĐẠI DIỆN BÊN B (BÊN MUA)</div>
+              <div style="font-size:11px;color:#475569;margin-bottom:46px;">(Ký tên, đóng dấu)</div>
+              <div style="font-weight:bold;">${buyerRepName}</div>
+            </div>
+          </div>
+          <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   return (
@@ -346,14 +480,14 @@ export default function B2bContractViewModal({
                   ) : (
                     <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ nhà vườn được mở khóa tự động ngay sau khi đặt cọc">
                       <LockKeyhole className="w-3 h-3 text-amber-700" />
-                      <span>0912.***.*** (Mở sau khi cọc)</span>
+                      <span>{farmerPhoneStr ? `${farmerPhoneStr.slice(0, 4)}.***.***` : '0***.***.***'} (Mở sau khi cọc)</span>
                     </span>
                   )}
                 </p>
                 <p>
                   Mã vùng trồng (PUC):{' '}
                   <strong className="font-mono text-[#10542C] bg-emerald-50 px-1.5 py-0.5 rounded font-bold">
-                    {cleanText(contract.farmerPuc) || 'VN-LDO-PUC-0849'}
+                    {cleanText(contract.farmerPuc) || 'Đang cập nhật'}
                   </strong>
                 </p>
                 <p className="text-slate-600">
@@ -395,7 +529,7 @@ export default function B2bContractViewModal({
                   ) : (
                     <span className="inline-flex items-center gap-1 font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-xs font-bold" title="Thông tin liên hệ thương lái mở sau khi nộp cọc">
                       <LockKeyhole className="w-3 h-3 text-amber-700" />
-                      <span>0987.***.*** (Mở sau khi cọc)</span>
+                      <span>{buyerPhoneStr ? `${buyerPhoneStr.slice(0, 4)}.***.***` : '0***.***.***'} (Mở sau khi cọc)</span>
                     </span>
                   )}
                 </p>
@@ -418,7 +552,7 @@ export default function B2bContractViewModal({
           {/* Bảng Chi Tiết Hàng Hóa & Giá Trị Hợp Đồng (Đã Gồm Cước Vận Chuyển Chuỗi Lạnh) */}
           <div className="space-y-2.5">
             <span className="font-bold text-slate-700 uppercase tracking-wider text-xs block">
-              CHI TIẾT LÔ NÔNG SẢN & ĐIỀU PHỐI LOGISTICS LẠNH
+              ĐIỀU 1: TÊN HÀNG – SỐ LƯỢNG – CHẤT LƯỢNG – GIÁ TRỊ HỢP ĐỒNG
             </span>
             <div className="border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
               <table className="w-full text-left border-collapse">
@@ -467,7 +601,7 @@ export default function B2bContractViewModal({
                       {isSelfPickup ? 'Tự vận chuyển' : `${(contract.quantityKg ?? 0).toLocaleString('vi-VN')} kg`}
                     </td>
                     <td className="py-3 px-3.5 text-right font-mono text-slate-700 text-xs sm:text-sm">
-                      {isSelfPickup ? '0 đ' : `~${Math.round(shippingFee / (contract.quantityKg || 1)).toLocaleString('vi-VN')} đ/kg`}
+                      {shippingFee <= 0 ? '0 đ' : `~${Math.round(shippingFee / (contract.quantityKg || 1)).toLocaleString('vi-VN')} đ/kg`}
                     </td>
                     <td className="py-3 px-3.5 text-right font-mono font-bold text-sky-900 text-sm">
                       {formatVnd(shippingFee)}
@@ -520,30 +654,102 @@ export default function B2bContractViewModal({
             </div>
           </div>
 
-          {/* Điều khoản vận chuyển và kiểm định QC */}
-          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2.5 leading-relaxed text-sm">
-            <span className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+          {/* Điều 2 - Điều 8 theo mẫu Hợp đồng mua bán hàng hóa */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-gray-50 border border-gray-200 space-y-4 leading-relaxed text-xs sm:text-sm text-slate-700">
+            <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
               <Truck className="w-4 h-4 text-[#10542C]" />
-              <span>ĐIỀU KHOẢN GIAO NHẬN & KIỂM ĐỊNH CHẤT LƯỢNG (QC)</span>
-            </span>
-            <ul className="list-disc pl-5 space-y-1.5 text-slate-600 text-xs sm:text-sm">
-              <li>
-                <strong>Điểm bàn giao:</strong> {contract.deliveryAddress || 'Trạm Trung Chuyển Nông Sản Đức Trọng, Lâm Đồng'}
-              </li>
-              <li>
-                <strong>Khung giờ bàn giao dự kiến:</strong>{' '}
-                {contract.deliveryTimeSlot || '06:00 - 09:00'}
-              </li>
-              <li>
-                <strong>Bảo quản lạnh IoT:</strong> Nông sản phải được duy trì trong dải nhiệt độ tiêu chuẩn từ <strong>2°C - 6°C</strong> xuyên suốt hành trình xe thùng lạnh.
-              </li>
-              <li>
-                <strong>Biên bản nghiệm thu KCS (QC Pass):</strong> Nhân viên kiểm định trạm kiểm tra độ ẩm, độ Brix và tỷ lệ dập vỡ trước khi xuất kho cho bên B.
-              </li>
-              <li>
-                <strong>Chữ ký nhận hàng điện tử (ePOD):</strong> Sau khi bên B kiểm tra và ký nhận ePOD tại kho nhận, sàn tự động giải ngân 70% số tiền còn lại vào tài khoản nhà vườn.
-              </li>
-            </ul>
+              <span className="font-bold text-slate-800 uppercase tracking-wide text-xs sm:text-sm">
+                CÁC ĐIỀU KHOẢN THỎA THUẬN (ĐIỀU 2 – ĐIỀU 8)
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 2: THANH TOÁN</h4>
+              <p>
+                1. Bên B phải thanh toán cọc {isSelfPickup ? '100%' : '30%'} bảo chứng Escrow (
+                <strong>{formatVnd(calculatedDeposit)}</strong>) ngay khi ký kết hợp đồng và thanh toán phần còn lại (
+                <strong>{formatVnd(remainingAmount)}</strong>) sau khi kiểm đếm, ký nhận Biên bản giao nhận điện tử (ePOD) tại kho Bên B.
+              </p>
+              <p>
+                2. Bên B thanh toán qua cổng VietQR / Chuyển khoản ngân hàng vào tài khoản ký quỹ bảo chứng của Sàn HoNa Fresh.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 3: THỜI GIAN, ĐỊA ĐIỂM VÀ PHƯƠNG THỨC GIAO HÀNG</h4>
+              <p>
+                1. Địa điểm giao hàng: <strong>{deliveryAddressStr}</strong> ({cleanText(contract.deliveryTimeSlot) || 'Theo lịch điều phối sàn'}).
+              </p>
+              <p>
+                2. Phương tiện vận chuyển và chi phí vận chuyển: <strong>{getShippingMethodLabel(contract.shippingOption).title}</strong>.
+              </p>
+              <p>
+                3. Quy định lịch giao nhận hàng hóa: Nếu Bên B không đến nhận hàng đúng lịch thì phải chịu chi phí lưu kho lạnh; nếu Bên A không có hàng giao đúng cam kết thì phải chịu bồi hoàn theo quy định của Sàn.
+              </p>
+              <p>
+                4. Khi nhận hàng, Bên B có trách nhiệm kiểm nhận phẩm chất, quy cách hàng hóa tại chỗ và lập Biên bản giao nhận ePOD. Nếu phát hiện hàng thiếu hoặc không đúng tiêu chuẩn chất lượng thì ghi nhận ngay trên ePOD để đối soát.
+              </p>
+              <p>
+                5. Trường hợp giao nhận hàng theo nguyên đai, nguyên kiện, nếu phát hiện vi phạm chất lượng khi kiểm định KCS tại trạm trung chuyển, Bên A chịu trách nhiệm xử lý hoàn hàng hoặc bù hàng theo quy trình QC của HoNa Fresh.
+              </p>
+              <p>
+                6. Mỗi lô hàng khi giao nhận phải có xác nhận chất lượng bằng Biên bản kiểm định QA/QC và Phiếu xuất kho / Hợp đồng vận chuyển kèm theo.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 4: TRÁCH NHIỆM CỦA CÁC BÊN</h4>
+              <p>
+                1. Bên bán chịu trách nhiệm đảm bảo chất lượng nông sản đúng tiêu chuẩn VietGAP và sản lượng đã cam kết; không chịu trách nhiệm về khiếm khuyết mà Bên mua đã biết tại thời điểm giao kết.
+              </p>
+              <p>
+                2. Trong thời hạn khiếu nại theo quy định của Luật Thương mại 2005, Bên bán chịu trách nhiệm về khiếm khuyết của hàng hóa phát sinh trước thời điểm chuyển rủi ro.
+              </p>
+              <p>
+                3. Bên mua có trách nhiệm thanh toán đầy đủ và nhận hàng theo đúng thời gian đã thỏa thuận.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 5: BẢO HÀNH VÀ HƯỚNG DẪN BẢO QUẢN HÀNG HÓA</h4>
+              <p>
+                1. Bên A chịu trách nhiệm đảm bảo độ tươi, chỉ số an toàn thực phẩm (Brix, Nitrate, thuốc BVTV âm tính) của lô hàng{' '}
+                <strong>{contract.productName}</strong> trong suốt thời gian lưu kho lạnh tiêu chuẩn (FEFO).
+              </p>
+              <p>
+                2. Quy cách đóng gói & bảo quản: <strong>{cleanText(contract.packageType) || 'Thùng xốp niêm phong giữ nhiệt 2°C - 6°C'}</strong>.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 6: ĐIỀU KHOẢN PHẠT VI PHẠM HỢP ĐỒNG</h4>
+              <p>
+                Hai bên cam kết thực hiện nghiêm túc các điều khoản đã thỏa thuận trên, không được đơn phương thay đổi hoặc hủy bỏ hợp đồng. Bên nào vi phạm hoặc đơn phương đình chỉ hợp đồng không có lý do chính đáng sẽ chịu phạt <strong>8%</strong> giá trị phần hợp đồng bị vi phạm theo Luật Thương mại.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 7: BẤT KHẢ KHÁNG VÀ GIẢI QUYẾT TRANH CHẤP</h4>
+              <p>
+                1. Bất khả kháng là các sự kiện khách quan không thể lường trước (thiên tai, bão lụt, hỏa hoạn, chiến tranh, phong tỏa giao thông). Khi xảy ra bất khả kháng, bên gặp phải phải thông báo ngay cho bên kia để phối hợp giảm thiểu thiệt hại.
+              </p>
+              <p>
+                2. Mọi tranh chấp phát sinh ưu tiên giải quyết thông qua thương lượng và hòa giải trên Sàn HoNa Fresh; trường hợp không tự giải quyết được sẽ đưa ra Tòa án có thẩm quyền giải quyết.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="font-bold text-slate-900">Điều 8: ĐIỀU KHOẢN CHUNG</h4>
+              <p>
+                1. Hợp đồng này có hiệu lực từ ngày ký và tự động thanh lý kể từ khi Bên B đã nhận đủ hàng (ký ePOD) và Bên A đã nhận đủ tiền quyết toán.
+              </p>
+              <p>
+                2. Hợp đồng này thay thế mọi thỏa thuận trước đây giữa hai bên; mọi sửa đổi phải lập thành văn bản Phụ lục hợp đồng.
+              </p>
+              <p>
+                3. Hợp đồng được lập thành 02 bản có giá trị pháp lý như nhau (lưu trữ bản điện tử trên hệ thống HoNa Fresh), mỗi bên giữ 01 bản.
+              </p>
+            </div>
           </div>
 
           {/* Kết quả nghiệm thu thu hoạch rẫy từ Nhà Vườn (nếu đã qua mốc 2 thu hoạch) */}

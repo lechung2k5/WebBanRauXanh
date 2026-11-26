@@ -72,6 +72,33 @@ public class OutboundDeliveryTrip extends BaseEntity {
     @Column(name = "created_by", length = 100)
     private String createdBy;
 
+    @Column(name = "current_lat")
+    private Double currentLat;
+
+    @Column(name = "current_lng")
+    private Double currentLng;
+
+    @Column(name = "gps_updated_at")
+    private LocalDateTime gpsUpdatedAt;
+
+    @Column(name = "transport_contract_code", length = 60)
+    private String transportContractCode;
+
+    @Column(name = "dispatcher_name", length = 150)
+    private String dispatcherName;
+
+    @Column(name = "dispatcher_signature_data", columnDefinition = "TEXT")
+    private String dispatcherSignatureData;
+
+    @Column(name = "driver_pickup_signature_data", columnDefinition = "TEXT")
+    private String driverPickupSignatureData;
+
+    @Column(name = "departure_photo_url", columnDefinition = "TEXT")
+    private String departurePhotoUrl;
+
+    @Column(name = "transport_contract_signed_at")
+    private LocalDateTime transportContractSignedAt;
+
     @Builder.Default
     @OneToMany(mappedBy = "trip", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @OrderBy("stopSequence ASC")

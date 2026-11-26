@@ -24,4 +24,7 @@ public interface PickupTripRepository extends JpaRepository<PickupTrip, Long> {
 
     @Query("SELECT t FROM PickupTrip t WHERE t.driver.phone = :phone AND t.status IN :statuses ORDER BY t.createdAt DESC")
     List<PickupTrip> findByDriverPhoneAndStatusIn(@Param("phone") String phone, @Param("statuses") List<String> statuses);
+
+    @Query("SELECT t FROM PickupTrip t LEFT JOIN FETCH t.driver WHERE t.status IN :statuses ORDER BY t.id DESC")
+    List<PickupTrip> findByStatusInWithDriverOrderByIdDesc(@Param("statuses") List<String> statuses);
 }

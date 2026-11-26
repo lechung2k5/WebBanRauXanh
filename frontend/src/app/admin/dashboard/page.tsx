@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   getUsersApi,
   getAdminLotStatsApi,
@@ -27,6 +28,8 @@ import {
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith('/manager') ? '/manager' : '/admin';
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalLots: 0,
@@ -155,7 +158,7 @@ export default function AdminDashboardPage() {
         </Link>
 
         <Link
-          href="/admin/contracts"
+          href={`${basePath}/contracts`}
           className="bg-white rounded-2xl p-5 border border-[#EAECE8] shadow-xs hover:border-purple-600 hover:shadow-md transition-all group cursor-pointer"
         >
           <div className="flex items-center justify-between text-[#6B7280] mb-2">
@@ -241,7 +244,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/contracts"
+            href={`${basePath}/contracts`}
             className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
           >
             <div>
@@ -262,7 +265,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/qc"
+            href={`${basePath}/qc`}
             className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
           >
             <div>
@@ -283,7 +286,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/outbound-dispatch"
+            href={`${basePath}/outbound-dispatch`}
             className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
           >
             <div>
@@ -304,7 +307,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/accounting"
+            href={`${basePath}/accounting`}
             className="p-5 rounded-2xl border border-[#EAECE8] bg-[#F9F9F5] hover:bg-[#EAF5E9]/50 hover:border-[#10542C] transition-all group flex flex-col justify-between cursor-pointer"
           >
             <div>

@@ -37,9 +37,19 @@ public class DriverPickupController {
         if (AuthService.has(user, "ADMIN")) {
             trips = pickupTripRepository.findAll();
         } else {
-            trips = pickupTripRepository.findByDriverPhoneAndStatusIn(user.getPhone(), activeStatuses);
+            String normalizedUserPhone = normalizePhone(user.getPhone());
+            trips = pickupTripRepository.findByStatusInWithDriverOrderByIdDesc(activeStatuses).stream()
+                    .filter(t -> t.getDriver() != null && (
+                            (t.getDriver().getUserId() != null && t.getDriver().getUserId().equals(user.getId())) ||
+                            (!normalizedUserPhone.isEmpty() && normalizedUserPhone.equals(normalizePhone(t.getDriver().getPhone())))
+                    ))
+                    .toList();
         }
         return ApiResponse.success(trips);
+    }
+
+    private String normalizePhone(String phone) {
+        return phone == null ? "" : phone.replaceAll("[^0-9]", "");
     }
 
     @GetMapping("/{tripId}")

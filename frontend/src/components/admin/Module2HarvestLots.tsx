@@ -986,13 +986,29 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
       shippingMethod: lotForm.shippingMethod,
       estimatedShippingFee: logisticsEstimates[lotForm.shippingMethod]?.estimatedFee || 0,
       warehouseLocation:
-        lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER'
-          ? 'Giao hỏa tốc bao xe từ Kho HoNa sau kiểm định QC'
-          : lotForm.shippingMethod === 'BUYER_SELF_TRANSPORT'
-          ? 'Khách tự điều xe nhận tại Kho HoNa Fresh'
-          : (lotForm.warehouseLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)'),
+        lotForm.warehouseLocation || 'Trạm Lạnh Cross-docking Đức Trọng, Lâm Đồng - Buồng Lạnh A1 (0°C - 4°C)',
       region: lotForm.region || 'Tây Nguyên & Lâm Đồng',
       auditNote: lotForm.auditNote || 'Đạt chuẩn kiểm định VietGAP',
+    };
+
+    const pushFarmerLotNotice = (farmerId: number | undefined, type: 'UPDATED' | 'DELETED', lotCode?: string, productName?: string, message?: string) => {
+      if (typeof window === 'undefined' || !farmerId) return;
+      try {
+        const key = `farmer_lot_notices_${farmerId}`;
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        const next = [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type,
+            lotCode: lotCode || '',
+            productName: productName || 'Lô nông sản',
+            message: message || '',
+            createdAt: new Date().toISOString(),
+          },
+          ...existing,
+        ].slice(0, 15);
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {}
     };
 
     setIsSubmittingLot(true);
@@ -1005,8 +1021,6 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           ...(saved || editingLot),
           ...payload,
           status: finalStatus,
-          shippingMethod: lotForm.shippingMethod,
-          estimatedShippingFee: logisticsEstimates[lotForm.shippingMethod]?.estimatedFee || 0,
           minTemp,
           maxTemp,
           reqTempMin: minTemp,
@@ -1025,18 +1039,32 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
           )
         );
 
+        const lotCodeLabel = payload.lotCode || editingLot.lotCode;
+        const productNameLabel = payload.productName || editingLot.productName;
+        pushFarmerLotNotice(
+          editingLot.farmerId,
+          'UPDATED',
+          lotCodeLabel,
+          productNameLabel,
+          `Quản trị viên đã chỉnh sửa thông số lô "${productNameLabel}" (${lotCodeLabel}).`
+        );
+
         // Đồng bộ realtime tới Portal Nông dân
         notifySyncEvent('LOT_UPDATED', {
           lot: enrichedUpdate,
           updatedLot: enrichedUpdate,
-          lotCode: payload.lotCode || editingLot.lotCode,
+          lotCode: lotCodeLabel,
+          productName: productNameLabel,
+          farmerId: editingLot.farmerId,
           lotId: editingLot.id,
         });
 
         if (finalStatus !== editingLot.status) {
           notifySyncEvent('LOT_STATUS_UPDATED', {
             lot: enrichedUpdate,
-            lotCode: payload.lotCode || editingLot.lotCode,
+            lotCode: lotCodeLabel,
+            productName: productNameLabel,
+            farmerId: editingLot.farmerId,
             lotId: editingLot.id,
             status: finalStatus,
             auditNote: payload.auditNote,
@@ -1082,12 +1110,47 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
 
   const handleDeleteLot = async (id: number) => {
     if (!confirm('Bạn có chắc chắn muốn xóa lô nông sản này khỏi hệ thống?')) return;
+    const targetLot = allLots.find((l) => l.id === id);
     try {
       await deleteHarvestLotApi(id);
+      if (targetLot?.farmerId && typeof window !== 'undefined') {
+        try {
+          const key = `farmer_lot_notices_${targetLot.farmerId}`;
+          const existing = JSON.parse(localStorage.getItem(key) || '[]');
+          const next = [
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              type: 'DELETED',
+              lotCode: targetLot.lotCode || '',
+              productName: targetLot.productName || 'Lô nông sản',
+              message: `Quản trị viên đã xóa lô nông sản "${targetLot.productName}" (${targetLot.lotCode}) khỏi hệ thống.`,
+              createdAt: new Date().toISOString(),
+            },
+            ...existing,
+          ].slice(0, 15);
+          localStorage.setItem(key, JSON.stringify(next));
+        } catch {}
+      }
+      notifySyncEvent('LOT_DELETED', {
+        lotId: id,
+        lotCode: targetLot?.lotCode,
+        productName: targetLot?.productName,
+        farmerId: targetLot?.farmerId,
+        source: 'ADMIN',
+      });
       await fetchLots();
       await fetchStats();
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi xóa lô nông sản');
+      const msg = err?.message || 'Lỗi khi xóa lô nông sản';
+      if (targetLot && (msg.includes('RFQ') || msg.includes('Hợp đồng') || msg.includes('đang được sử dụng') || msg.includes('Tạm khóa'))) {
+        const nextAction = targetLot.status === 'PENDING_APPROVAL' ? 'REJECTED' : 'SUSPENDED';
+        const actionLabel = nextAction === 'REJECTED' ? 'Từ chối (REJECTED)' : 'Tạm khóa / Ngừng bán (SUSPENDED)';
+        if (confirm(`${msg}\n\nBạn có muốn mở bảng cập nhật sang "${actionLabel}" kèm lý do để ẩn khỏi sàn ngay không?`)) {
+          openStatusModal(targetLot, nextAction);
+        }
+      } else {
+        alert(msg);
+      }
     }
   };
 
@@ -2487,219 +2550,44 @@ export function Module2HarvestLots({ activeTab = 'lots' }: Module2HarvestLotsPro
                   ))}
                 </div>
 
-                {/* ================= PHƯƠNG THỨC VẬN CHUYỂN & ĐIỀU PHỐI CHUỖI LẠNH ================= */}
-                <div className="space-y-3 bg-[#F9F9F5] p-3.5 rounded-2xl border border-[#E5E7EB]">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-[#10542C]" />
-                      <label className="text-xs font-bold text-gray-900 uppercase tracking-wide">
-                        Phương thức Vận chuyển & Điều phối Chuỗi Lạnh
-                      </label>
-                    </div>
-                    <span className="text-[11px] text-gray-500 font-medium">
-                      Dự toán tự động theo khối lượng: <strong className="text-[#10542C]">{(Number(lotForm.totalWeightKg) || 0).toLocaleString('vi-VN')} kg</strong>
+                {/* ================= TRẠM LẠNH / KHO TIẾP NHẬN DỰ KIẾN ================= */}
+                <div className="p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <label className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                      Kho lưu / Buồng lạnh trạm tiếp nhận dự kiến *
+                    </label>
+                    <span className="text-[10px] text-blue-700">
+                      Phương thức vận chuyển do Thương lái chọn khi tạo đơn mua
                     </span>
                   </div>
 
-                  {/* 3 Thẻ lựa chọn Phương án */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                    {/* Phương án 1 */}
-                    <div
-                      onClick={() =>
-                        setLotForm({
-                          ...lotForm,
-                          shippingMethod: 'DIRECT_FARM_TO_BUYER',
-                          warehouseLocation: 'Giao hỏa tốc bao xe từ Kho HoNa sau kiểm định QC',
-                        })
+                  {/* Dropdown chọn nhanh trạm có sẵn */}
+                  <select
+                    value={POPULAR_COLD_HUBS.includes(lotForm.warehouseLocation) ? lotForm.warehouseLocation : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setLotForm({ ...lotForm, warehouseLocation: e.target.value });
                       }
-                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
-                        lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER'
-                          ? 'border-[#10542C] bg-white shadow-sm ring-1 ring-[#10542C]/20'
-                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs text-gray-900">Phương án 1</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-amber-100 text-amber-800">
-                            Bao trọn xe sau QC
-                          </span>
-                        </div>
-                        <p className="text-[11px] font-semibold text-[#10542C]">
-                          Giao hỏa tốc từ Kho HoNa (Sau QC)
-                        </p>
-                        <p className="text-[10px] text-gray-500 line-clamp-2">
-                          Gom về kho HoNa kiểm định QC ➔ Xe lạnh riêng chở thẳng từ kho tới khách hàng (sàn 4.5tr).
-                        </p>
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
-                        <span className="text-[10px] text-gray-400">Dự toán cước:</span>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-emerald-700">
-                            {logisticsEstimates.DIRECT_FARM_TO_BUYER.estimatedFee.toLocaleString('vi-VN')} đ
-                          </span>
-                          <span className="text-[9px] text-gray-400 block">
-                            ~{logisticsEstimates.DIRECT_FARM_TO_BUYER.ratePerKg.toLocaleString('vi-VN')} đ/kg
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                    }}
+                    className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E] font-medium"
+                  >
+                    <option value="">-- Chọn nhanh Trạm Lạnh Cross-docking chuẩn --</option>
+                    {POPULAR_COLD_HUBS.map((hub) => (
+                      <option key={hub} value={hub}>
+                        {hub}
+                      </option>
+                    ))}
+                  </select>
 
-                    {/* Phương án 2 */}
-                    <div
-                      onClick={() =>
-                        setLotForm({
-                          ...lotForm,
-                          shippingMethod: 'CROSS_DOCKING_HUB',
-                          warehouseLocation:
-                            lotForm.warehouseLocation && !lotForm.warehouseLocation.includes('thẳng từ') && !lotForm.warehouseLocation.includes('tự')
-                              ? lotForm.warehouseLocation
-                              : POPULAR_COLD_HUBS[0],
-                        })
-                      }
-                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
-                        lotForm.shippingMethod === 'CROSS_DOCKING_HUB'
-                          ? 'border-blue-600 bg-white shadow-sm ring-1 ring-blue-500/20'
-                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs text-gray-900">Phương án 2</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-blue-100 text-blue-800">
-                            ⭐ Tiết kiệm từ kho
-                          </span>
-                        </div>
-                        <p className="text-[11px] font-semibold text-blue-700">
-                          Giao tiêu chuẩn từ Kho HoNa (Sau QC)
-                        </p>
-                        <p className="text-[10px] text-gray-500 line-clamp-2">
-                          Gom về kho HoNa kiểm định QC ➔ Xe lạnh HoNa Fresh chở thẳng từ kho tới tận tay khách hàng.
-                        </p>
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
-                        <span className="text-[10px] text-gray-400">Dự toán cước:</span>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-blue-700">
-                            {logisticsEstimates.CROSS_DOCKING_HUB.estimatedFee.toLocaleString('vi-VN')} đ
-                          </span>
-                          <span className="text-[9px] text-gray-400 block">
-                            ~{logisticsEstimates.CROSS_DOCKING_HUB.ratePerKg.toLocaleString('vi-VN')} đ/kg
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Phương án 3 */}
-                    <div
-                      onClick={() =>
-                        setLotForm({
-                          ...lotForm,
-                          shippingMethod: 'BUYER_SELF_TRANSPORT',
-                          warehouseLocation: 'Khách tự điều xe nhận tại Kho HoNa Fresh sau kiểm định QC',
-                        })
-                      }
-                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
-                        lotForm.shippingMethod === 'BUYER_SELF_TRANSPORT'
-                          ? 'border-purple-600 bg-white shadow-sm ring-1 ring-purple-500/20'
-                          : 'border-gray-200 bg-white/70 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs text-gray-900">Phương án 3</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-purple-100 text-purple-800">
-                            Lấy tại kho HoNa
-                          </span>
-                        </div>
-                        <p className="text-[11px] font-semibold text-purple-700">
-                          Khách nhận tại Kho HoNa (Sau QC)
-                        </p>
-                        <p className="text-[10px] text-gray-500 line-clamp-2">
-                          Gom về kho HoNa kiểm định QC đạt chuẩn ➔ Khách tự điều xe đến kho nhận hàng (Thanh toán 100%).
-                        </p>
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-gray-100 flex items-baseline justify-between">
-                        <span className="text-[10px] text-gray-400">Cước giao hàng:</span>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-purple-700">0 đ (Miễn phí)</span>
-                          <span className="text-[9px] text-gray-400 block">Tự túc xe đến kho</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Chi tiết điều phối & chọn Kho lưu / Buồng lạnh trạm khi chọn Phương án 2 */}
-                  {lotForm.shippingMethod === 'CROSS_DOCKING_HUB' ? (
-                    <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/80 space-y-2 mt-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                          Kho lưu / Buồng lạnh trạm điều phối *
-                        </label>
-                        <span className="text-[10px] text-blue-700">
-                          Buồng lạnh kiểm định QC & giữ chuỗi lạnh
-                        </span>
-                      </div>
-
-                      {/* Dropdown chọn nhanh trạm có sẵn */}
-                      <select
-                        value={POPULAR_COLD_HUBS.includes(lotForm.warehouseLocation) ? lotForm.warehouseLocation : ''}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            setLotForm({ ...lotForm, warehouseLocation: e.target.value });
-                          }
-                        }}
-                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E] font-medium"
-                      >
-                        <option value="">-- Chọn nhanh Trạm Lạnh Cross-docking chuẩn --</option>
-                        {POPULAR_COLD_HUBS.map((hub) => (
-                          <option key={hub} value={hub}>
-                            {hub}
-                          </option>
-                        ))}
-                      </select>
-
-                      {/* Input gõ tùy chỉnh */}
-                      <input
-                        type="text"
-                        placeholder="Hoặc nhập tên trạm / buồng lạnh tùy chỉnh..."
-                        value={lotForm.warehouseLocation}
-                        onChange={(e) => setLotForm({ ...lotForm, warehouseLocation: e.target.value })}
-                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
-                      />
-
-                      {/* Bóc tách chi phí Phương án 2 */}
-                      <div className="text-[11px] text-blue-800 pt-1 border-t border-blue-200/60 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {logisticsEstimates.CROSS_DOCKING_HUB.breakdown.map((b, idx) => (
-                          <div key={idx} className="bg-white/70 p-1.5 rounded-lg border border-blue-100">
-                            <span className="text-gray-500 block text-[10px] truncate" title={b.label}>
-                              {b.label}
-                            </span>
-                            <strong className="text-blue-900">{b.amount.toLocaleString('vi-VN')} đ</strong>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : lotForm.shippingMethod === 'DIRECT_FARM_TO_BUYER' ? (
-                    <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Điều phối: <strong>Giao hỏa tốc bao xe từ Kho HoNa (Sau kiểm định QC)</strong></span>
-                      </span>
-                      <span className="font-bold text-emerald-800">
-                        {logisticsEstimates.DIRECT_FARM_TO_BUYER.estimatedFee.toLocaleString('vi-VN')} đ
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-900 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />
-                        <span>Điều phối: <strong>Khách tự điều xe đến Kho HoNa nhận hàng (Sau kiểm định QC)</strong></span>
-                      </span>
-                      <span className="font-bold text-purple-800">0 đ (Khách tự điều xe nhận tại kho)</span>
-                    </div>
-                  )}
+                  {/* Input gõ tùy chỉnh */}
+                  <input
+                    type="text"
+                    placeholder="Hoặc nhập tên trạm / buồng lạnh tùy chỉnh..."
+                    value={lotForm.warehouseLocation}
+                    onChange={(e) => setLotForm({ ...lotForm, warehouseLocation: e.target.value })}
+                    className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs text-[#2C3E2E]"
+                  />
                 </div>
 
                 {/* Tải ảnh lô nông sản */}

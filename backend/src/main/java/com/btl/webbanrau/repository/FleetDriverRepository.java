@@ -15,6 +15,11 @@ import java.util.Optional;
 public interface FleetDriverRepository extends JpaRepository<FleetDriver, Long> {
     Optional<FleetDriver> findByDriverCode(String driverCode);
     Optional<FleetDriver> findByLicenseNumber(String licenseNumber);
+    Optional<FleetDriver> findByUsername(String username);
+    Optional<FleetDriver> findByEmail(String email);
+
+    @Query("SELECT d FROM FleetDriver d ORDER BY d.warehouse.id ASC, d.fullName ASC")
+    List<FleetDriver> findAllByOrderByWarehouseIdAscFullNameAsc();
 
     @Query("SELECT d FROM FleetDriver d WHERE d.warehouse.id = :warehouseId ORDER BY d.fullName ASC")
     List<FleetDriver> findByWarehouseIdOrderByFullNameAsc(@Param("warehouseId") Long warehouseId);

@@ -1,11 +1,15 @@
 package com.btl.webbanrau.controller;
 
 import com.btl.webbanrau.dto.request.ConfirmOutboundTripRequest;
+import com.btl.webbanrau.dto.request.DepartOutboundTripRequest;
+import com.btl.webbanrau.dto.request.DriverOutboundEpodRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
 import com.btl.webbanrau.model.B2bContract;
+import com.btl.webbanrau.model.OutboundDeliveryStop;
 import com.btl.webbanrau.model.OutboundDeliveryTrip;
 import com.btl.webbanrau.repository.B2bContractRepository;
 import com.btl.webbanrau.service.AdminBusinessService;
+import com.btl.webbanrau.service.OutboundDeliveryExecutionService;
 import com.btl.webbanrau.service.OutboundDispatchService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,10 +28,11 @@ import java.util.Map;
 @RequestMapping("/admin/outbound-dispatch")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MANAGER')")
 public class AdminOutboundDispatchController {
 
     private final OutboundDispatchService outboundDispatchService;
+    private final OutboundDeliveryExecutionService outboundDeliveryExecutionService;
     private final AdminBusinessService adminBusinessService;
     private final B2bContractRepository b2bContractRepository;
     private final ObjectMapper objectMapper;
@@ -59,11 +64,48 @@ public class AdminOutboundDispatchController {
         return ApiResponse.success(outboundDispatchService.getTripDetail(tripId));
     }
 
+    @PostMapping("/trips/{tripId}/depart")
+    public Object departTrip(@PathVariable Long tripId, @RequestBody(required = false) DepartOutboundTripRequest req) {
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.driverDepartTrip(tripId, req, null, true);
+        return ApiResponse.success("Chuyến giao hàng đã ký hợp đồng vận chuyển và xuất bến thành công", trip);
+    }
+
+    @PostMapping("/trips/{tripId}/gps")
+    public Object updateTripGps(@PathVariable Long tripId, @RequestBody Map<String, Double> payload) {
+        Double lat = payload != null ? payload.get("lat") : null;
+        Double lng = payload != null ? payload.get("lng") : null;
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.updateTripGps(tripId, lat, lng, null, true);
+        return ApiResponse.success("Đã cập nhật vị trí GPS chuyến xe", trip);
+    }
+
+    @PostMapping("/stops/{stopId}/arrive")
+    public Object arriveStop(@PathVariable Long stopId) {
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverArriveStop(stopId, null, true);
+        return ApiResponse.success("Đã xác nhận xe đến điểm giao hàng", stop);
+    }
+
+    @PostMapping("/stops/{stopId}/submit-epod")
+    public Object submitEpod(@PathVariable Long stopId, @Valid @RequestBody DriverOutboundEpodRequest req) {
+        OutboundDeliveryStop stop = outboundDeliveryExecutionService.driverSubmitEpod(stopId, req, null, true);
+        return ApiResponse.success("Đã nộp biên bản bàn giao ePOD, chờ Buyer xác nhận", stop);
+    }
+
     @PostMapping("/trips/{tripId}/cancel")
     public Object cancelTrip(@PathVariable Long tripId, @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null && payload.get("reason") != null ? payload.get("reason") : "Điều phối viên hủy chuyến";
         outboundDispatchService.cancelOutboundTrip(tripId, reason);
         return ApiResponse.success("Đã hủy chuyến Outbound và giải phóng tài nguyên thành công", null);
+    }
+
+    @GetMapping("/auto-plan")
+    public Object getAutoDispatchPlan(@RequestParam(required = false, defaultValue = "2") Long hubId) {
+        return ApiResponse.success(outboundDispatchService.generateAutoDispatchPlan(hubId));
+    }
+
+    @PostMapping("/auto-confirm")
+    public Object confirmAutoDispatch(@RequestParam Long hubId, @RequestBody java.util.List<ConfirmOutboundTripRequest> trips) {
+        Map<String, Object> res = outboundDispatchService.executeAutoDispatch(hubId, trips);
+        return ApiResponse.success("Đã tự động ghép và khởi tạo " + res.get("createdCount") + " chuyến giao hàng!", res);
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.btl.webbanrau.dto.request;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -26,4 +27,11 @@ public class FleetDriverRequest {
 
     private String status = "AVAILABLE";
     private Integer experienceYears = 1;
+
+    private String username;
+
+    @Email(message = "Email không hợp lệ")
+    private String email;
+
+    private String password;
 }

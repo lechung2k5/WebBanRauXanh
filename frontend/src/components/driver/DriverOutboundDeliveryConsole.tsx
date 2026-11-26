@@ -32,6 +32,8 @@ import {
   DriverOutboundEpodRequest,
 } from '@/services/fleetDispatchApi';
 import { b2bWebSocket } from '@/services/websocketService';
+import ImageUploadField from '@/components/ImageUploadField';
+import { geocodeAddress, Coordinates } from '@/services/goongMapService';
 
 export default function DriverOutboundDeliveryConsole() {
   const [trips, setTrips] = useState<OutboundDeliveryTripDto[]>([]);
@@ -50,9 +52,9 @@ export default function DriverOutboundDeliveryConsole() {
   const [handoverPhotoUrl, setHandoverPhotoUrl] = useState<string>('');
   const [driverNotes, setDriverNotes] = useState<string>('');
 
-  const loadTrips = useCallback(async () => {
+  const loadTrips = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const res = await fleetDispatchApi.getMyOutboundTrips();
       const list = Array.isArray(res) ? res : [];
@@ -63,31 +65,192 @@ export default function DriverOutboundDeliveryConsole() {
         setSelectedTripId(activeTrip.id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không tải được danh sách chuyến xuất giao');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Không tải được danh sách chuyến xuất giao');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedTripId]);
 
   useEffect(() => {
     loadTrips();
-    const unsub = b2bWebSocket.subscribeDispatch(() => {
-      loadTrips();
+    const unsubDispatch = b2bWebSocket.subscribeDispatch(() => {
+      void loadTrips(true);
     });
+    const unsubContracts = b2bWebSocket.subscribeContracts(() => {
+      void loadTrips(true);
+    });
+    const onFocusOrVisible = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void loadTrips(true);
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    const syncTimer = window.setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void loadTrips(true);
+      }
+    }, 10000);
     return () => {
-      unsub();
+      unsubDispatch();
+      unsubContracts();
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+      window.clearInterval(syncTimer);
     };
   }, [loadTrips]);
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId) || null;
+  const [stopCoordsMap, setStopCoordsMap] = useState<Record<number, Coordinates>>({});
 
-  // 1. Xuất phát chuyến giao
-  const handleDepart = async (tripId: number) => {
+  useEffect(() => {
+    const stops = selectedTrip?.stops || [];
+    if (stops.length === 0) return;
+    let cancelled = false;
+    stops.forEach((s) => {
+      if ((s as any).deliveryLat && (s as any).deliveryLng) return;
+      if (stopCoordsMap[s.id] || !s.deliveryAddressSnapshot) return;
+      geocodeAddress(s.deliveryAddressSnapshot).then((coords) => {
+        if (coords && !cancelled) {
+          setStopCoordsMap((prev) => ({ ...prev, [s.id]: coords }));
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrip?.id, selectedTrip?.stops]);
+
+  // Modal xác nhận xuất bến + chụp ảnh xe lên hàng
+  const [departModalTrip, setDepartModalTrip] = useState<OutboundDeliveryTripDto | null>(null);
+  const [departurePhotoUrl, setDeparturePhotoUrl] = useState<string>('');
+  const [departureNotes, setDepartureNotes] = useState<string>('Đã kiểm tra đủ hàng lên xe lạnh và sẵn sàng xuất bến giao Thương lái.');
+
+  // Theo dõi & phát GPS trực tiếp khi chuyến đang giao hàng (ON_DELIVERY)
+  const [gpsActive, setGpsActive] = useState<boolean>(false);
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const lastGpsSentRef = React.useRef<number>(0);
+
+  const mapGeoError = (err: GeolocationPositionError) => {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      return 'Trình duyệt chặn GPS do đang mở qua HTTP (cần HTTPS hoặc localhost).';
+    }
+    if (err.code === 1) return 'Chưa cấp quyền Vị trí (GPS) cho trình duyệt.';
+    if (err.code === 2) return 'Thiết bị chưa thu được tín hiệu GPS.';
+    if (err.code === 3) return 'Quá thời gian chờ định vị GPS.';
+    return 'Không lấy được tọa độ GPS.';
+  };
+
+  const requestCurrentGps = useCallback((tripId: number) => {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setGpsActive(false);
+      setGpsError('Trình duyệt chặn GPS do đang mở qua HTTP (cần HTTPS hoặc localhost).');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGpsActive(false);
+      setGpsError('Thiết bị không hỗ trợ định vị GPS.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setGpsCoords({ lat, lng });
+        setGpsAccuracy(pos.coords.accuracy ?? null);
+        setGpsActive(true);
+        setGpsError(null);
+        lastGpsSentRef.current = Date.now();
+        void fleetDispatchApi.updateTripGps(tripId, lat, lng).catch(() => {});
+      },
+      (err) => {
+        setGpsActive(false);
+        setGpsError(mapGeoError(err));
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTrip || selectedTrip.status !== 'ON_DELIVERY') {
+      setGpsActive(false);
+      setGpsError(null);
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setGpsActive(false);
+      setGpsError('Trình duyệt chặn GPS do đang mở qua HTTP (cần HTTPS hoặc localhost).');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGpsActive(false);
+      setGpsError('Thiết bị không hỗ trợ định vị GPS.');
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setGpsCoords({ lat, lng });
+        setGpsAccuracy(pos.coords.accuracy ?? null);
+        setGpsActive(true);
+        setGpsError(null);
+        const now = Date.now();
+        if (now - lastGpsSentRef.current >= 10000) {
+          lastGpsSentRef.current = now;
+          void fleetDispatchApi.updateTripGps(selectedTrip.id, lat, lng).catch(() => {});
+        }
+      },
+      (err) => {
+        setGpsActive(false);
+        setGpsError(mapGeoError(err));
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [selectedTrip?.id, selectedTrip?.status]);
+
+  // 1. Xuất phát chuyến giao (có ảnh xác nhận xe lên hàng & bật GPS)
+  const openDepartModal = (trip: OutboundDeliveryTripDto) => {
+    setDepartModalTrip(trip);
+    setDeparturePhotoUrl(trip.departurePhotoUrl || '');
+    setDepartureNotes('Đã kiểm tra đủ hàng lên xe lạnh và sẵn sàng xuất bến giao Thương lái.');
+    setError(null);
+  };
+
+  const handleConfirmDepart = async () => {
+    if (!departModalTrip) return;
+    if (!departurePhotoUrl) {
+      setError('Vui lòng chụp ảnh xe lên hàng trước khi xuất bến');
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
-      await fleetDispatchApi.departOutboundTrip(tripId);
-      setSuccessMsg('Chuyến xe đã chính thức xuất phát rời trạm Hub để giao cho các Buyer!');
+      await fleetDispatchApi.departOutboundTrip(departModalTrip.id, {
+        departurePhotoUrl,
+        notes: departureNotes,
+      });
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            void fleetDispatchApi.updateTripGps(departModalTrip.id, pos.coords.latitude, pos.coords.longitude).catch(() => {});
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      }
+      setDepartModalTrip(null);
+      setSuccessMsg('Chuyến xe đã chính thức xuất bến và bật GPS! Trạng thái đơn hàng đã chuyển sang Đang Giao Hàng.');
       await loadTrips();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi khi bắt đầu chuyến xe');
@@ -217,7 +380,13 @@ export default function DriverOutboundDeliveryConsole() {
                       : 'bg-blue-400 text-blue-950'
                   }`}
                 >
-                  {t.status}
+                  {t.status === 'ASSIGNED'
+                    ? 'Chờ xuất bến'
+                    : t.status === 'ON_DELIVERY'
+                    ? 'Đang giao hàng'
+                    : t.status === 'COMPLETED'
+                    ? 'Hoàn tất'
+                    : t.status}
                 </span>
               </button>
             ))}
@@ -234,7 +403,7 @@ export default function DriverOutboundDeliveryConsole() {
               <div>
                 <span className="text-[11px] font-mono text-blue-700 font-bold block">{selectedTrip.tripCode}</span>
                 <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
-                  <span>Xuất Giao Kho Buyer</span>
+                  <span>Xuất Giao Thương Lái</span>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                       selectedTrip.status === 'ON_DELIVERY'
@@ -255,16 +424,65 @@ export default function DriverOutboundDeliveryConsole() {
                 </h3>
               </div>
 
-              {selectedTrip.status === 'ASSIGNED' && (
-                <button
-                  onClick={() => handleDepart(selectedTrip.id)}
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition cursor-pointer"
-                >
-                  <Navigation className="w-4 h-4" />
-                  <span>Bắt Đầu Chuyến Xuất Giao</span>
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedTrip.status === 'ON_DELIVERY' && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 border ${
+                      gpsActive
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${gpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                      <span>
+                        {gpsActive
+                          ? `GPS Đang Bật${gpsAccuracy != null ? ` (±${Math.round(gpsAccuracy)}m)` : ''}`
+                          : (gpsError || 'Đang chờ tín hiệu GPS...')}
+                      </span>
+                      {gpsCoords && (
+                        <span className="font-mono text-[9px] text-emerald-700 hidden sm:inline">
+                          ({gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)})
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => requestCurrentGps(selectedTrip.id)}
+                      className="text-[10px] px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition"
+                    >
+                      {gpsActive ? 'Cập nhật GPS' : 'Thử bật GPS'}
+                    </button>
+                  </div>
+                )}
+
+                {selectedTrip.status === 'ASSIGNED' && (() => {
+                  const isWarehousePickedReady =
+                    (selectedTrip.stops || []).length > 0 &&
+                    (selectedTrip.stops || []).every((s) => {
+                      const fs = String((s.contract as any)?.fulfillmentStatus || (s.contract as any)?.fulfillment_status || '').toUpperCase();
+                      const st = String((s.contract as any)?.status || '').toUpperCase();
+                      return fs === 'PICKED_FROM_BIN' || fs === 'OUTBOUND_DISPATCHED' || st === 'OUTBOUND_DISPATCHED';
+                    });
+                  return (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!isWarehousePickedReady && (
+                        <span className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                          <span>Chờ nhân viên kho soạn hàng xong...</span>
+                        </span>
+                      )}
+                      <button
+                        onClick={() => openDepartModal(selectedTrip)}
+                        disabled={submitting || !isWarehousePickedReady}
+                        title={!isWarehousePickedReady ? 'Nhân viên kho chưa hoàn tất soạn hàng tại kệ' : 'Ký hợp đồng vận chuyển & xuất kho'}
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center gap-2 shadow-xs transition cursor-pointer"
+                      >
+                        <Navigation className="w-4 h-4" />
+                        <span>Bắt Đầu Chuyến Xuất Giao</span>
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Thông tin xe & tải trọng */}
@@ -337,9 +555,9 @@ export default function DriverOutboundDeliveryConsole() {
                             }`}
                           >
                             {isConfirmed
-                              ? 'BUYER ĐÃ KÝ NHẬN'
+                              ? 'THƯƠNG LÁI ĐÃ KÝ NHẬN'
                               : isPendingBuyer
-                              ? 'CHỜ BUYER XÁC NHẬN'
+                              ? 'CHỜ THƯƠNG LÁI XÁC NHẬN'
                               : isArrived
                               ? 'ĐÃ ĐẾN ĐIỂM GIAO'
                               : 'CHỜ ĐẾN'}
@@ -348,7 +566,7 @@ export default function DriverOutboundDeliveryConsole() {
 
                         <div className="text-xs text-slate-700 flex items-start gap-1.5 pt-1">
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                          <span>{stop.deliveryAddressSnapshot}</span>
+                          <span>{(stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot}</span>
                         </div>
 
                         {(stop.contactNameSnapshot || stop.contactPhoneSnapshot) && (
@@ -385,6 +603,25 @@ export default function DriverOutboundDeliveryConsole() {
 
                       {/* Nút hành động */}
                       <div className="flex flex-wrap sm:flex-col items-end gap-2 shrink-0">
+                        {((stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot || ((stop as any).deliveryLat && (stop as any).deliveryLng)) && (() => {
+                          const resolvedAddr = (stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot;
+                          const destinationParam = resolvedAddr
+                            ? encodeURIComponent(resolvedAddr)
+                            : `${(stop as any).deliveryLat},${(stop as any).deliveryLng}`;
+                          return (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${destinationParam}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold text-xs flex items-center gap-1.5 transition"
+                            >
+                              <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                              <span>Mở Google Maps</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                          );
+                        })()}
+
                         {isAssigned && selectedTrip.status === 'ON_DELIVERY' && (
                           <button
                             onClick={() => handleArriveStop(stop.id)}
@@ -392,7 +629,7 @@ export default function DriverOutboundDeliveryConsole() {
                             className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                           >
                             <Navigation className="w-3.5 h-3.5" />
-                            <span>Đã Đến Kho Buyer</span>
+                            <span>Đã Đến Điểm Giao</span>
                           </button>
                         )}
 
@@ -402,14 +639,14 @@ export default function DriverOutboundDeliveryConsole() {
                             className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                           >
                             <FileCheck2 className="w-3.5 h-3.5" />
-                            <span>Lập Biên Bản & Ký ePOD</span>
+                            <span>Lập Biên Bản Giao Hàng</span>
                           </button>
                         )}
 
                         {isPendingBuyer && (
                           <div className="text-right">
                             <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg font-bold block">
-                              Đã nộp biên bản · Chờ Buyer ký
+                              Đã nộp biên bản · Chờ Thương lái ký
                             </span>
                             <button
                               onClick={() => openEpodModal(stop)}
@@ -558,13 +795,13 @@ export default function DriverOutboundDeliveryConsole() {
 
               {/* Ảnh chụp biên bản / hàng giao */}
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Link ảnh chụp hàng giao / biên bản giấy</label>
-                <input
-                  type="url"
+                <ImageUploadField
+                  name="handoverPhotoUrl"
+                  label="Ảnh chụp hàng giao / biên bản giấy"
                   value={handoverPhotoUrl}
-                  onChange={(e) => setHandoverPhotoUrl(e.target.value)}
-                  placeholder="https://... hoặc tải ảnh lên"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 text-xs"
+                  onChange={(url) => setHandoverPhotoUrl(url)}
+                  purpose="EPOD"
+                  hint="Chụp trực tiếp hoặc chọn ảnh biên bản bàn giao tại kho Buyer"
                 />
               </div>
 
@@ -598,6 +835,75 @@ export default function DriverOutboundDeliveryConsole() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Xác Nhận Xuất Bến & Chụp Ảnh Xe Lên Hàng */}
+      {departModalTrip && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+              <div className="flex items-start gap-2 text-blue-800 min-w-0">
+                <Camera className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 leading-snug">
+                    Xác Nhận Xe Lên Hàng & Xuất Bến
+                  </h3>
+                  <span className="font-mono text-xs font-bold text-blue-700">{departModalTrip.tripCode}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDepartModalTrip(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-lg font-bold flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-blue-50 border border-blue-100 text-xs text-blue-900 space-y-1">
+              <p className="font-bold">Lưu ý trước khi xuất bến:</p>
+              <p>Hệ thống sẽ chuyển trạng thái đơn hàng sang <strong>Đang giao hàng</strong> và tự động bật GPS để Thương lái &amp; Nhà vườn theo dõi hành trình.</p>
+            </div>
+
+            <ImageUploadField
+              name="outboundDeparturePhoto"
+              label="Ảnh chụp xe lên hàng tại kho *"
+              value={departurePhotoUrl}
+              onChange={(url) => setDeparturePhotoUrl(url)}
+              purpose="EPOD"
+              capture="environment"
+              hint="Chụp trực tiếp bằng camera hình ảnh thùng xe đã xếp hàng trước khi rời kho"
+            />
+
+            <div className="text-xs">
+              <label className="font-bold text-slate-700 block mb-1">Ghi chú xuất bến</label>
+              <textarea
+                rows={2}
+                value={departureNotes}
+                onChange={(e) => setDepartureNotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-blue-600"
+              />
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDepartModalTrip(null)}
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDepart}
+                disabled={submitting}
+                className="w-full sm:w-auto px-5 py-3 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Navigation className="w-4 h-4 shrink-0" />
+                <span>{submitting ? 'Đang xuất bến...' : 'Xác Nhận Xuất Bến & Bật GPS'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,7 +1,8 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { api } from '@/services/auth';
 import {
@@ -17,11 +18,13 @@ import {
   getBuyerTelemetryApi,
   getBuyerClaimsApi,
   createBuyerClaimApi,
+  dispatchBuyerSelfPickupApi,
   type BuyerClaim,
 } from '@/services/api';
 import { updateContractFulfillmentStatusApi } from '@/services/farmerApi';
 import { formatDateVi, formatStatusVi } from '@/utils/formatters';
 import { b2bWebSocket } from '@/services/websocketService';
+import { useRfqUnreadChatCounts } from '@/hooks/useRfqUnreadChatCounts';
 import {
   fleetDispatchApi,
   OutboundDeliveryStopDto,
@@ -43,11 +46,14 @@ import { B2BContract, Product } from '@/types';
 import B2BNegotiationModal from '@/components/B2BNegotiationModal';
 import { SepayPaymentModal } from '@/components/common/SepayPaymentModal';
 import { GoongMapViewer } from '@/components/common/GoongMapViewer';
+import { ContractLiveTrackingMap } from '@/components/common/ContractLiveTrackingMap';
+import { SignaturePad } from '@/components/admin/AdminConsole';
+import { DeliveryReceiptModal } from '@/components/common/DeliveryReceiptModal';
 import OrderTrackingModal from '@/components/OrderTrackingModal';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import B2BChatModal from '@/components/chat/B2BChatModal';
 import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
-import { getShippingMethodLabel } from '@/utils/logisticsCalculator';
+import { getShippingMethodLabel, calculateB2bContractFinancials } from '@/utils/logisticsCalculator';
 import Pagination from '@/components/Pagination';
 import {
   LayoutDashboard,
@@ -90,11 +96,13 @@ function computeClientStep(rawStatus?: string, depositStatus?: string, rawFulfil
   const fs = String(rawFulfillment || '').trim().toUpperCase();
   const ds = String(depositStatus || '').trim().toUpperCase();
 
-  if (s === 'COMPLETED' || s === 'SETTLED' || fs === 'COMPLETED') return 6;
-  if (s === 'DELIVERED' || s === 'IN_TRANSIT' || s === 'OUTBOUND_DISPATCHED' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
-  if (s === 'QC_PASSED' || s === 'AT_HUB_QC' || s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || fs === 'HUB_DELIVERED') return 4;
-  if (s === 'PACKAGING_APPROVED' || s === 'HARVESTED' || fs === 'HARVESTED') return 3;
-  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || fs === 'HARVESTING' || fs === 'WAITING_HARVEST') return 2;
+  if (s === 'SETTLED' || s === 'COMPLETED') return 6;
+  if (s === 'DELIVERED') return 5;
+  if (fs === 'COMPLETED') return 6;
+  if (s === 'IN_TRANSIT' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
+  if (s === 'QC_PASSED' || s === 'READY_OUTBOUND' || s === 'OUTBOUND_DISPATCHED' || s === 'QC_FAILED' || s === 'AT_HUB_QC' || fs === 'HUB_DELIVERED' || fs === 'QC_FAILED' || fs === 'QC_RETURNED_REFUNDED') return 4;
+  if (s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || s === 'PACKAGING_APPROVED' || fs === 'PACKAGING_APPROVED') return 3;
+  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || s === 'HARVEST_SUBMITTED' || s === 'HARVEST_REJECTED' || s === 'HARVESTED' || fs === 'HARVESTING' || fs === 'HARVEST_SUBMITTED' || fs === 'HARVESTED') return 2;
   return 1;
 }
 
@@ -103,9 +111,9 @@ function computeClientStepName(rawStatus?: string, depositStatus?: string, rawFu
   const fs = String(rawFulfillment || '').trim().toUpperCase();
   const ds = String(depositStatus || '').trim().toUpperCase();
 
-  if (s === 'COMPLETED' || fs === 'COMPLETED') return 'Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi';
-  if (s === 'SETTLED') return 'Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân';
-  if (s === 'DELIVERED' || fs === 'DELIVERED') return 'Đã Giao Tới Kho Buyer · Chờ Buyer Nghiệm Thu và Ký ePOD';
+  if (s === 'SETTLED' || s === 'COMPLETED') return 'Đã Thanh Toán 100% · Hoàn Tất Hợp Đồng';
+  if (s === 'DELIVERED' || fs === 'DELIVERED') return 'Đã Ký Nhận ePOD · Chờ Thanh Toán 70% Còn Lại';
+  if (fs === 'COMPLETED') return 'Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi';
   if (s === 'IN_TRANSIT' || fs === 'IN_TRANSIT') return 'Xe Lạnh Đang Vận Chuyển Tới Kho Buyer';
   if (s === 'OUTBOUND_DISPATCHED') return 'Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)';
   if (s === 'QC_PASSED') return 'Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất';
@@ -120,9 +128,19 @@ function computeClientStepName(rawStatus?: string, depositStatus?: string, rawFu
 
 export default function BuyerManagementConsole() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { currentUser, authLoading, logout, setCurrentUser } = useApp();
 
   const [activeTab, setActiveTab] = useState<BuyerTab>('overview');
+  const isStandaloneMode = searchParams.get('standalone') === '1';
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const validTabs: BuyerTab[] = ['overview', 'catalog', 'negotiations', 'contracts', 'claims', 'profile'];
+    if (tabParam && validTabs.includes(tabParam as BuyerTab)) {
+      setActiveTab(tabParam as BuyerTab);
+    }
+  }, [searchParams]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
@@ -185,6 +203,11 @@ export default function BuyerManagementConsole() {
   const [editingRfqDetail, setEditingRfqDetail] = useState<B2bSyncRfq | null>(null);
   const [cancellingRfqId, setCancellingRfqId] = useState<number | null>(null);
   const [activeChatRfq, setActiveChatRfq] = useState<B2bSyncRfq | null>(null);
+  const { unreadCounts: unreadChatCounts, markChatAsRead } = useRfqUnreadChatCounts(
+    rfqs,
+    'BUYER',
+    activeChatRfq?.rfqCode
+  );
 
   // Tìm hoặc tái tạo thông tin Product cho đơn RFQ đang chỉnh sửa để nạp vào B2BNegotiationModal
   const editingProduct = useMemo<Product | null>(() => {
@@ -221,6 +244,20 @@ export default function BuyerManagementConsole() {
 
   // Quản lý Điều Phối Xe Lạnh HoNa Fresh sau khi Farm đóng gói
   const [dispatchingContract, setDispatchingContract] = useState<any | null>(null);
+  const [pa3TruckPlate, setPa3TruckPlate] = useState<string>('');
+  const [pa3DriverName, setPa3DriverName] = useState<string>('');
+  const [pa3DriverPhone, setPa3DriverPhone] = useState<string>('');
+  const [pa3EtaText, setPa3EtaText] = useState<string>('');
+  const [pa3Notes, setPa3Notes] = useState<string>('');
+  const [submittingPa3Dispatch, setSubmittingPa3Dispatch] = useState<boolean>(false);
+  const [liveTrackingContract, setLiveTrackingContract] = useState<any | null>(null);
+  const [viewingReceiptStop, setViewingReceiptStop] = useState<OutboundDeliveryStopDto | null>(null);
+  const [contractFilter, setContractFilter] = useState<'ALL' | 'DEPOSIT' | 'QC' | 'DELIVERY' | 'DONE'>('ALL');
+  const [contractsPage, setContractsPage] = useState<number>(1);
+  const BUYER_CONTRACTS_PAGE_SIZE = 6;
+  useEffect(() => {
+    setContractsPage(1);
+  }, [contractFilter]);
   const [selectedTruckPlate, setSelectedTruckPlate] = useState('49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn)');
   const [selectedDriverInfo, setSelectedDriverInfo] = useState('Tài xế Nguyễn Văn Tài - 0944.556.677');
 
@@ -404,53 +441,7 @@ export default function BuyerManagementConsole() {
           rfqMap.set(key, b);
         }
       }
-      for (const sr of sharedRfqs) {
-        const code = (sr.rfqCode || `RFQ-${sr.id || fallbackId}`).trim().toUpperCase();
-        if (!rfqMap.has(code)) {
-          let numId = typeof sr.id === 'number' ? sr.id : Number(sr.id);
-          if (!numId || isNaN(numId) || seenIds.has(numId)) {
-            numId = fallbackId++;
-          }
-          seenIds.add(numId);
-          rfqMap.set(code, {
-            id: numId,
-            rfqCode: code,
-            harvestLotId: sr.harvestLotId || 1,
-            lotCode: sr.harvestLotCode || sr.lotCode || 'LOT-2026-DL-001',
-            farmerId: sr.farmerId,
-            farmerName: sr.farmerName || 'HTX Nông Nghiệp',
-            productName: sr.productName || 'Lô nông sản',
-            buyerName: sr.buyerName || '',
-            buyerPhone: sr.buyerPhone || '',
-            buyerCompany: sr.buyerCompany || '',
-            requestedQuantityKg: Number(sr.requestedQuantity || sr.requestedQuantityKg || 1000),
-            targetPricePerKg: Number(sr.targetPrice || sr.targetPricePerKg || 15000),
-            counterPricePerKg: sr.counterPrice ?? undefined,
-            desiredDeliveryDate: sr.deliveryDate || '',
-            deliveryLocation: sr.deliveryLocation || '',
-            shippingOption: sr.shippingOption || 'cold_storage_truck',
-            notes: sr.notes,
-            status: sr.status || 'WAITING_FARMER',
-            createdAt: sr.createdAt || new Date().toISOString(),
-            updatedAt: sr.updatedAt || new Date().toISOString(),
-          });
-        }
-      }
-      for (const l of localRfqs) {
-        const code = (l.rfqCode || `RFQ-${l.id || fallbackId}`).trim().toUpperCase();
-        if (!rfqMap.has(code)) {
-          let numId = typeof l.id === 'number' ? l.id : Number(l.id);
-          if (!numId || isNaN(numId) || seenIds.has(numId)) {
-            numId = fallbackId++;
-          }
-          seenIds.add(numId);
-          rfqMap.set(code, {
-            ...l,
-            id: numId,
-            rfqCode: code,
-          });
-        }
-      }
+      // Chỉ giữ các RFQ thuộc đúng tài khoản Thương lái đang đăng nhập từ Backend DB
 
       const contractMap = new Map<string, B2BContract>();
       for (const bc of backendContracts) {
@@ -473,8 +464,15 @@ export default function BuyerManagementConsole() {
             rawStatus === 'SETTLED' ||
             rawStatus === 'COMPLETED'
           );
-          const fStep = (bc as any).fulfillmentStep || computeClientStep(rawStatus, bc.depositStatus, rawFulfillment);
-          const fName = (bc as any).fulfillmentStatusName || computeClientStepName(rawStatus, bc.depositStatus, rawFulfillment, isApproved);
+          const isRemainingPaid = String((bc as any).remainingPaymentStatus || (bc as any).remaining_payment_status || '').toUpperCase() === 'PAID';
+          const rawStep = (bc as any).fulfillmentStep || computeClientStep(rawStatus, bc.depositStatus, rawFulfillment);
+          const fStep = rawStatus === 'DELIVERED' ? (isRemainingPaid ? 6 : Math.min(5, rawStep)) : rawStep;
+          const fName =
+            rawStatus === 'DELIVERED'
+              ? isRemainingPaid
+                ? 'Đã Thanh Toán 100% · Chờ Kế Toán Quyết Toán Giải Ngân'
+                : 'Đã Ký Nhận Hàng · Chờ Thanh Toán 70% Còn Lại'
+              : (bc as any).fulfillmentStatusName || computeClientStepName(rawStatus, bc.depositStatus, rawFulfillment, isApproved);
 
           contractMap.set(code, {
             ...bc,
@@ -510,47 +508,6 @@ export default function BuyerManagementConsole() {
             truckDriverPhone: existing.truckDriverPhone || sc.truckDriverPhone || sc.pickupDriverPhone,
             truckTempCurrent: existing.truckTempCurrent || sc.truckTempCurrent,
           });
-        } else {
-          contractMap.set(code, {
-            id: Number(sc.id) || Date.now(),
-            contractCode: sc.contractCode,
-            rfqId: Number(sc.rfqId || sc.id),
-            rfqCode: sc.rfqCode || `RFQ-${sc.id}`,
-            harvestLotId: Number(sc.lotId || 1),
-            lotCode: sc.lotCode || 'LOT-2026-DL-001',
-            productName: sc.productName || 'Nông sản VietGAP',
-            buyerName: sc.buyerName || '',
-            buyerPhone: sc.buyerPhone || '',
-            quantity: Number(sc.quantityKg || 1000),
-            unitPrice: Number(sc.agreedPricePerKg || 15000),
-            totalAmount: Number(sc.totalAmount || 0),
-            depositAmount: Number(sc.depositAmount || 0),
-            remainingAmount: Number(sc.remainingAmount || 0),
-            depositStatus: sc.depositStatus || 'PENDING_DEPOSIT',
-            fulfillmentStatus: sc.fulfillmentStep === 6 ? 'COMPLETED' : sc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
-            fulfillmentStep: sc.fulfillmentStep || 1,
-            fulfillmentStatusName: sc.fulfillmentStatusName,
-            actualHarvestWeightKg: sc.actualHarvestWeightKg,
-            grade1Ratio: sc.grade1Ratio,
-            packageCount: sc.packageCount,
-            packageType: sc.packageType,
-            qrCodeData: sc.qrCodeData,
-            farmPickupAddress: sc.farmPickupAddress,
-            pickupTruckPlate: sc.pickupTruckPlate,
-            truckLicensePlate: sc.truckLicensePlate || sc.pickupTruckPlate,
-            pickupDriverName: sc.pickupDriverName,
-            truckDriverName: sc.truckDriverName || sc.pickupDriverName,
-            pickupDriverPhone: sc.pickupDriverPhone,
-            truckDriverPhone: sc.truckDriverPhone || sc.pickupDriverPhone,
-            truckTempCurrent: sc.truckTempCurrent || 4.2,
-            hubDeliveryDate: sc.deliveryTimeSlot || (sc.createdAt ? sc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-            hubName: sc.deliveryAddress || 'Trạm Trung Chuyển Đức Trọng',
-            createdAt: sc.createdAt || new Date().toISOString(),
-            hasQc: true,
-            farmName: sc.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
-            farmerPhone: sc.farmerPhone || '0912345678',
-            farmerAddress: '',
-          });
         }
       }
       for (const lc of localContracts) {
@@ -580,48 +537,6 @@ export default function BuyerManagementConsole() {
             pickupDriverPhone: lc.pickupDriverPhone || existing.pickupDriverPhone,
             truckDriverPhone: lc.truckDriverPhone || lc.pickupDriverPhone || existing.truckDriverPhone,
             truckTempCurrent: lc.truckTempCurrent || existing.truckTempCurrent,
-          });
-        } else {
-          contractMap.set(code, {
-            id: Number(lc.id),
-            contractCode: lc.contractCode,
-            rfqId: Number(lc.id),
-            rfqCode: lc.rfqCode || `RFQ-${lc.id}`,
-            harvestLotId: Number(lc.lotId || 1),
-            lotCode: lc.lotCode,
-            productName: lc.productName,
-            buyerName: lc.buyerName,
-            buyerPhone: lc.buyerPhone,
-            quantity: lc.quantityKg,
-            unitPrice: lc.agreedPricePerKg,
-            totalAmount: lc.totalAmount,
-            depositAmount: lc.depositAmount,
-            remainingAmount: lc.remainingAmount,
-            depositStatus: lc.depositStatus as any,
-            fulfillmentStatus: lc.fulfillmentStep === 6 ? 'COMPLETED' : lc.fulfillmentStep >= 4 ? 'HUB_DELIVERED' : 'WAITING_HARVEST',
-            fulfillmentStep: lc.fulfillmentStep || (lc.depositStatus === 'DEPOSIT_PAID' ? 2 : 1),
-            fulfillmentStatusName: lc.fulfillmentStatusName,
-            actualHarvestWeightKg: lc.actualHarvestWeightKg,
-            grade1Ratio: (lc as any).grade1Ratio,
-            packageCount: lc.packageCount,
-            packageType: lc.packageType,
-            qrCodeData: lc.qrCodeData,
-            farmPickupAddress: lc.farmPickupAddress,
-            harvestProofImageUrl: lc.harvestProofImageUrl,
-            pickupTruckPlate: lc.pickupTruckPlate,
-            truckLicensePlate: lc.truckLicensePlate || lc.pickupTruckPlate,
-            pickupDriverName: lc.pickupDriverName,
-            truckDriverName: lc.truckDriverName || lc.pickupDriverName,
-            pickupDriverPhone: lc.pickupDriverPhone,
-            truckDriverPhone: lc.truckDriverPhone || lc.pickupDriverPhone,
-            truckTempCurrent: lc.truckTempCurrent || 4.2,
-            hubDeliveryDate: lc.deliveryTimeSlot || (lc.createdAt ? lc.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-            hubName: lc.deliveryAddress,
-            createdAt: lc.createdAt,
-            hasQc: true,
-            farmName: lc.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
-            farmerPhone: lc.farmerPhone || '0912345678',
-            farmerAddress: '',
           });
         }
       }
@@ -672,10 +587,6 @@ export default function BuyerManagementConsole() {
 
   useEffect(() => {
     void loadAllData();
-    const interval = setInterval(() => {
-      void loadAllData();
-    }, 4000);
-    return () => clearInterval(interval);
   }, [loadAllData]);
 
   const selectedDeliveryStop = useMemo(
@@ -731,12 +642,15 @@ export default function BuyerManagementConsole() {
     window.addEventListener('b2b_sync_event', handleDataSync);
     window.addEventListener('b2b_contract_updated', handleDataSync);
     window.addEventListener('b2b_rfq_updated', handleDataSync);
-    window.addEventListener('storage', handleDataSync);
-    window.addEventListener('focus', handleDataSync);
+    window.addEventListener('storage', handleCatalogSync);
+    window.addEventListener('focus', handleCatalogSync);
     window.addEventListener('b2b_lot_updated', handleCatalogSync);
 
     const handleVisibilityChange = () => {
-      if (!document.hidden) void loadAllData();
+      if (!document.hidden) {
+        void loadCatalogData();
+        void loadAllData();
+      }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -753,7 +667,26 @@ export default function BuyerManagementConsole() {
       void loadAllData();
     });
 
-    const unsubLots = b2bWebSocket.subscribeLots(() => {
+    const unsubDispatch = b2bWebSocket.subscribeDispatch(() => {
+      void loadAllData();
+    });
+
+    const unsubLots = b2bWebSocket.subscribeLots((payload: any) => {
+      const action = String(payload?.action || '').toUpperCase();
+      const lotObj = payload?.lot || payload;
+      const lotStatus = String(lotObj?.status || '').toUpperCase();
+      const targetId = lotObj?.id ?? payload?.id;
+      const targetCode = String(lotObj?.lotCode || payload?.lotCode || '').trim().toUpperCase();
+
+      if (action === 'LOT_DELETED' || (lotStatus && lotStatus !== 'OPEN')) {
+        setAvailableProducts((prev) =>
+          prev.filter((p) => {
+            const sameId = targetId && Number(p.id) === Number(targetId);
+            const sameCode = targetCode && String((p as any).lotCode || '').trim().toUpperCase() === targetCode;
+            return !sameId && !sameCode;
+          })
+        );
+      }
       void loadCatalogData();
       void loadAllData();
     });
@@ -764,8 +697,22 @@ export default function BuyerManagementConsole() {
       if (
         event.type === 'LOT_STATUS_UPDATED' ||
         event.type === 'LOT_CREATED' ||
-        event.type === 'LOT_UPDATED'
+        event.type === 'LOT_UPDATED' ||
+        event.type === 'LOT_DELETED'
       ) {
+        const p: any = event.payload;
+        const st = String(p?.status || p?.lot?.status || '').toUpperCase();
+        const tid = p?.lotId ?? p?.lot?.id ?? p?.id;
+        const tcode = String(p?.lotCode || p?.lot?.lotCode || '').trim().toUpperCase();
+        if (event.type === 'LOT_DELETED' || (st && st !== 'OPEN')) {
+          setAvailableProducts((prev) =>
+            prev.filter((item) => {
+              const sameId = tid && Number(item.id) === Number(tid);
+              const sameCode = tcode && String((item as any).lotCode || '').trim().toUpperCase() === tcode;
+              return !sameId && !sameCode;
+            })
+          );
+        }
         void loadCatalogData();
       } else if (
         event.type === 'RFQ_UPDATED' ||
@@ -786,13 +733,14 @@ export default function BuyerManagementConsole() {
     return () => {
       unsubContracts();
       unsubRfqs();
+      unsubDispatch();
       unsubLots();
       unsubscribe();
       window.removeEventListener('b2b_sync_event', handleDataSync);
       window.removeEventListener('b2b_contract_updated', handleDataSync);
       window.removeEventListener('b2b_rfq_updated', handleDataSync);
-      window.removeEventListener('storage', handleDataSync);
-      window.removeEventListener('focus', handleDataSync);
+      window.removeEventListener('storage', handleCatalogSync);
+      window.removeEventListener('focus', handleCatalogSync);
       window.removeEventListener('b2b_lot_updated', handleCatalogSync);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -814,15 +762,8 @@ export default function BuyerManagementConsole() {
   const handleAcceptRfq = async (rfqId: number) => {
     try {
       const selectedRfq = rfqs.find((item) => item.id === rfqId);
-      // RFQ tạo từ giao diện có thể có ID local khác ID backend, nhưng mã RFQ
-      // là khóa dùng chung giữa hai kho dữ liệu.
       const localRfqKey = selectedRfq?.rfqCode || rfqId;
-      let backendRfq: Awaited<ReturnType<typeof respondBuyerRfqApi>> | null = null;
-      try {
-        backendRfq = await respondBuyerRfqApi(rfqId, { action: 'ACCEPT' });
-      } catch (e) {
-        console.warn('Backend API accept notice:', e);
-      }
+      const backendRfq = await respondBuyerRfqApi(rfqId, { action: 'ACCEPT' });
       const acceptResult = buyerAcceptCounterRfq(
         localRfqKey,
         backendRfq
@@ -843,8 +784,8 @@ export default function BuyerManagementConsole() {
             ? {
                 ...r,
                 status: 'ACCEPTED',
-                contractId: acceptResult?.newContract?.id || r.contractId,
-                contractCode: acceptResult?.newContract?.contractCode || r.contractCode,
+                contractId: (backendRfq as any)?.contractId || acceptResult?.newContract?.id || r.contractId,
+                contractCode: (backendRfq as any)?.contractCode || acceptResult?.newContract?.contractCode || r.contractCode,
               }
             : r
         )
@@ -870,9 +811,10 @@ export default function BuyerManagementConsole() {
         window.dispatchEvent(new CustomEvent('b2b_contract_updated', { detail: acceptResult?.newContract }));
       }
 
-      void loadAllData();
-      setNotification('Bạn đã chấp nhận mức giá này và tạo hợp đồng B2B thành công!');
-      setTimeout(() => setNotification(null), 4000);
+      await loadAllData();
+      setActiveTab('contracts');
+      setNotification('Bạn đã chấp nhận mức giá này! Hợp đồng B2B đã được tạo, vui lòng nạp cọc 30% để bắt đầu thu hoạch.');
+      setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       console.error('Lỗi khi chấp nhận RFQ:', err);
       alert(err instanceof Error ? err.message : 'Không thể hoàn tất chấp thuận đơn đàm phán.');
@@ -910,14 +852,30 @@ export default function BuyerManagementConsole() {
       await confirmBuyerFinalPaymentApi(Number(contract.id));
       buyerPayFinalSettlement(contract.contractCode || contract.id);
       b2bWebSocket.publish('/topic/contracts', {
-        action: 'FINAL_PAID',
+        action: 'BALANCE_PAID',
         contractCode: contract.contractCode,
-        status: 'SETTLED',
+        status: 'DELIVERED',
+        remainingPaymentStatus: 'PAID',
       });
+      setContracts((prev) =>
+        prev.map((item) =>
+          Number(item.id) === Number(contract.id) || item.contractCode === contract.contractCode
+            ? {
+                ...item,
+                status: 'DELIVERED',
+                finalPaidStatus: 'PAID',
+                remainingPaymentStatus: 'PAID',
+                fulfillmentStatus: 'DELIVERED',
+                fulfillmentStep: 5,
+                fulfillmentStatusName: 'Đã Thanh Toán Đủ 100% · Chờ Sàn Giải Ngân Nhà Vườn',
+              }
+            : item
+        )
+      );
       setSelectedContractForFinalPayment(null);
-      await loadAllData();
       setNotification('Đã thanh toán phần còn lại và hoàn tất giao dịch thành công!');
       setTimeout(() => setNotification(null), 4000);
+      void loadAllData();
     } catch (err) {
       setNotification(err instanceof Error ? err.message : 'Có lỗi khi xác nhận thanh toán.');
       throw err;
@@ -928,13 +886,17 @@ export default function BuyerManagementConsole() {
     setActiveEpodModalStop(stop);
     setBuyerSignerName(currentUser?.fullName || currentUser?.companyName || 'Đại diện kho nhận hàng');
     setBuyerSignerPhone(currentUser?.phone || '0901.234.567');
-    setBuyerSignatureData('Xác nhận đã kiểm tra đủ hàng và ký nhận bàn giao');
+    setBuyerSignatureData('');
     setBuyerNotes('');
   };
 
   const handleConfirmEpod = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeEpodModalStop) return;
+    if (!buyerSignatureData) {
+      setNotification('Vui lòng ký tên trực tiếp lên vùng chữ ký xác nhận của Người mua.');
+      return;
+    }
     try {
       setConfirmingEpod(true);
       const req: BuyerEpodConfirmRequest = {
@@ -1010,17 +972,30 @@ export default function BuyerManagementConsole() {
     }
   };
 
-  // Xử lý điều phối xe lạnh HoNa Fresh sau khi nhà vườn đóng gói (Mốc 2)
+  // Xử lý Buyer tự điều phối xe đến kho HoNa lấy hàng (PA3 sau khi QC_PASSED)
   const handleConfirmDispatchTruck = async () => {
     if (!dispatchingContract) return;
+    if (!pa3TruckPlate.trim() || !pa3DriverName.trim() || !pa3DriverPhone.trim()) {
+      alert('Vui lòng nhập đầy đủ biển số xe, tên tài xế và SĐT tài xế!');
+      return;
+    }
     try {
-      await updateContractFulfillmentStatusApi(dispatchingContract.id, 'IN_TRANSIT');
-      setNotification(`Đã điều phối xe ${selectedTruckPlate} đến nhận hàng thành công!`);
-      setTimeout(() => setNotification(null), 4000);
+      setSubmittingPa3Dispatch(true);
+      await dispatchBuyerSelfPickupApi(dispatchingContract.id, {
+        truckPlate: pa3TruckPlate.trim().toUpperCase(),
+        driverName: pa3DriverName.trim(),
+        driverPhone: pa3DriverPhone.trim(),
+        etaText: pa3EtaText.trim(),
+        notes: pa3Notes.trim(),
+      });
+      setNotification(`Đã đăng ký xe ${pa3TruckPlate.trim().toUpperCase()} (${pa3DriverName.trim()}) đến kho HoNa lấy hàng!`);
+      setTimeout(() => setNotification(null), 5000);
       setDispatchingContract(null);
       void loadAllData();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Lỗi điều phối xe');
+    } finally {
+      setSubmittingPa3Dispatch(false);
     }
   };
 
@@ -1085,20 +1060,23 @@ export default function BuyerManagementConsole() {
       {/* =========================================================================
           1. MENU DỌC BÊN TRÁI (LEFT SIDEBAR MANAGEMENT)
       ========================================================================= */}
+      {!isStandaloneMode && (
       <aside className="w-full lg:w-72 lg:h-screen lg:sticky lg:top-0 bg-[#0F3820] text-white flex flex-col shrink-0 border-r border-[#1B4D2E] shadow-xl z-20">
         {/* Logo & Nhãn phân hệ */}
-        <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#8BC34A] to-[#4CAF50] flex items-center justify-center text-[#0F3820] font-black text-lg shadow-md">
-              HF
-            </div>
-            <div>
-              <h2 className="font-heading font-black text-base text-white tracking-tight">HoNa Fresh</h2>
-              <span className="text-[10px] uppercase font-bold tracking-wider text-[#8BC34A] block">
-                Cổng Thu Mua & Thương Lái
-              </span>
-            </div>
-          </div>
+        <div className="p-4 sm:p-5 border-b border-white/10 space-y-2">
+          <Link
+            href="/"
+            className="w-full flex items-center justify-center py-1 transition hover:scale-[1.02]"
+          >
+            <img
+              src="/assets/logo/Logo_full.png"
+              alt="HoNa Fresh"
+              className="h-16 w-auto object-contain [filter:drop-shadow(1px_0_0_#fff)_drop-shadow(-1px_0_0_#fff)_drop-shadow(0_1px_0_#fff)_drop-shadow(0_-1px_0_#fff)_drop-shadow(0_0_4px_rgba(255,255,255,0.65))]"
+            />
+          </Link>
+          <span className="text-[10px] uppercase font-bold tracking-wider text-[#8BC34A] block text-center">
+            Cổng Thu Mua & Thương Lái
+          </span>
         </div>
 
         {/* Thông tin thương lái tóm tắt */}
@@ -1127,15 +1105,11 @@ export default function BuyerManagementConsole() {
             },
             {
               id: 'contracts',
-              label: 'Hợp Đồng & Đặt Cọc',
+              label: 'Quản Lý Hợp Đồng',
               icon: FileText,
-              badge: pendingDepositContracts.length,
-            },
-            {
-              id: 'shipments',
-              label: 'Điều Phối Giao & Nhận',
-              icon: Truck,
-              badge: inTransitContracts.length,
+              badge:
+                pendingDepositContracts.length +
+                outboundStops.filter((s) => s.status === 'PENDING_BUYER_CONFIRMATION' || s.status === 'ARRIVED').length,
             },
             {
               id: 'claims',
@@ -1188,6 +1162,7 @@ export default function BuyerManagementConsole() {
           </button>
         </div>
       </aside>
+      )}
 
       {/* =========================================================================
           2. KHU VỰC NỘI DUNG CHÍNH BÊN PHẢI (MAIN CONTENT AREA)
@@ -1202,14 +1177,19 @@ export default function BuyerManagementConsole() {
               {activeTab === 'overview' && 'Tổng quan thu mua'}
               {activeTab === 'catalog' && 'Danh mục nông sản sỉ'}
               {activeTab === 'negotiations' && 'Đơn đàm phán giá sỉ'}
-              {activeTab === 'contracts' && 'Hợp đồng & Đặt cọc'}
-              {activeTab === 'shipments' && 'Theo dõi chuyến xe giao hàng'}
+              {activeTab === 'contracts' && 'Quản lý hợp đồng'}
               {activeTab === 'claims' && 'Khiếu nại & bồi thường'}
               {activeTab === 'profile' && 'Hồ sơ thương lái & kho tiếp nhận'}
             </strong>
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#10542C] text-xs font-bold transition-colors flex items-center gap-1.5 border border-emerald-200"
+            >
+              <span>Trang chủ</span>
+            </Link>
             <button
               type="button"
               onClick={() => {
@@ -1636,12 +1616,20 @@ export default function BuyerManagementConsole() {
                             {/* Nút Nhắn tin đàm phán với Nhà Vườn */}
                             <button
                               type="button"
-                              onClick={() => setActiveChatRfq(rfq)}
-                              className="px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              onClick={() => {
+                                markChatAsRead(rfq.rfqCode);
+                                setActiveChatRfq(rfq);
+                              }}
+                              className="relative px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                               title="Mở phòng chat realtime đàm phán với Nhà Vườn"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-sky-700" />
                               <span>Nhắn tin</span>
+                              {(unreadChatCounts[rfq.rfqCode] || 0) > 0 && (
+                                <span className="absolute -top-2 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm ring-2 ring-white">
+                                  {unreadChatCounts[rfq.rfqCode] > 99 ? '99+' : unreadChatCounts[rfq.rfqCode]}
+                                </span>
+                              )}
                             </button>
 
                             {/* Nút Chỉnh sửa & Hủy đàm phán */}
@@ -1941,30 +1929,145 @@ export default function BuyerManagementConsole() {
             </div>
           )}
 
-          {/* ==================== TAB 4: HỢP ĐỒNG & ĐẶT CỌC ==================== */}
+          {/* ==================== TAB 4: QUẢN LÝ HỢP ĐỒNG ==================== */}
           {activeTab === 'contracts' && (
             <div className="space-y-6 animate-in fade-in duration-200">
-              <div>
-                <h3 className="font-heading font-black text-lg text-[#10542C]">Hợp Đồng Thu Mua & Đặt Cọc An Toàn</h3>
-                <p className="text-xs text-[#6B7280] mt-0.5">
-                  Thanh toán cọc 30% bảo chứng tự động qua VietQR và theo dõi tiến độ giao hàng
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-heading font-black text-lg text-[#10542C]">Quản Lý Hợp Đồng</h3>
+                  <p className="text-xs text-[#6B7280] mt-0.5">
+                    Đặt cọc 30% · Kiểm định QC · Theo dõi giao hàng GPS · Ký nhận ePOD · Thanh toán 70%
+                  </p>
+                </div>
+
+                {/* Bộ lọc trạng thái gọn */}
+                {(() => {
+                  const matchesFilter = (c: any, fId: 'ALL' | 'DEPOSIT' | 'QC' | 'DELIVERY' | 'DONE') => {
+                    if (fId === 'ALL') return true;
+                    const isPaid = c.depositStatus === 'DEPOSIT_PAID';
+                    const step = Number(c.fulfillmentStep || 1);
+                    const statusUpper = String(c.status || '').toUpperCase();
+                    const matchedStop = outboundStops.find((s) => Number(s.contractId) === Number(c.id));
+                    const isFinalPaid =
+                      c.finalPaidStatus === 'PAID' ||
+                      String(c.remainingPaymentStatus || '').toUpperCase() === 'PAID' ||
+                      step >= 6 ||
+                      statusUpper === 'SETTLED' ||
+                      statusUpper === 'COMPLETED';
+
+                    if (fId === 'DEPOSIT') return !isPaid;
+                    if (fId === 'QC') return isPaid && step >= 2 && step <= 4 && !matchedStop && !isFinalPaid;
+                    if (fId === 'DELIVERY')
+                      return (
+                        !isFinalPaid &&
+                        (step === 5 ||
+                          statusUpper === 'IN_TRANSIT' ||
+                          statusUpper === 'DELIVERED' ||
+                          matchedStop?.status === 'ARRIVED' ||
+                          matchedStop?.status === 'PENDING_BUYER_CONFIRMATION' ||
+                          matchedStop?.status === 'BUYER_CONFIRMED')
+                      );
+                    if (fId === 'DONE') return isFinalPaid;
+                    return true;
+                  };
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      {[
+                        { id: 'ALL' as const, label: 'Tất cả' },
+                        { id: 'DEPOSIT' as const, label: 'Chờ cọc 30%' },
+                        { id: 'QC' as const, label: 'Đang xử lý / QC' },
+                        { id: 'DELIVERY' as const, label: 'Đang giao / Chờ ký & TT 70%' },
+                        { id: 'DONE' as const, label: 'Hoàn tất' },
+                      ].map((f) => {
+                        const count = contracts.filter((c) => matchesFilter(c, f.id)).length;
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => setContractFilter(f.id)}
+                            className={`px-3 py-1.5 rounded-full font-bold transition cursor-pointer border ${
+                              contractFilter === f.id
+                                ? 'bg-[#10542C] text-white border-[#10542C] shadow-2xs'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            {f.label} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {contracts.length === 0 ? (
                 <div className="p-12 text-center bg-white rounded-3xl border border-[#EAECE8] text-xs text-[#6B7280]">
                   Chưa có hợp đồng nào được tạo. Khi bạn và nhà vườn thống nhất giá đàm phán, hợp đồng sẽ xuất hiện tại đây.
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4">
-                  {contracts.map((c, idx) => {
+              ) : (() => {
+                const filteredBuyerContracts = contracts.filter((c) => {
+                  if (contractFilter === 'ALL') return true;
+                  const isPaid = c.depositStatus === 'DEPOSIT_PAID';
+                  const step = Number((c as any).fulfillmentStep || 1);
+                  const statusUpper = String(c.status || '').toUpperCase();
+                  const matchedStop = outboundStops.find((s) => Number(s.contractId) === Number(c.id));
+                  const isFinalPaid =
+                    (c as any).finalPaidStatus === 'PAID' ||
+                    String((c as any).remainingPaymentStatus || '').toUpperCase() === 'PAID' ||
+                    step >= 6 ||
+                    statusUpper === 'SETTLED' ||
+                    statusUpper === 'COMPLETED';
+                  if (contractFilter === 'DEPOSIT') return !isPaid;
+                  if (contractFilter === 'QC') return isPaid && step >= 2 && step <= 4 && !matchedStop && !isFinalPaid;
+                  if (contractFilter === 'DELIVERY')
+                    return (
+                      !isFinalPaid &&
+                      (step === 5 ||
+                        statusUpper === 'IN_TRANSIT' ||
+                        statusUpper === 'DELIVERED' ||
+                        matchedStop?.status === 'ARRIVED' ||
+                        matchedStop?.status === 'PENDING_BUYER_CONFIRMATION' ||
+                        matchedStop?.status === 'BUYER_CONFIRMED')
+                    );
+                  if (contractFilter === 'DONE') return isFinalPaid;
+                  return true;
+                });
+                const totalContractPages = Math.max(1, Math.ceil(filteredBuyerContracts.length / BUYER_CONTRACTS_PAGE_SIZE));
+                const safeContractsPage = Math.min(contractsPage, totalContractPages);
+                const pagedBuyerContracts = filteredBuyerContracts.slice(
+                  (safeContractsPage - 1) * BUYER_CONTRACTS_PAGE_SIZE,
+                  safeContractsPage * BUYER_CONTRACTS_PAGE_SIZE
+                );
+                return (
+                <>
+                <div id="buyer-contracts-list" className="grid grid-cols-1 gap-4">
+                  {filteredBuyerContracts.length === 0 && (
+                    <div className="p-10 text-center bg-white rounded-3xl border border-[#EAECE8] text-xs text-[#6B7280] space-y-3">
+                      <p>
+                        Không có hợp đồng nào trong mục này.
+                      </p>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setContractFilter('ALL')}
+                          className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition cursor-pointer"
+                        >
+                          Xem tất cả ({contracts.length})
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {pagedBuyerContracts.map((c, idx) => {
                     const isPaid = c.depositStatus === 'DEPOSIT_PAID';
+                    const matchedStop = outboundStops.find((s) => Number(s.contractId) === Number(c.id));
+                    const cardOpt = String((c as any).shippingOption || (c as any).shipping_option || '').toUpperCase();
+                    const isPa3Card = cardOpt === 'PA3' || cardOpt === 'FARM_PICKUP' || cardOpt.includes('PICKUP') || cardOpt.includes('SELF');
                     return (
                       <div
                         key={`contract-${c.contractCode || c.id}-${idx}`}
-                        className="bg-white rounded-3xl p-6 border border-[#EAECE8] shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs"
+                        className="bg-white rounded-3xl p-5 sm:p-6 border border-[#EAECE8] shadow-xs flex flex-col gap-4 text-xs"
                       >
-                        <div className="space-y-2">
+                        <div className="space-y-2.5 w-full">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono font-bold text-sm text-[#10542C]">{c.contractCode}</span>
                             <span
@@ -1974,7 +2077,9 @@ export default function BuyerManagementConsole() {
                                   : 'bg-rose-100 text-rose-800'
                               }`}
                             >
-                              {isPaid ? 'Đã nộp cọc 30% bảo chứng' : 'Chờ nộp cọc 30%'}
+                              {isPaid
+                                ? (isPa3Card ? 'Đã nộp cọc 100% bảo chứng' : 'Đã nộp cọc 30% bảo chứng')
+                                : (isPa3Card ? 'Chờ nộp cọc 100%' : 'Chờ nộp cọc 30%')}
                             </span>
                             {Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED') && (
                               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 flex items-center gap-1">
@@ -1993,31 +2098,22 @@ export default function BuyerManagementConsole() {
                           <h4 className="font-heading font-bold text-base text-[#2C3E2E]">{c.productName}</h4>
 
                           {(() => {
-                            const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
                             const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
                             const shippingMeta = getShippingMethodLabel(shippingOpt);
-                            const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
-
-                            let shippingFee = (c as any).shippingFee;
-                            if (shippingFee === undefined || shippingFee === null) {
-                              if (isSelfPickup) {
-                                shippingFee = 0;
-                              } else if (c.totalAmount && c.totalAmount > goodsAmount) {
-                                shippingFee = c.totalAmount - goodsAmount;
-                              } else {
-                                const optUpper = String(shippingOpt).toUpperCase();
-                                shippingFee = optUpper.includes('DIRECT') || optUpper === 'PA1'
-                                  ? Math.round((c.quantity || 0) * 1200 + 450000)
-                                  : Math.round((c.quantity || 0) * 850 + 250000);
-                              }
-                            }
-
-                            const effectiveTotal = goodsAmount + shippingFee;
-                            const depositAmt = c.depositAmount && c.depositAmount > 0
-                              ? (c.depositAmount < goodsAmount && shippingFee > 0 && Math.abs(c.depositAmount - Math.round(goodsAmount * 0.3)) < 1000
-                                  ? Math.round(effectiveTotal * (isSelfPickup ? 1 : 0.3))
-                                  : c.depositAmount)
-                              : Math.round(effectiveTotal * (isSelfPickup ? 1 : 0.3));
+                            const fin = calculateB2bContractFinancials({
+                              quantityKg: c.quantity || 0,
+                              unitPrice: c.unitPrice || 0,
+                              goodsAmount: (c as any).goodsAmount,
+                              shippingFee: (c as any).shippingFee,
+                              totalAmount: c.totalAmount,
+                              depositAmount: c.depositAmount,
+                              shippingOption: shippingOpt,
+                            });
+                            const goodsAmount = fin.pureGoodsAmount;
+                            const shippingFee = fin.shippingFee;
+                            const effectiveTotal = fin.grandTotal;
+                            const depositAmt = fin.depositAmount;
+                            const isSelfPickup = fin.isSelfPickup;
 
                             return (
                               <div className="space-y-2 pt-1">
@@ -2050,146 +2146,299 @@ export default function BuyerManagementConsole() {
                                 </div>
 
                                 {/* Tiến trình quy trình thực hiện hợp đồng 6 mốc */}
-                                <div className="pt-2 pb-1 border-t border-gray-100">
-                                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 mb-1.5">
-                                    <span className="flex items-center gap-1 text-[#10542C]">
-                                      <Clock className="w-3.5 h-3.5 text-[#10542C]" />
-                                      Tiến Trình Thực Hiện (Mốc {Number((c as any).fulfillmentStep || (isPaid ? 2 : 1))}/6)
-                                    </span>
-                                    <span className="text-gray-600 font-semibold text-[10px]">
-                                      {(c as any).fulfillmentStatusName ||
-                                        (Boolean((c as any).actualHarvestWeightKg)
-                                          ? 'Đã Nghiệm Thu Thu Hoạch (Chờ Điều Xe)'
-                                          : isPaid
-                                          ? 'Đã Nhận Cọc 30% · Nhà Vườn Đang Thu Hoạch'
-                                          : 'Chờ Nộp Cọc 30% Bảo Chứng')}
-                                    </span>
-                                  </div>
+                                {(() => {
+                                  const computedStep = computeClientStep(c.status, c.depositStatus, c.fulfillmentStatus);
+                                  const rawStep = Number((c as any).fulfillmentStep || 0);
+                                  const currentStep = isPaid ? Math.max(2, rawStep || computedStep) : 1;
+                                  const hasActualHarvest =
+                                    isPaid &&
+                                    (currentStep >= 3 ||
+                                      Boolean((c as any).packagingApproved || (c as any).packaging_approved));
+                                  const hasPickupTruck =
+                                    isPaid &&
+                                    currentStep >= 3 &&
+                                    Boolean((c as any).pickupTruckPlate || (c as any).truckLicensePlate);
 
-                                  <div className="grid grid-cols-6 gap-1 text-center font-bold text-[10px]">
-                                    {[
-                                      { step: 1, label: '1. Cọc 30%' },
-                                      { step: 2, label: '2. Thu Hoạch' },
-                                      { step: 3, label: '3. Lấy Hàng' },
-                                      { step: 4, label: '4. Kiểm Định' },
-                                      { step: 5, label: '5. Giao Hàng' },
-                                      { step: 6, label: '6. Hoàn Tất' },
-                                    ].map((m) => {
-                                      const currentStep = Number((c as any).fulfillmentStep || (isPaid ? 2 : 1));
-                                      const isDone = currentStep > m.step || (m.step === 1 && isPaid);
-                                      const isCurrent = currentStep === m.step;
-                                      return (
+                                  return (
+                                    <>
+                                      <div className="pt-2 pb-1 border-t border-gray-100">
+                                        <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 mb-1.5">
+                                          <span className="flex items-center gap-1 text-[#10542C]">
+                                            <Clock className="w-3.5 h-3.5 text-[#10542C]" />
+                                            Tiến Trình Thực Hiện (Mốc {currentStep}/6)
+                                          </span>
+                                          <span className="text-gray-600 font-semibold text-[10px]">
+                                            {!isPaid
+                                              ? 'Chờ Buyer Đặt Cọc 30% Escrow'
+                                              : (c as any).fulfillmentStatusName ||
+                                                computeClientStepName(
+                                                  c.status,
+                                                  c.depositStatus,
+                                                  c.fulfillmentStatus,
+                                                  Boolean((c as any).packagingApproved || (c as any).packaging_approved)
+                                                )}
+                                          </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-6 gap-1 text-center font-bold text-[10px]">
+                                          {[
+                                            { step: 1, label: '1. Chốt & Cọc' },
+                                            { step: 2, label: '2. Thu Hoạch' },
+                                            { step: 3, label: '3. Lấy Hàng' },
+                                            { step: 4, label: '4. Kiểm Định & Lưu Kho' },
+                                            { step: 5, label: '5. Giao Hàng' },
+                                            { step: 6, label: '6. Hoàn Tất' },
+                                          ].map((m) => {
+                                            const isDone = currentStep > m.step;
+                                            const isCurrent = currentStep === m.step;
+                                            return (
+                                              <div
+                                                key={m.step}
+                                                className={`py-1 px-1 rounded-lg transition-all ${
+                                                  isCurrent
+                                                    ? 'bg-[#10542C] text-white shadow-2xs font-bold'
+                                                    : isDone
+                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                    : 'bg-gray-100 text-gray-400'
+                                                }`}
+                                              >
+                                                {m.label}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+
+                                      {/* Kết quả Kiểm Định QC tại Kho HoNa (Đạt / Không đạt / Đã hoàn hàng & hoàn cọc) */}
+                                      {((c as any).qc_status === 'QC_PASSED' ||
+                                        (c as any).qcStatus === 'QC_PASSED' ||
+                                        c.status === 'QC_PASSED' ||
+                                        (c as any).qc_status === 'QC_FAILED' ||
+                                        (c as any).qcStatus === 'QC_FAILED' ||
+                                        c.status === 'QC_FAILED' ||
+                                        c.fulfillmentStatus === 'QC_RETURNED_REFUNDED' ||
+                                        (c as any).qc_status === 'QC_RETURNED') && (
                                         <div
-                                          key={m.step}
-                                          className={`py-1 px-1 rounded-lg transition-all ${
-                                            isCurrent
-                                              ? 'bg-[#10542C] text-white shadow-2xs font-bold'
-                                              : isDone
-                                              ? 'bg-emerald-100 text-emerald-800'
-                                              : 'bg-gray-100 text-gray-400'
+                                          className={`mt-1.5 p-3 rounded-2xl border text-xs space-y-1 ${
+                                            c.fulfillmentStatus === 'QC_RETURNED_REFUNDED' || (c as any).qc_status === 'QC_RETURNED'
+                                              ? 'bg-rose-50 border-rose-300 text-rose-900'
+                                              : (c as any).qc_status === 'QC_FAILED' || (c as any).qcStatus === 'QC_FAILED' || c.status === 'QC_FAILED'
+                                              ? 'bg-rose-50 border-rose-300 text-rose-900'
+                                              : 'bg-emerald-50 border-emerald-300 text-emerald-900'
                                           }`}
                                         >
-                                          {m.label}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Thông tin nghiệm thu từ Nông dân khi đã nộp nghiệm thu */}
-                                {Boolean((c as any).actualHarvestWeightKg || (c as any).isHarvestDone || Number((c as any).fulfillmentStep) >= 2) && (
-                                  <div className="mt-1.5 p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs space-y-1.5">
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-bold text-[#10542C] flex items-center gap-1.5">
-                                        <Scale className="w-3.5 h-3.5 text-[#10542C]" />
-                                        <span>Nhà Vườn Đã Nghiệm Thu Thu Hoạch & Đóng Kiện</span>
-                                      </span>
-                                      <div className="flex items-center gap-1.5">
-                                        {Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED') && (
-                                          <span className="text-[10px] font-bold bg-teal-100 text-teal-900 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                            <CheckCircle2 className="w-3 h-3 text-teal-700" />
-                                            <span>BQT Đã Duyệt Đóng Gói</span>
-                                          </span>
-                                        )}
-                                        <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
-                                          Loại 1: {(c as any).grade1Ratio || 96}%
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1">
-                                      <div>
-                                        <span className="text-gray-500 block">Sản lượng thực thu:</span>
-                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).actualHarvestWeightKg || c.quantity} kg</strong>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500 block">Số thùng đã đóng:</span>
-                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).packageCount || 10} thùng</strong>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500 block">Quy cách kiện:</span>
-                                        <span className="text-gray-800 font-medium text-[10px] truncate block" title={(c as any).packageType || 'Thùng xốp niêm phong'}>
-                                          {(c as any).packageType || 'Thùng xốp niêm phong'}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500 block">Mã tem PUC dán thùng:</span>
-                                        <span className="text-emerald-800 font-mono font-bold text-[10px] truncate block" title={(c as any).qrCodeData || `${c.contractCode}-PUC`}>
-                                          {(c as any).qrCodeData || `${c.contractCode}-PUC`}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Thông tin Xe Lạnh Lấy Hàng (Mốc 3) */}
-                                {Boolean(Number((c as any).fulfillmentStep) >= 3 || (c as any).pickupTruckPlate || (c as any).truckLicensePlate) && (
-                                  <div className="mt-1.5 p-3 bg-blue-50/80 border border-blue-200 rounded-2xl text-xs space-y-1.5">
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-bold text-blue-900 flex items-center gap-1.5">
-                                        <Truck className="w-3.5 h-3.5 text-blue-600" />
-                                        <span>Xe Lạnh HoNa Đang Đến Rẫy Lấy Hàng</span>
-                                      </span>
-                                      <span className="text-[10px] font-bold bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
-                                        Thùng lạnh: {(c as any).truckTempCurrent || 4.2}°C (Chuẩn 2-6°C)
-                                      </span>
-                                    </div>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
-                                      <div>
-                                        <span className="text-gray-500 block">Biển số xe lạnh:</span>
-                                        <strong className="text-gray-900 font-mono text-xs">{(c as any).truckLicensePlate || (c as any).pickupTruckPlate || '29H-882.14'}</strong>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500 block">Tài xế phụ trách:</span>
-                                        <strong className="text-gray-900 text-xs">{(c as any).truckDriverName || (c as any).pickupDriverName || 'Nguyễn Văn Tài'}</strong>
-                                      </div>
-                                      {Boolean((c as any).truckDriverPhone || (c as any).pickupDriverPhone) && (
-                                        <div>
-                                          <span className="text-gray-500 block">SĐT tài xế:</span>
-                                          <strong className="text-[#10542C] font-mono text-xs">{(c as any).truckDriverPhone || (c as any).pickupDriverPhone}</strong>
+                                          <div className="flex items-center justify-between gap-2 font-bold">
+                                            <span>
+                                              {c.fulfillmentStatus === 'QC_RETURNED_REFUNDED' || (c as any).qc_status === 'QC_RETURNED'
+                                                ? '✕ Không Đạt QC — Đã Hoàn Hàng & Hoàn Cọc 30%'
+                                                : (c as any).qc_status === 'QC_FAILED' || (c as any).qcStatus === 'QC_FAILED' || c.status === 'QC_FAILED'
+                                                ? '✕ Không Đạt Kiểm Định QC Tại Kho'
+                                                : '✓ Đã Đạt Kiểm Định QC HoNa Fresh'}
+                                            </span>
+                                            {((c as any).qc_brix || (c as any).qc_nitrate_ppm) && (
+                                              <span className="font-mono text-[11px]">
+                                                Brix: {(c as any).qc_brix || '12.5'}°Bx · Nitrate: {(c as any).qc_nitrate_ppm || '240'} ppm
+                                              </span>
+                                            )}
+                                          </div>
+                                          {((c as any).delivery_notes || (c as any).deliveryNotes) && (
+                                            <p className="text-[11px] leading-relaxed">
+                                              {(c as any).delivery_notes || (c as any).deliveryNotes}
+                                            </p>
+                                          )}
+                                          {Number((c as any).refund_amount || (c as any).refundAmount || 0) > 0 && (
+                                            <p className="text-[11px] font-bold text-rose-800">
+                                              Số tiền đã hoàn cọc Escrow: {Number((c as any).refund_amount || (c as any).refundAmount).toLocaleString('vi-VN')} đ
+                                            </p>
+                                          )}
                                         </div>
                                       )}
-                                    </div>
-                                  </div>
-                                )}
+
+                                      {/* Banner Đang Giao Hàng + Theo Dõi Đường Đi GPS Tài Xế (chỉ hiện sau khi Xuất Bến -> IN_TRANSIT) */}
+                                      {(c.status === 'IN_TRANSIT' ||
+                                        c.fulfillmentStatus === 'IN_TRANSIT') && (
+                                        <div className="mt-1.5 p-3 rounded-2xl border border-blue-300 bg-blue-50/90 text-blue-900 text-xs flex flex-wrap items-center justify-between gap-2">
+                                          <div className="space-y-0.5">
+                                            <div className="font-bold flex items-center gap-1.5">
+                                              <Truck className="w-4 h-4 text-blue-600" />
+                                              <span>Xe Lạnh Đang Giao Hàng Tới Kho Bạn</span>
+                                            </div>
+                                            <p className="text-[11px] text-blue-800">
+                                              Xe: <strong className="font-mono">{(c as any).outbound_truck_plate || (c as any).outboundTruckPlate || 'Xe Lạnh HoNa'}</strong>
+                                              {' · '}Tài xế: <strong>{(c as any).outbound_driver_name || (c as any).outboundDriverName || 'Tài xế HoNa Express'}</strong>
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setLiveTrackingContract(c)}
+                                            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                          >
+                                            <MapPin className="w-3.5 h-3.5" />
+                                            <span>Xem Đường Đi GPS</span>
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {/* Banner Ký Nhận Hàng ePOD trực tiếp ngay trong Quản lý hợp đồng */}
+                                      {matchedStop &&
+                                        (matchedStop.status === 'PENDING_BUYER_CONFIRMATION' ||
+                                          matchedStop.status === 'ARRIVED') && (
+                                          <div className="mt-1.5 p-3 rounded-2xl border-2 border-amber-400 bg-amber-50 text-amber-950 text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs">
+                                            <div className="space-y-0.5">
+                                              <div className="font-bold flex items-center gap-1.5">
+                                                <FileCheck2 className="w-4 h-4 text-amber-700" />
+                                                <span>
+                                                  {matchedStop.status === 'PENDING_BUYER_CONFIRMATION'
+                                                    ? 'Tài Xế Đã Nộp Biên Bản ePOD — Chờ Bạn Ký Nhận'
+                                                    : 'Xe Lạnh Đã Đến Kho — Chờ Kiểm Đếm & Ký Nhận'}
+                                                </span>
+                                              </div>
+                                              <p className="text-[11px] text-amber-900">
+                                                Thực giao: <strong className="font-mono">{Number(matchedStop.actualDeliveredWeightKg || matchedStop.expectedWeightKg).toLocaleString()} kg</strong>
+                                                {Number(matchedStop.rejectedWeightKg || 0) > 0 && (
+                                                  <span className="text-rose-700 font-bold">
+                                                    {' · '}Hao hụt: {Number(matchedStop.rejectedWeightKg).toLocaleString()} kg
+                                                  </span>
+                                                )}
+                                              </p>
+                                            </div>
+                                            {matchedStop.status === 'PENDING_BUYER_CONFIRMATION' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => openConfirmEpodModal(matchedStop)}
+                                                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                              >
+                                                <FileCheck2 className="w-3.5 h-3.5" />
+                                                <span>Kiểm Đếm & Ký Nhận ePOD</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+
+                                      {matchedStop && matchedStop.status === 'BUYER_CONFIRMED' && (
+                                        <div className="mt-1.5 p-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/70 text-emerald-900 text-xs flex flex-wrap items-center justify-between gap-2">
+                                          <div>
+                                            <span className="font-bold flex items-center gap-1.5">
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                              <span>
+                                                Đã Ký Nhận Biên Bản ePOD ({Number(matchedStop.actualDeliveredWeightKg || matchedStop.expectedWeightKg).toLocaleString()} kg)
+                                              </span>
+                                            </span>
+                                            <span className="text-[11px] text-emerald-700 block pl-5">
+                                              Người ký: <strong>{matchedStop.buyerSignerName || 'Đại diện kho Buyer'}</strong>
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setViewingReceiptStop(matchedStop)}
+                                            className="px-3 py-1.5 rounded-xl bg-[#10542C] hover:bg-emerald-900 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                          >
+                                            <FileCheck2 className="w-3.5 h-3.5" />
+                                            <span>Xem & In Biên Bản Giao Nhận</span>
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {/* Thông tin nghiệm thu từ Nông dân khi đã nộp cọc & hoàn tất thu hoạch */}
+                                      {hasActualHarvest && (
+                                        <div className="mt-1.5 p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs space-y-1.5">
+                                          <div className="flex items-center justify-between">
+                                            <span className="font-bold text-[#10542C] flex items-center gap-1.5">
+                                              <Scale className="w-3.5 h-3.5 text-[#10542C]" />
+                                              <span>Nhà Vườn Đã Nghiệm Thu Thu Hoạch & Đóng Kiện</span>
+                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                              {Boolean((c as any).packagingApproved || (c as any).packaging_approved || (c as any).status === 'PACKAGING_APPROVED') && (
+                                                <span className="text-[10px] font-bold bg-teal-100 text-teal-900 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                  <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                                                  <span>BQT Đã Duyệt Đóng Gói</span>
+                                                </span>
+                                              )}
+                                              <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                                                Loại 1: {(c as any).grade1Ratio || 96}%
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1">
+                                            <div>
+                                              <span className="text-gray-500 block">Sản lượng thực thu:</span>
+                                              <strong className="text-gray-900 font-mono text-xs">{(c as any).actualHarvestWeightKg || c.quantity} kg</strong>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500 block">Số thùng đã đóng:</span>
+                                              <strong className="text-gray-900 font-mono text-xs">{(c as any).packageCount || 10} thùng</strong>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500 block">Quy cách kiện:</span>
+                                              <span className="text-gray-800 font-medium text-[10px] truncate block" title={(c as any).packageType || 'Thùng xốp niêm phong'}>
+                                                {(c as any).packageType || 'Thùng xốp niêm phong'}
+                                              </span>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500 block">Mã tem PUC dán thùng:</span>
+                                              <span className="text-emerald-800 font-mono font-bold text-[10px] truncate block" title={(c as any).qrCodeData || `${c.contractCode}-PUC`}>
+                                                {(c as any).qrCodeData || `${c.contractCode}-PUC`}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Thông tin Xe Lạnh Lấy Hàng (Chỉ hiện khi đã điều xe từ Mốc 4) */}
+                                      {hasPickupTruck && (
+                                        <div className="mt-1.5 p-3 bg-blue-50/80 border border-blue-200 rounded-2xl text-xs space-y-1.5">
+                                          <div className="flex items-center justify-between">
+                                            <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                                              <Truck className="w-3.5 h-3.5 text-blue-600" />
+                                              <span>Xe Lạnh HoNa Đang Đến Rẫy Lấy Hàng</span>
+                                            </span>
+                                            <span className="text-[10px] font-bold bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
+                                              Thùng lạnh: {(c as any).truckTempCurrent || 4.2}°C (Chuẩn 2-6°C)
+                                            </span>
+                                          </div>
+                                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
+                                            <div>
+                                              <span className="text-gray-500 block">Biển số xe lạnh:</span>
+                                              <strong className="text-gray-900 font-mono text-xs">{(c as any).truckLicensePlate || (c as any).pickupTruckPlate}</strong>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500 block">Tài xế phụ trách:</span>
+                                              <strong className="text-gray-900 text-xs">{(c as any).truckDriverName || (c as any).pickupDriverName || 'Tài xế HoNa Fresh'}</strong>
+                                            </div>
+                                            {Boolean((c as any).truckDriverPhone || (c as any).pickupDriverPhone) && (
+                                              <div>
+                                                <span className="text-gray-500 block">SĐT tài xế:</span>
+                                                <strong className="text-[#10542C] font-mono text-xs">{(c as any).truckDriverPhone || (c as any).pickupDriverPhone}</strong>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3.5 border-t border-gray-100">
                           {!isPaid ? (
                             <button
                               type="button"
                               onClick={() => {
-                                const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
-                                const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
-                                const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
-                                let shippingFee = (c as any).shippingFee;
-                                if (shippingFee === undefined || shippingFee === null) {
-                                  shippingFee = isSelfPickup ? 0 : ((c.totalAmount && c.totalAmount > goodsAmount) ? c.totalAmount - goodsAmount : 0);
-                                }
-                                const effectiveTotal = goodsAmount + shippingFee;
-                                const depositAmt = isSelfPickup ? effectiveTotal : Math.round(effectiveTotal * 0.3);
+                                const fin = calculateB2bContractFinancials({
+                                  quantityKg: c.quantity || 0,
+                                  unitPrice: c.unitPrice || 0,
+                                  goodsAmount: (c as any).goodsAmount,
+                                  shippingFee: (c as any).shippingFee,
+                                  shippingOption: (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB',
+                                });
+                                const shippingOpt = fin.shippingOption;
+                                const isSelfPickup = fin.isSelfPickup;
+                                const shippingFee = fin.shippingFee;
+                                const effectiveTotal = fin.grandTotal;
+                                const depositAmt = fin.depositAmount;
                                 setSelectedContractForPayment({
                                   ...c,
                                   totalAmount: effectiveTotal,
@@ -2211,36 +2460,63 @@ export default function BuyerManagementConsole() {
                           {isPaid && (
                             (() => {
                               const opt = String((c as any).shippingOption || (c as any).shipping_option || '').toUpperCase();
-                              const isBuyerSelfPickup = opt === 'PA3' || opt.includes('SELF') || opt.includes('PICKUP') || opt.includes('TỰ VẬN CHUYỂN') || opt.includes('TỰ LẤY');
-                              if (!isBuyerSelfPickup) return null;
+                              const isBuyerSelfPickup = opt === 'PA3' || opt === 'FARM_PICKUP' || opt.includes('SELF') || opt.includes('PICKUP') || opt.includes('TỰ VẬN CHUYỂN') || opt.includes('TỰ LẤY');
+                              const statusUpper = String((c as any).status || '').toUpperCase();
+                              const qcUpper = String((c as any).qcStatus || (c as any).qc_status || '').toUpperCase();
+                              const isQcDone = qcUpper === 'QC_PASSED' || qcUpper === 'PASSED' || statusUpper === 'QC_PASSED' || statusUpper === 'READY_OUTBOUND';
+                              const isAlreadyDelivered = ['DELIVERED', 'SETTLED', 'COMPLETED'].includes(statusUpper);
+                              if (!isBuyerSelfPickup || !isQcDone || isAlreadyDelivered) return null;
+                              const hasRegisteredTruck = Boolean((c as any).outboundTruckPlate);
                               return (
-                                <button
-                                  type="button"
-                                  onClick={() => setDispatchingContract(c as any)}
-                                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
-                                  title="Thương lái tự điều phối phương tiện đến nhận hàng theo Phương án 3 (Tự vận chuyển)"
-                                >
-                                  <Truck className="w-3.5 h-3.5 text-white" />
-                                  <span>Điều phối xe</span>
-                                </button>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {hasRegisteredTruck && (
+                                    <span className="px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 text-[11px] font-bold flex items-center gap-1">
+                                      <Truck className="w-3.5 h-3.5 text-blue-600" />
+                                      <span>Xe đang đến kho: {(c as any).outboundTruckPlate} · {(c as any).outboundDriverName}</span>
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPa3TruckPlate(String((c as any).outboundTruckPlate || ''));
+                                      setPa3DriverName(String((c as any).outboundDriverName || '').split('(')[0].trim());
+                                      setPa3DriverPhone('');
+                                      setPa3EtaText('');
+                                      setPa3Notes('');
+                                      setDispatchingContract(c as any);
+                                    }}
+                                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                                    title="Nhập thông tin tài xế & biển số xe đến kho HoNa nhận hàng (PA3)"
+                                  >
+                                    <Truck className="w-3.5 h-3.5 text-white" />
+                                    <span>{hasRegisteredTruck ? 'Cập nhật xe đến kho' : 'Điều xe đến kho HoNa'}</span>
+                                  </button>
+                                </div>
                               );
                             })()
                           )}
 
                           {isPaid && (
                             (() => {
-                              const isFinalPaid = (c as any).finalPaidStatus === 'PAID' || (c as any).fulfillmentStep >= 6 || (c as any).status === 'SETTLED';
-                              const isDeliveryAccepted = String((c as any).status || '').toUpperCase() === 'DELIVERED';
+                              const statusUpper = String((c as any).status || '').toUpperCase();
+                              const isFinalPaid =
+                                (c as any).finalPaidStatus === 'PAID' ||
+                                String((c as any).remainingPaymentStatus || '').toUpperCase() === 'PAID' ||
+                                (c as any).fulfillmentStep >= 6 ||
+                                statusUpper === 'SETTLED' ||
+                                statusUpper === 'COMPLETED';
+                              const isDeliveryAccepted =
+                                statusUpper === 'DELIVERED' || matchedStop?.status === 'BUYER_CONFIRMED';
                               if (!isFinalPaid && isDeliveryAccepted) {
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => void openFinalPayment(c as any)}
-                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs animate-pulse"
                                     title="Quét mã VietQR thanh toán 70% giá trị hợp đồng còn lại"
                                   >
                                     <CreditCard className="w-3.5 h-3.5 text-white" />
-                                    <span>Thanh toán 70%</span>
+                                    <span>Thanh toán 70% còn lại</span>
                                   </button>
                                 );
                               }
@@ -2251,30 +2527,37 @@ export default function BuyerManagementConsole() {
                           <button
                             type="button"
                             onClick={() => {
-                              const goodsAmount = (c as any).goodsAmount || ((c.quantity || 0) * (c.unitPrice || 0));
-                              const shippingOpt = (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB';
-                              const isSelfPickup = String(shippingOpt).toUpperCase().includes('SELF') || String(shippingOpt).toUpperCase().includes('PA3') || String(shippingOpt).toUpperCase().includes('PICKUP');
-                              let shippingFee = (c as any).shippingFee;
-                              if (shippingFee === undefined || shippingFee === null) {
-                                shippingFee = isSelfPickup ? 0 : ((c.totalAmount && c.totalAmount > goodsAmount) ? c.totalAmount - goodsAmount : 0);
-                              }
-                              const effectiveTotal = goodsAmount + shippingFee;
-                              const depositAmt = isSelfPickup ? effectiveTotal : Math.round(effectiveTotal * 0.3);
+                              const fin = calculateB2bContractFinancials({
+                                quantityKg: c.quantity || 0,
+                                unitPrice: c.unitPrice || 0,
+                                goodsAmount: (c as any).goodsAmount,
+                                shippingFee: (c as any).shippingFee,
+                                shippingOption: (c as any).shippingOption || (c as any).shipping_option || 'CROSS_DOCKING_HUB',
+                              });
+                              const shippingOpt = fin.shippingOption;
+                              const isSelfPickup = fin.isSelfPickup;
+                              const goodsAmount = fin.pureGoodsAmount;
+                              const shippingFee = fin.shippingFee;
+                              const effectiveTotal = fin.grandTotal;
+                              const depositAmt = fin.depositAmount;
 
                               setViewingContract({
                                 id: c.id,
                                 contractCode: c.contractCode,
-                                rfqCode: c.rfqCode || (c.contractCode ? `RFQ-${c.contractCode.replace(/^HD-/, '')}` : 'RFQ-8915FD6E'),
+                                rfqCode: c.rfqCode || (c.contractCode ? `RFQ-${c.contractCode.replace(/^HD-/, '')}` : ''),
                                 lotCode: c.lotCode,
                                 productName: c.productName,
-                                buyerName: c.buyerName || 'Trần Thị Thương',
-                                buyerCompany: (c as any).buyerCompany || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
-                                buyerRepresentative: c.buyerName || 'Trần Thị Thương',
-                                buyerPhone: (c as any).buyerPhone || '0987.654.321',
-                                farmerName: c.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-                                farmerCompany: (c as any).farmerCompany || c.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
-                                farmerRepresentative: 'Nguyễn Văn Nông',
-                                farmerPhone: (c as any).farmerPhone || '0912.345.678',
+                                buyerName: c.buyerName || currentUser?.fullName || '',
+                                buyerCompany: (c as any).buyerCompany || (c as any).buyer_company || profileCompany || currentUser?.companyName || currentUser?.fullName || '',
+                                buyerRepresentative: c.buyerName || currentUser?.fullName || '',
+                                buyerPhone: (c as any).buyerPhone || (c as any).buyer_phone || profilePhone || currentUser?.phone || '',
+                                buyerAddress: (c as any).resolved_buyer_address || (c as any).buyerAddress || (c as any).deliveryAddress || (c as any).delivery_address || profileAddress || currentUser?.address || '',
+                                farmerName: (c as any).farmerCompany || (c as any).farmer_company || c.farmName || (c as any).farmerName || '',
+                                farmerCompany: (c as any).farmerCompany || (c as any).farmer_company || c.farmName || (c as any).farmerName || '',
+                                farmerRepresentative: (c as any).farmerName || (c as any).farmer_name || c.farmName || '',
+                                farmerPhone: (c as any).farmerPhone || (c as any).farmer_phone || '',
+                                farmerAddress: (c as any).farmerAddress || (c as any).farmer_address || (c as any).farmPickupAddress || '',
+                                farmerPuc: (c as any).farmer_puc_code || (c as any).puc_code || (c as any).pucCode || '',
                                 quantityKg: c.quantity,
                                 unitPrice: c.unitPrice,
                                 totalAmount: effectiveTotal,
@@ -2286,7 +2569,7 @@ export default function BuyerManagementConsole() {
                                 depositStatus: c.depositStatus,
                                 isDepositPaid: Boolean((c as any).isDepositPaid || (c as any).depositStatus === 'DEPOSIT_PAID' || (c as any).depositStatus === 'PAID' || (c as any).status === 'DEPOSIT_PAID' || (c as any).status === 'ACTIVE'),
                                 status: (c as any).status,
-                                deliveryAddress: (c as any).deliveryAddress || c.hubName || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM',
+                                deliveryAddress: (c as any).resolved_buyer_address || (c as any).deliveryAddress || (c as any).delivery_address || profileAddress || currentUser?.address || c.hubName || '',
                                 deliveryTimeSlot: c.hubDeliveryDate,
                                 createdAt: c.createdAt,
                                 actualHarvestWeightKg: (c as any).actualHarvestWeightKg || c.quantity,
@@ -2324,7 +2607,18 @@ export default function BuyerManagementConsole() {
                     );
                   })}
                 </div>
-              )}
+                <Pagination
+                  currentPage={safeContractsPage}
+                  totalPages={totalContractPages}
+                  totalItems={filteredBuyerContracts.length}
+                  pageSize={BUYER_CONTRACTS_PAGE_SIZE}
+                  onPageChange={setContractsPage}
+                  scrollTargetId="buyer-contracts-list"
+                  itemLabel="hợp đồng"
+                />
+                </>
+                );
+              })()}
             </div>
           )}
 
@@ -2853,18 +3147,30 @@ export default function BuyerManagementConsole() {
                   </div>
                 )}
                 {activeEpodModalStop.handoverPhotoUrl && (
-                  <div className="pt-1">
-                    <a
-                      href={activeEpodModalStop.handoverPhotoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 hover:underline flex items-center gap-1 text-[11px]"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Xem ảnh chụp giao hàng thực tế của tài xế</span>
-                    </a>
+                  <div className="pt-2 border-t border-slate-200 space-y-1">
+                    <span className="text-[11px] font-bold text-slate-700 block">
+                      Ảnh chụp bàn giao giữa Tài xế & Người mua:
+                    </span>
+                    <img
+                      src={activeEpodModalStop.handoverPhotoUrl}
+                      alt="Ảnh bàn giao thực tế"
+                      className="max-h-40 w-full object-cover rounded-xl border border-slate-200"
+                    />
                   </div>
                 )}
+                {activeEpodModalStop.driverSignatureData &&
+                  activeEpodModalStop.driverSignatureData.startsWith('data:image/') && (
+                    <div className="pt-2 border-t border-slate-200 space-y-1">
+                      <span className="text-[11px] font-bold text-slate-700 block">
+                        Chữ ký người giao (Tài xế):
+                      </span>
+                      <img
+                        src={activeEpodModalStop.driverSignatureData}
+                        alt="Chữ ký tài xế"
+                        className="max-h-20 bg-white rounded-xl border border-slate-200 p-1"
+                      />
+                    </div>
+                  )}
               </div>
 
               <div>
@@ -2897,16 +3203,9 @@ export default function BuyerManagementConsole() {
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
-                  Chữ ký số / Xác nhận ký nhận của Buyer <span className="text-rose-500">*</span>
+                  Chữ ký xác nhận của Người mua (Buyer) <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={buyerSignatureData}
-                  onChange={(e) => setBuyerSignatureData(e.target.value)}
-                  placeholder="Xác nhận chữ ký số của người đại diện Buyer"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-emerald-600 font-mono text-xs"
-                />
+                <SignaturePad onChange={setBuyerSignatureData} />
               </div>
 
               <div>
@@ -3133,9 +3432,9 @@ export default function BuyerManagementConsole() {
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
-                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block">Điều Phối Vận Tải Lạnh</span>
+                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block">Phương Án 3 · Tự Điều Xe Đến Kho HoNa</span>
                 <h3 className="font-heading font-black text-base text-[#10542C]">
-                  Xe Lạnh HoNa Express · {dispatchingContract.contractCode}
+                  Đăng Ký Xe Lấy Hàng · {dispatchingContract.contractCode}
                 </h3>
               </div>
               <button
@@ -3148,63 +3447,69 @@ export default function BuyerManagementConsole() {
             </div>
 
             <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 text-xs space-y-1">
-              <span className="text-[10px] text-blue-700 font-bold uppercase tracking-wider block">Thông Tin Đơn Hàng</span>
+              <span className="text-[10px] text-blue-700 font-bold uppercase tracking-wider block">Lô hàng đã đạt QC tại Kho HoNa</span>
               <strong className="text-sm font-bold text-gray-900 block">{dispatchingContract.productName}</strong>
               <div className="flex justify-between text-blue-900 pt-1 border-t border-blue-200/60">
-                <span>Khối lượng cần vận chuyển:</span>
+                <span>Khối lượng cần bốc tại kho:</span>
                 <b className="font-mono">{((dispatchingContract.quantity || dispatchingContract.quantityKg) ?? 0).toLocaleString()} kg</b>
               </div>
             </div>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Chọn Phương Tiện Xe Tải Lạnh Chuyên Dụng:</label>
-                <select
-                  value={selectedTruckPlate}
-                  onChange={(e) => setSelectedTruckPlate(e.target.value)}
-                  className="w-full px-3 py-2.5 border rounded-xl font-bold text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C] cursor-pointer"
-                >
-                  <option value="49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn)">
-                    49C-198.86 (Xe Thùng Lạnh HoNa Express 5 Tấn - Đà Lạt)
-                  </option>
-                  <option value="51D-882.34 (Xe Tải Lạnh HoNa Hino 8 Tấn)">
-                    51D-882.34 (Xe Tải Lạnh HoNa Hino 8 Tấn - TP.HCM)
-                  </option>
-                  <option value="60B-345.67 (Xe Lạnh Trung Chuyển Dầu Giây 3.5 Tấn)">
-                    60B-345.67 (Xe Lạnh Trung Chuyển Dầu Giây 3.5 Tấn)
-                  </option>
-                </select>
+                <label className="block font-bold text-gray-700 mb-1">Biển số xe của thương lái *</label>
+                <input
+                  type="text"
+                  value={pa3TruckPlate}
+                  onChange={(e) => setPa3TruckPlate(e.target.value)}
+                  placeholder="Ví dụ: 51C-889.99"
+                  className="w-full px-3 py-2.5 border rounded-xl font-mono font-bold text-gray-900 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C]"
+                />
               </div>
 
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Tài Xế Phụ Trách & Hotline Vận Hành:</label>
-                <select
-                  value={selectedDriverInfo}
-                  onChange={(e) => setSelectedDriverInfo(e.target.value)}
-                  className="w-full px-3 py-2.5 border rounded-xl font-bold text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C] cursor-pointer"
-                >
-                  <option value="Tài xế Nguyễn Văn Tài - 0944.556.677">
-                    Nguyễn Văn Tài (Đội xe Lâm Đồng - 0944.556.677)
-                  </option>
-                  <option value="Tài xế Lê Văn Hùng - 0912.889.900">
-                    Lê Văn Hùng (Đội xe TP.HCM - 0912.889.900)
-                  </option>
-                  <option value="Tài xế Trần Quốc Bảo - 0988.223.344">
-                    Trần Quốc Bảo (Đội xe Dầu Giây - 0988.223.344)
-                  </option>
-                </select>
-              </div>
-
-              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-gray-600 space-y-1">
-                <div className="flex justify-between">
-                  <span>Nhiệt độ thùng xe kiểm soát IoT:</span>
-                  <b className="text-emerald-700 font-mono">2.0°C - 6.0°C (Đạt chuẩn)</b>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Tên tài xế *</label>
+                  <input
+                    type="text"
+                    value={pa3DriverName}
+                    onChange={(e) => setPa3DriverName(e.target.value)}
+                    placeholder="Ví dụ: Nguyễn Văn A"
+                    className="w-full px-3 py-2.5 border rounded-xl font-semibold text-gray-900 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C]"
+                  />
                 </div>
-                <div className="flex justify-between">
-                  <span>Kho giao hàng:</span>
-                  <b className="text-gray-800 text-right max-w-[65%] truncate">
-                    {dispatchingContract.deliveryAddress || dispatchingContract.hubName || 'Kho thương lái'}
-                  </b>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">SĐT tài xế *</label>
+                  <input
+                    type="text"
+                    value={pa3DriverPhone}
+                    onChange={(e) => setPa3DriverPhone(e.target.value)}
+                    placeholder="Ví dụ: 0909123456"
+                    className="w-full px-3 py-2.5 border rounded-xl font-mono font-semibold text-gray-900 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Thời gian dự kiến đến kho</label>
+                  <input
+                    type="text"
+                    value={pa3EtaText}
+                    onChange={(e) => setPa3EtaText(e.target.value)}
+                    placeholder="Ví dụ: 14:30 hôm nay"
+                    className="w-full px-3 py-2 border rounded-xl text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Ghi chú cổng kho</label>
+                  <input
+                    type="text"
+                    value={pa3Notes}
+                    onChange={(e) => setPa3Notes(e.target.value)}
+                    placeholder="Ví dụ: Xe tải lạnh 2.5 tấn"
+                    className="w-full px-3 py-2 border rounded-xl text-gray-800 bg-[#F9FAF8] focus:outline-none focus:border-[#10542C]"
+                  />
                 </div>
               </div>
             </div>
@@ -3219,11 +3524,12 @@ export default function BuyerManagementConsole() {
               </button>
               <button
                 type="button"
-                onClick={handleConfirmDispatchTruck}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+                disabled={submittingPa3Dispatch}
+                onClick={() => void handleConfirmDispatchTruck()}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
               >
                 <Truck className="w-4 h-4 text-white" />
-                <span>Xác Nhận Xuất Xe (Tiến Mốc 3)</span>
+                <span>{submittingPa3Dispatch ? 'Đang gửi thông tin...' : 'Xác Nhận Điều Xe Đến Kho'}</span>
               </button>
             </div>
           </div>
@@ -3232,7 +3538,12 @@ export default function BuyerManagementConsole() {
       {/* ================= MODAL: CHAT REALTIME B2B ĐÀM PHÁN ================= */}
       <B2BChatModal
         isOpen={Boolean(activeChatRfq)}
-        onClose={() => setActiveChatRfq(null)}
+        onClose={() => {
+          if (activeChatRfq?.rfqCode) {
+            markChatAsRead(activeChatRfq.rfqCode);
+          }
+          setActiveChatRfq(null);
+        }}
         rfq={activeChatRfq ? {
           id: activeChatRfq.id,
           rfqCode: activeChatRfq.rfqCode,
@@ -3252,6 +3563,34 @@ export default function BuyerManagementConsole() {
           role: 'BUYER',
         }}
       />
+      {/* Modal Bản đồ Theo dõi Đường đi GPS Tài xế */}
+      {liveTrackingContract && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-3xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Theo Dõi Lộ Trình Giao Hàng GPS — {liveTrackingContract.contractCode}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Vị trí GPS xe tải lạnh được đồng bộ trực tiếp từ chuyến xe giao hàng HoNa Express
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveTrackingContract(null)}
+                className="p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <ContractLiveTrackingMap contract={liveTrackingContract} height={380} />
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xem & In Biên Bản Giao Nhận Hàng Hóa (ePOD 2 bên) */}
+      <DeliveryReceiptModal stop={viewingReceiptStop} onClose={() => setViewingReceiptStop(null)} />
     </div>
   );
 }

@@ -94,142 +94,203 @@ export default function FarmerDashboardView({
   }, []);
 
   // =========================================================================
-  // DỮ LIỆU ĐỘNG THỰC TẾ LIÊN KẾT TRỰC TIẾP VỚI CÁC HÀNH ĐỘNG ĐÀM PHÁN & HỢP ĐỒNG
+  // DỮ LIỆU ĐỘNG THỰC TẾ TỪ DATABASE (LOTS, RFQS, CONTRACTS, SETTLEMENTS)
   // =========================================================================
-  // Tiền cọc Escrow 30% bảo chứng THỰC TẾ của các hợp đồng đang thực hiện (Mốc 2 đến Mốc 5)
-  const liveEscrow =
-    contracts
-      .filter(
-        (c) =>
-          ((c.depositStatus as string) === 'DEPOSIT_PAID' || (c.depositStatus as string) === 'PAID') &&
-          c.fulfillmentStatus !== 'COMPLETED'
-      )
-      .reduce((sum, c) => sum + (c.depositAmount || 0), 0) || (stats?.escrowHolding ?? 0);
-
-  // Tổng doanh thu THỰC TẾ: Hợp đồng đã hoàn tất (Mốc 6 / COMPLETED) hoặc đã giải ngân thành công
-  const completedContracts = contracts.filter((c) => c.fulfillmentStatus === 'COMPLETED');
-  const completedRev = completedContracts.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
-  const settlementsPaid = settlements.reduce((sum, s) => sum + (s.payoutAmount || 0), 0);
-  const liveRevenue = Math.max(settlementsPaid, completedRev, stats?.totalRevenue || 0);
-
-  // Khối lượng thực tế giao dịch
-  const totalContractVolume = contracts.reduce((sum, c) => sum + (c.quantity || 0), 0);
-  const liveVolume = totalContractVolume > 0 ? totalContractVolume : (lots.reduce((s, l) => s + (l.totalWeightKg || 0), 0) || 4500);
-
-  const pendingRfqs = rfqs.filter((r) => r.status === 'PENDING');
-  const qcPassRate = selectedContractQc?.qualifiedPercent || 97.8;
-
-  // Dữ liệu thời gian động theo bộ lọc (Contextual Data có tính động theo Props)
-  const timeRangeData = {
-    '7days': {
-      label: '7 ngày qua (20/10 - 26/10/2026)',
-      revenue: Math.round(liveRevenue * 0.42),
-      revGrowth: '+8.6%',
-      revIsUp: true,
-      revTargetText: 'Đạt 115% kế hoạch tuần',
-      volume: Math.round(liveVolume * 0.42),
-      volGrowth: '+5.4%',
-      volIsUp: true,
-      volTargetText: 'Xuất kho 3 chuyến xe lạnh',
-      qcRate: Math.min(99.0, Number((qcPassRate + 0.4).toFixed(1))),
-      qcDiff: '+3.4%',
-      escrow: liveEscrow,
-      chartPoints: [
-        { label: '20/10', rev: 4200000, vol: 350 },
-        { label: '21/10', rev: 5100000, vol: 420 },
-        { label: '22/10', rev: 3800000, vol: 310 },
-        { label: '23/10', rev: 6400000, vol: 540 },
-        { label: '24/10', rev: 4900000, vol: 410 },
-        { label: '25/10', rev: 5800000, vol: 480 },
-        { label: '26/10', rev: Math.round(liveRevenue * 0.12), vol: Math.round(liveVolume * 0.1) },
-      ],
-    },
-    month: {
-      label: 'Tháng này (Tháng 10/2026)',
-      revenue: liveRevenue,
-      revGrowth: '+14.6%',
-      revIsUp: true,
-      revTargetText: 'Đạt 92.5% chỉ tiêu tháng',
-      volume: liveVolume,
-      volGrowth: '+8.2%',
-      volIsUp: true,
-      volTargetText: 'Bao tiêu 91.2% sản lượng vườn',
-      qcRate: qcPassRate,
-      qcDiff: `+${(qcPassRate - 95.0).toFixed(1)}%`,
-      escrow: liveEscrow,
-      chartPoints: [
-        { label: 'Tuần 1 (1-7)', rev: 18200000, vol: 1450 },
-        { label: 'Tuần 2 (8-14)', rev: 21500000, vol: 1680 },
-        { label: 'Tuần 3 (15-21)', rev: 24300000, vol: 1860 },
-        {
-          label: 'Tuần 4 (22-26)',
-          rev: Math.max(24444600, liveRevenue - 64000000),
-          vol: Math.max(1800, liveVolume - 4990),
-        },
-      ],
-    },
-    season: {
-      label: 'Toàn Vụ Thu Đông (T8 - T10/2026)',
-      revenue: liveRevenue + 160155400,
-      revGrowth: '+22.4%',
-      revIsUp: true,
-      revTargetText: 'Vượt 8.6% mục tiêu niên vụ',
-      volume: liveVolume + 11710,
-      volGrowth: '+18.1%',
-      volIsUp: true,
-      volTargetText: `Đã xuất ${(liveVolume + 11710).toLocaleString()} / 25.000 kg`,
-      qcRate: Math.max(95.5, Number((qcPassRate - 0.6).toFixed(1))),
-      qcDiff: '+2.2%',
-      escrow: liveEscrow + 11500000,
-      chartPoints: [
-        { label: 'Tháng 8', rev: 72000000, vol: 5400 },
-        { label: 'Tháng 9', rev: 88155400, vol: 6310 },
-        { label: 'Tháng 10', rev: liveRevenue, vol: liveVolume },
-      ],
-    },
+  const parseDateSafe = (d?: string) => {
+    if (!d) return null;
+    const parsed = new Date(d);
+    return isNaN(parsed.getTime()) ? null : parsed;
   };
 
-  const currentData = timeRangeData[timeRange];
+  const now = new Date();
+  const isInRange = (dateStr: string | undefined, range: TimeRange) => {
+    if (range === 'season') return true;
+    const d = parseDateSafe(dateStr);
+    if (!d) return true;
+    if (range === '7days') {
+      const diffMs = now.getTime() - d.getTime();
+      return diffMs >= -86400000 && diffMs <= 7 * 86400000;
+    }
+    // 'month': tháng hiện tại
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  };
 
-  // Cơ cấu 4 nhóm nông sản chính (Donut Chart tuân thủ quy tắc 4-5 phần tử)
-  const productCategories = [
-    {
-      name: 'Rau ăn lá (Bắp cải, Xà lách)',
-      percent: 45,
-      value: Math.round(currentData.revenue * 0.45),
-      color: '#10542C',
-      kg: Math.round(currentData.volume * 0.46),
-    },
-    {
-      name: 'Quả tươi (Cà chua, Ớt chuông)',
-      percent: 35,
-      value: Math.round(currentData.revenue * 0.35),
-      color: '#059669',
-      kg: Math.round(currentData.volume * 0.34),
-    },
-    {
-      name: 'Củ quả bảo quản (Khoai, Cà rốt)',
-      percent: 13,
-      value: Math.round(currentData.revenue * 0.13),
-      color: '#D97706',
-      kg: Math.round(currentData.volume * 0.14),
-    },
-    {
-      name: 'Nấm sạch VietGAP',
-      percent: 7,
-      value: Math.round(currentData.revenue * 0.07),
-      color: '#64748B',
-      kg: Math.round(currentData.volume * 0.06),
-    },
-  ];
+  const isContractSettled = (c: B2BContract) =>
+    ['SETTLED', 'COMPLETED'].includes(String(c.status || '').toUpperCase()) ||
+    ['SETTLED', 'COMPLETED'].includes(String(c.fulfillmentStatus || '').toUpperCase());
 
-  // So sánh Kế hoạch thu hoạch vs Thực tế xuất bán (Bar chart)
-  const categoryComparison = [
-    { name: 'Bắp Cải Trái Tim', plan: 8000, actual: 8850, unitPrice: 11000, status: 'Vượt 10.6%' },
-    { name: 'Cà Chua Beef GlobalGAP', plan: 6000, actual: 6480, unitPrice: 19500, status: 'Vượt 8.0%' },
-    { name: 'Xà Lách Lô Lô Thủy Canh', plan: 3000, actual: 3120, unitPrice: 22000, status: 'Vượt 4.0%' },
-    { name: 'Ớt Chuông Sweet Paler', plan: 2000, actual: 1950, unitPrice: 38000, status: 'Đạt 97.5%' },
-  ];
+  const rangeContracts = contracts.filter((c) => isInRange(c.createdAt, timeRange));
+  const rangeSettlements = settlements.filter((s) => isInRange(s.paidAt, timeRange));
+
+  const liveEscrow = rangeContracts
+    .filter(
+      (c) =>
+        ((c.depositStatus as string) === 'DEPOSIT_PAID' || (c.depositStatus as string) === 'PAID') &&
+        !isContractSettled(c) &&
+        !['CANCELLED', 'QC_RETURNED_REFUNDED'].includes(String(c.status || '').toUpperCase())
+    )
+    .reduce((sum, c) => sum + Number(c.depositAmount || 0), 0);
+
+  const settledRangeRev = rangeContracts
+    .filter(isContractSettled)
+    .reduce((sum, c) => sum + Number(c.totalAmount || 0), 0);
+  const settlementsRangePaid = rangeSettlements.reduce((sum, s) => sum + Number(s.payoutAmount || 0), 0);
+  const liveRevenue = settlementsRangePaid > 0 ? settlementsRangePaid : settledRangeRev;
+
+  const liveVolume = rangeContracts.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
+  const totalRegisteredKg = lots.reduce((sum, l) => sum + Number(l.totalWeightKg || 0), 0);
+
+  const qcEvaluatedContracts = rangeContracts.filter((c) =>
+    ['QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND', 'OUTBOUND_DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'SETTLED', 'COMPLETED'].includes(
+      String(c.status || '').toUpperCase()
+    )
+  );
+  const qcPassedCount = qcEvaluatedContracts.filter(
+    (c) => String(c.status || '').toUpperCase() !== 'QC_FAILED'
+  ).length;
+  const qcPassRate =
+    qcEvaluatedContracts.length > 0
+      ? Number(((qcPassedCount / qcEvaluatedContracts.length) * 100).toFixed(1))
+      : selectedContractQc?.qualifiedPercent ?? 100;
+
+  const pendingRfqs = rfqs.filter((r) => r.status === 'PENDING');
+
+  const buildChartPoints = () => {
+    if (timeRange === '7days') {
+      const pts: Array<{ label: string; rev: number; vol: number }> = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 86400000);
+        const dayStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const dayContracts = rangeContracts.filter((c) => {
+          const cd = parseDateSafe(c.createdAt);
+          return cd && cd.getDate() === d.getDate() && cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
+        });
+        const dayRev = dayContracts.filter(isContractSettled).reduce((s, c) => s + Number(c.totalAmount || 0), 0);
+        const dayVol = dayContracts.reduce((s, c) => s + Number(c.quantity || 0), 0);
+        pts.push({ label: dayStr, rev: dayRev, vol: dayVol });
+      }
+      return pts;
+    }
+
+    if (timeRange === 'month') {
+      const weeks = [
+        { label: 'Tuần 1 (1-7)', min: 1, max: 7 },
+        { label: 'Tuần 2 (8-14)', min: 8, max: 14 },
+        { label: 'Tuần 3 (15-21)', min: 15, max: 21 },
+        { label: 'Tuần 4 (22-31)', min: 22, max: 31 },
+      ];
+      return weeks.map((w) => {
+        const wkContracts = rangeContracts.filter((c) => {
+          const cd = parseDateSafe(c.createdAt);
+          return cd && cd.getDate() >= w.min && cd.getDate() <= w.max;
+        });
+        return {
+          label: w.label,
+          rev: wkContracts.filter(isContractSettled).reduce((s, c) => s + Number(c.totalAmount || 0), 0),
+          vol: wkContracts.reduce((s, c) => s + Number(c.quantity || 0), 0),
+        };
+      });
+    }
+
+    // 'season': nhóm theo các tháng gần nhất (3 tháng gần đây)
+    const pts: Array<{ label: string; rev: number; vol: number }> = [];
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mContracts = rangeContracts.filter((c) => {
+        const cd = parseDateSafe(c.createdAt);
+        return cd && cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
+      });
+      pts.push({
+        label: `Tháng ${d.getMonth() + 1}`,
+        rev: mContracts.filter(isContractSettled).reduce((s, c) => s + Number(c.totalAmount || 0), 0),
+        vol: mContracts.reduce((s, c) => s + Number(c.quantity || 0), 0),
+      });
+    }
+    return pts;
+  };
+
+  const monthLabel = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
+  const currentData = {
+    label:
+      timeRange === '7days'
+        ? '7 ngày qua'
+        : timeRange === 'month'
+        ? `Tháng này (${monthLabel})`
+        : `Toàn vụ năm ${now.getFullYear()}`,
+    revenue: liveRevenue,
+    revGrowth: `${rangeContracts.filter(isContractSettled).length} HĐ hoàn tất`,
+    revIsUp: true,
+    revTargetText: `Tổng ${rangeContracts.length} hợp đồng trong kỳ`,
+    volume: liveVolume,
+    volGrowth: `${lots.length} lô thu hoạch`,
+    volIsUp: true,
+    volTargetText: `Tổng sản lượng đăng bán: ${totalRegisteredKg.toLocaleString()} kg`,
+    qcRate: qcPassRate,
+    qcDiff: `${qcPassedCount}/${qcEvaluatedContracts.length || 0} lô đạt`,
+    escrow: liveEscrow,
+    chartPoints: buildChartPoints(),
+  };
+
+  // Cơ cấu nhóm nông sản thực tế từ hợp đồng (hoặc lô thu hoạch nếu chưa có hợp đồng)
+  const palette = ['#10542C', '#059669', '#D97706', '#64748B'];
+  const catAgg = new Map<string, { value: number; kg: number }>();
+  if (rangeContracts.length > 0) {
+    rangeContracts.forEach((c) => {
+      const key = c.productName || 'Nông sản khác';
+      const cur = catAgg.get(key) || { value: 0, kg: 0 };
+      cur.value += Number(c.totalAmount || 0);
+      cur.kg += Number(c.quantity || 0);
+      catAgg.set(key, cur);
+    });
+  } else {
+    lots.forEach((l) => {
+      const key = l.productName || l.category || 'Nông sản khác';
+      const cur = catAgg.get(key) || { value: 0, kg: 0 };
+      cur.value += Number(l.totalWeightKg || 0) * Number(l.basePricePerKg || 0);
+      cur.kg += Number(l.totalWeightKg || 0);
+      catAgg.set(key, cur);
+    });
+  }
+  const totalAggKg = Array.from(catAgg.values()).reduce((s, v) => s + v.kg, 0);
+  const productCategories = Array.from(catAgg.entries())
+    .sort((a, b) => b[1].kg - a[1].kg)
+    .slice(0, 4)
+    .map(([name, data], idx) => ({
+      name,
+      percent: totalAggKg > 0 ? Math.round((data.kg / totalAggKg) * 100) : 0,
+      value: data.value,
+      color: palette[idx % palette.length],
+      kg: data.kg,
+    }));
+
+  // So sánh Kế hoạch thu hoạch (từ lots) vs Thực tế giao dịch (từ contracts) theo từng nông sản
+  const productMap = new Map<string, { plan: number; actual: number; unitPrice: number }>();
+  lots.forEach((l) => {
+    const key = l.productName || 'Nông sản';
+    const cur = productMap.get(key) || { plan: 0, actual: 0, unitPrice: Number(l.basePricePerKg || 0) };
+    cur.plan += Number(l.totalWeightKg || 0);
+    if (!cur.unitPrice && l.basePricePerKg) cur.unitPrice = Number(l.basePricePerKg);
+    productMap.set(key, cur);
+  });
+  contracts.forEach((c) => {
+    const key = c.productName || 'Nông sản';
+    const cur = productMap.get(key) || { plan: 0, actual: 0, unitPrice: Number(c.unitPrice || 0) };
+    cur.actual += Number(c.quantity || 0);
+    if (c.unitPrice) cur.unitPrice = Number(c.unitPrice);
+    productMap.set(key, cur);
+  });
+  const categoryComparison = Array.from(productMap.entries())
+    .slice(0, 6)
+    .map(([name, d]) => {
+      const pct = d.plan > 0 ? Math.round((d.actual / d.plan) * 100) : d.actual > 0 ? 100 : 0;
+      return {
+        name,
+        plan: d.plan,
+        actual: d.actual,
+        unitPrice: d.unitPrice,
+        status: d.plan > 0 ? `Đạt ${pct}%` : 'Đã ký HĐ',
+      };
+    });
 
   // Tính toán tọa độ cho SVG Line Chart
   const svgWidth = 560;
@@ -240,8 +301,8 @@ export default function FarmerDashboardView({
   const chartInnerH = svgHeight - paddingY * 2;
 
   const pointsCount = currentData.chartPoints.length;
-  const maxRev = Math.max(...currentData.chartPoints.map((p) => p.rev)) * 1.15;
-  const maxVol = Math.max(...currentData.chartPoints.map((p) => p.vol)) * 1.15;
+  const maxRev = Math.max(1, ...currentData.chartPoints.map((p) => p.rev)) * 1.15;
+  const maxVol = Math.max(1, ...currentData.chartPoints.map((p) => p.vol)) * 1.15;
 
   const revCoordinates = currentData.chartPoints.map((p, idx) => {
     const x = paddingX + (idx / Math.max(1, pointsCount - 1)) * chartInnerW;

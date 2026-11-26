@@ -1,5 +1,6 @@
 package com.btl.webbanrau.controller;
 
+import com.btl.webbanrau.dto.request.DepartOutboundTripRequest;
 import com.btl.webbanrau.dto.request.DriverOutboundEpodRequest;
 import com.btl.webbanrau.dto.response.ApiResponse;
 import com.btl.webbanrau.model.OutboundDeliveryStop;
@@ -38,10 +39,19 @@ public class DriverOutboundController {
     }
 
     @PostMapping("/{tripId}/depart")
-    public Object departTrip(@PathVariable Long tripId) {
+    public Object departTrip(@PathVariable Long tripId, @RequestBody(required = false) DepartOutboundTripRequest req) {
         var user = AuthService.current();
-        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.driverDepartTrip(tripId, user.getPhone(), false);
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.driverDepartTrip(tripId, req, user.getPhone(), false);
         return ApiResponse.success("Chuyến giao hàng xuất phát thành công", trip);
+    }
+
+    @PostMapping("/{tripId}/gps")
+    public Object updateTripGps(@PathVariable Long tripId, @RequestBody java.util.Map<String, Double> payload) {
+        var user = AuthService.current();
+        Double lat = payload != null ? payload.get("lat") : null;
+        Double lng = payload != null ? payload.get("lng") : null;
+        OutboundDeliveryTrip trip = outboundDeliveryExecutionService.updateTripGps(tripId, lat, lng, user.getPhone(), false);
+        return ApiResponse.success("Đã cập nhật vị trí GPS chuyến xe", trip);
     }
 
     @PostMapping("/stops/{stopId}/arrive")

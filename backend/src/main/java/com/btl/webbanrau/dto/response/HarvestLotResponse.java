@@ -43,6 +43,11 @@ public class HarvestLotResponse {
     private String warehouseLocation;
     private String hubLocation;
     private String region;
+    private String farmName;
+    private String farmLocation;
+    private String farmOwner;
+    private String farmArea;
+    private String farmContactPhone;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

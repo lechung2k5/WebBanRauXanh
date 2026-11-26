@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Warehouse,
   Plus,
@@ -44,7 +45,11 @@ import {
   PickupTripDto,
   DEFAULT_OFFICIAL_HUBS,
   WarehouseHubDto,
+  WarehouseLayoutDto,
+  WarehouseZoneTelemetryDto,
 } from '@/services/fleetDispatchApi';
+import Warehouse3DDigitalTwin, { getContractStorageUrgency } from '@/components/admin/Warehouse3DDigitalTwin';
+import WarehouseIotMonitorPanel from '@/components/admin/WarehouseIotMonitorPanel';
 import { b2bWebSocket } from '@/services/websocketService';
 import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
 
@@ -55,12 +60,31 @@ const money = (val: unknown) => {
 };
 
 export default function AdminQcPage() {
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith('/manager') ? '/manager' : '/admin';
   const [hubs] = useState<WarehouseHubDto[]>(DEFAULT_OFFICIAL_HUBS);
-  const [selectedHubId, setSelectedHubId] = useState<number>(2); // Mặc định Hub Đức Trọng, Lâm Đồng
+  const [selectedHubId, setSelectedHubId] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hona_admin_selected_hub_id');
+      if (saved) return Number(saved);
+    }
+    return 2;
+  });
+
+  useEffect(() => {
+    const onHubChanged = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (custom.detail) setSelectedHubId(Number(custom.detail));
+    };
+    window.addEventListener('hona-admin-hub-changed', onHubChanged);
+    return () => window.removeEventListener('hona-admin-hub-changed', onHubChanged);
+  }, []);
   const [activeTab, setActiveTab] = useState<'GATE_RECEIVING' | 'QC_LAB' | 'FEFO_STORAGE' | 'READY_OUTBOUND'>('GATE_RECEIVING');
 
   const [trips, setTrips] = useState<PickupTripDto[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [warehouseLayout, setWarehouseLayout] = useState<WarehouseLayoutDto | null>(null);
+  const [iotReadings, setIotReadings] = useState<WarehouseZoneTelemetryDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -86,8 +110,15 @@ export default function AdminQcPage() {
   const [sampleWeight, setSampleWeight] = useState<string>('150');
   const [rejectedWeight, setRejectedWeight] = useState<string>('0');
   const [qcCertCode, setQcCertCode] = useState<string>('');
-  const [qcInspector, setQcInspector] = useState<string>('KTV. Lê Hoàng Yến (Lab QC Trạm HoNa)');
+  const [qcInspector, setQcInspector] = useState<string>('');
+  const [qcTechnicians, setQcTechnicians] = useState<Array<{ id: number; driverCode: string; fullName: string; phone: string; status: string }>>([]);
   const [qcNotes, setQcNotes] = useState<string>('Ngoại quan cuống tươi giòn, lá xanh mướt đồng đều, test tồn dư âm tính đạt chuẩn xuất khẩu.');
+  const [qcDecision, setQcDecision] = useState<'PASS' | 'FAIL'>('PASS');
+  const [qcRejectReason, setQcRejectReason] = useState<string>('Chỉ số Brix / Nitrate vượt ngưỡng hoặc nông sản dập nát không đạt chuẩn.');
+  const [returningContract, setReturningContract] = useState<any | null>(null);
+  const [returnMethod, setReturnMethod] = useState<string>('Trả hàng trực tiếp cho Nhà vườn tại Kho HoNa');
+  const [returnNotes, setReturnNotes] = useState<string>('Hàng không đạt kiểm định QC, lập biên bản hoàn trả hàng & hoàn cọc 30% Escrow về Buyer.');
+  const [returnRef, setReturnRef] = useState<string>('');
   const [showCertSuccess, setShowCertSuccess] = useState<any | null>(null);
 
   // Ref lưu Hub được chọn để xử lý closure stale
@@ -100,10 +131,34 @@ export default function AdminQcPage() {
     return hubs.find((h) => h.id === selectedHubId) || hubs[0];
   }, [hubs, selectedHubId]);
 
+  const [selectedBinContractCode, setSelectedBinContractCode] = useState<string | null>(null);
+
   const showToast = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(null), 4000);
   };
+
+  const handleTelemetryReading = useCallback((reading: WarehouseZoneTelemetryDto) => {
+    if (!reading?.zoneCode) return;
+    setIotReadings((prev) => {
+      const code = reading.zoneCode.toUpperCase();
+      const idx = prev.findIndex((item) => item.zoneCode?.toUpperCase() === code);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = reading;
+        return next;
+      }
+      return [...prev, reading];
+    });
+  }, []);
+
+  const zoneTelemetryMap = useMemo(() => {
+    const map: Record<string, WarehouseZoneTelemetryDto> = {};
+    for (const r of iotReadings) {
+      if (r.zoneCode) map[r.zoneCode.toUpperCase()] = r;
+    }
+    return map;
+  }, [iotReadings]);
 
   // Nạp dữ liệu toàn diện của Trạm QC
   const loadData = useCallback(async () => {
@@ -111,13 +166,27 @@ export default function AdminQcPage() {
     setError('');
     try {
       const hubId = selectedHubIdRef.current;
-      const [tripsData, invData] = await Promise.all([
+      const [tripsData, invData, staffData, layoutData, latestIot] = await Promise.all([
         fleetDispatchApi.getReceivingTrips(hubId).catch(() => []),
         fleetDispatchApi.getHubInventory(hubId).catch(() => []),
+        fleetDispatchApi.getDrivers(hubId).catch(() => []),
+        fleetDispatchApi.getWarehouseLayout(hubId).catch(() => null),
+        fleetDispatchApi.getWarehouseIotLatest(hubId).catch(() => []),
       ]);
 
       setTrips(Array.isArray(tripsData) ? tripsData : []);
       setInventory(Array.isArray(invData) ? invData : []);
+      if (layoutData) {
+        setWarehouseLayout(layoutData);
+      }
+      setIotReadings(Array.isArray(latestIot) ? latestIot : []);
+      const techs = (Array.isArray(staffData) ? staffData : []).filter(
+        (d: any) => String(d.licenseClass || '').toUpperCase() === 'QC_TECH' && d.status !== 'OFF_DUTY'
+      );
+      setQcTechnicians(techs);
+      if (techs.length > 0 && !qcInspector) {
+        setQcInspector(`${techs[0].fullName} (${techs[0].driverCode})`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không tải được dữ liệu trạm QC');
     } finally {
@@ -138,20 +207,35 @@ export default function AdminQcPage() {
     const unsubSync = subscribeB2bSyncEvents(() => {
       void loadData();
     });
+    const unsubIot = b2bWebSocket.subscribeWarehouseIot(selectedHubId, (payload) => {
+      if (payload?.reading) {
+        handleTelemetryReading(payload.reading as WarehouseZoneTelemetryDto);
+      }
+    });
+    const syncTimer = setInterval(() => {
+      void fleetDispatchApi
+        .getWarehouseIotLatest(selectedHubId)
+        .then((latest) => {
+          if (Array.isArray(latest)) setIotReadings(latest);
+        })
+        .catch(() => {});
+    }, 1500);
 
     return () => {
       unsubContracts();
       unsubDispatch();
       unsubSync();
+      unsubIot();
+      clearInterval(syncTimer);
     };
-  }, [selectedHubId, loadData]);
+  }, [selectedHubId, loadData, handleTelemetryReading]);
 
   // Danh sách các lô ĐÃ THỰC SỰ TIẾP NHẬN & DỠ HÀNG VÀO KHO (đã gán buồng và ô kệ)
   const storedLots = useMemo(() => {
     return inventory.filter(
       (c) =>
-        (['AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND'].includes(c.status) ||
-         ['AT_HUB_QC', 'HUB_DELIVERED'].includes(c.fulfillment_status)) &&
+        (['AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND'].includes(c.status) ||
+         ['AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND'].includes(c.fulfillment_status)) &&
         Boolean(c.hub_rack_bin)
     );
   }, [inventory]);
@@ -169,14 +253,17 @@ export default function AdminQcPage() {
 
     const pendingQcLots = inventory.filter(
       (c) =>
-        (['AT_HUB_QC', 'HUB_DELIVERED'].includes(c.status) ||
-         ['AT_HUB_QC', 'HUB_DELIVERED'].includes(c.fulfillment_status)) &&
+        (Boolean(c.hub_inbound_at) ||
+          Boolean(c.hub_rack_bin) ||
+          c.fulfillment_status === 'HUB_DELIVERED' ||
+          c.status === 'HUB_DELIVERED') &&
         c.qc_status !== 'QC_PASSED'
     );
 
     const readyOutboundLots = inventory.filter(
       (c) =>
-        ((c.status === 'AT_HUB_QC' && c.qc_status === 'QC_PASSED') ||
+        (c.status === 'QC_PASSED' ||
+         (c.status === 'AT_HUB_QC' && c.qc_status === 'QC_PASSED') ||
          c.status === 'READY_OUTBOUND') &&
         Boolean(c.hub_rack_bin)
     );
@@ -288,11 +375,13 @@ export default function AdminQcPage() {
     setPesticideSafe(contract.qc_pesticide_safe !== undefined ? Boolean(contract.qc_pesticide_safe) : true);
     setGrade1Ratio(contract.grade1_ratio ? String(contract.grade1_ratio) : '96');
     setQcCertCode(`QC-${new Date().getFullYear()}-${contract.contract_code?.replace(/^#/, '') || '001'}`);
+    setQcDecision(contract.qc_status === 'QC_FAILED' ? 'FAIL' : 'PASS');
+    setQcRejectReason('Chỉ số Brix / Nitrate không đạt chuẩn hoặc phát hiện dập nát / tồn dư BVTV.');
     setQcNotes('Ngoại quan cuống tươi giòn, lá xanh mướt đồng đều, test tồn dư âm tính đạt chuẩn xuất khẩu.');
   };
 
-  // Xác nhận cấp chứng chỉ QC & Xếp vào kệ FEFO
-  const handleApproveQcLab = async () => {
+  // Xác nhận kết quả Lab QC (Đạt hoặc Không đạt)
+  const handleSubmitQcDecision = async () => {
     if (!qcContract) return;
     try {
       setSubmitting(true);
@@ -301,6 +390,21 @@ export default function AdminQcPage() {
       const netNum = parseFloat(sampleWeight) || 150;
       const brixNum = parseFloat(brix) || 12.5;
       const nitrateNum = parseFloat(nitrate) || 240;
+
+      if (qcDecision === 'FAIL') {
+        await fleetDispatchApi.rejectWarehouseQc(qcContract.id, {
+          brix: brixNum,
+          nitratePpm: nitrateNum,
+          pesticideSafe,
+          rejectedWeightKg: netNum,
+          qcNotes,
+          reason: qcRejectReason.trim() || qcNotes,
+        });
+        showToast(`Đã đánh dấu KHÔNG ĐẠT QC cho hợp đồng ${qcContract.contract_code} và thông báo tới Buyer & Nhà vườn!`);
+        setQcContract(null);
+        await loadData();
+        return;
+      }
 
       const payload = {
         zone: qcContract.hub_warehouse_zone || 'Zone A (Rau lá 2-4°C)',
@@ -340,10 +444,30 @@ export default function AdminQcPage() {
     }
   };
 
-  // Hàm render động từng ô Bin theo tồn kho thực tế
-  const getBinLot = useCallback(
+  const handleConfirmReturnRefund = async () => {
+    if (!returningContract) return;
+    try {
+      setSubmitting(true);
+      setError('');
+      await fleetDispatchApi.processQcReturnRefund(returningContract.id, {
+        returnMethod,
+        returnNotes,
+        reference: returnRef.trim() || undefined,
+      });
+      showToast(`Đã lập biên bản hoàn hàng & hoàn cọc 30% cho hợp đồng ${returningContract.contract_code}!`);
+      setReturningContract(null);
+      await loadData();
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi xử lý hoàn hàng & hoàn cọc');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Hàm render động từng ô Bin theo tồn kho thực tế (hỗ trợ nhiều lô cùng nằm trong 1 ô kệ)
+  const getBinLots = useCallback(
     (binCode: string) => {
-      return storedLots.find((c) =>
+      return storedLots.filter((c) =>
         String(c.hub_rack_bin || '').toUpperCase().includes(binCode.toUpperCase())
       );
     },
@@ -351,9 +475,9 @@ export default function AdminQcPage() {
   );
 
   const renderBinCard = (binCode: string, defaultCapacity = 2000) => {
-    const lot = getBinLot(binCode);
+    const lots = getBinLots(binCode);
 
-    if (!lot) {
+    if (lots.length === 0) {
       return (
         <div
           key={binCode}
@@ -366,50 +490,181 @@ export default function AdminQcPage() {
       );
     }
 
-    const isQcPassed = lot.qc_status === 'QC_PASSED';
-    const weight = Number(lot.actual_harvest_weight_kg || lot.offered_weight_kg || 150);
+    const primaryLot = lots[0];
+    const allQcPassed = lots.every((l) => l.qc_status === 'QC_PASSED');
+    const anyQcFailed = lots.some((l) => l.qc_status === 'QC_FAILED' || l.status === 'QC_FAILED');
+    const totalWeight = lots.reduce(
+      (sum, l) => sum + Number(l.actual_harvest_weight_kg || l.offered_weight_kg || 150),
+      0
+    );
+    const totalPackages = lots.reduce((sum, l) => sum + Number(l.package_count || 10), 0);
 
-    // Tính thời gian FEFO thực tế (chuẩn Cross-docking 24h từ lúc nhập cổng)
-    const inboundTime = lot.hub_inbound_at ? new Date(lot.hub_inbound_at).getTime() : Date.now();
-    const elapsedHours = Math.max(0, Math.floor((Date.now() - inboundTime) / (1000 * 60 * 60)));
-    const remainingHours = Math.max(1, 24 - elapsedHours);
+    // Lấy mức độ khẩn cấp FEFO cao nhất trong ô
+    const urgencies = lots.map((l) => getContractStorageUrgency(l));
+    const urgency =
+      urgencies.find((u) => u.level === 'LATE') ||
+      urgencies.find((u) => u.level === 'WARNING') ||
+      urgencies[0];
     const fefoBadgeClass =
-      remainingHours > 18
-        ? 'text-emerald-800 bg-emerald-100/80'
-        : remainingHours > 6
-        ? 'text-amber-800 bg-amber-100/80'
-        : 'text-rose-800 bg-rose-100/80';
+      urgency.level === 'LATE'
+        ? 'text-rose-800 bg-rose-100/90'
+        : urgency.level === 'WARNING'
+        ? 'text-amber-800 bg-amber-100/90'
+        : 'text-emerald-800 bg-emerald-100/80';
 
     return (
       <div
         key={binCode}
-        className="p-4 rounded-2xl border-2 border-emerald-400 bg-emerald-50/40 space-y-2 relative shadow-xs"
+        className={`p-4 rounded-2xl border-2 space-y-2 relative shadow-xs ${
+          urgency.level === 'LATE' || anyQcFailed
+            ? 'border-rose-400 bg-rose-50/40'
+            : urgency.level === 'WARNING'
+            ? 'border-amber-400 bg-amber-50/40'
+            : 'border-emerald-400 bg-emerald-50/40'
+        }`}
       >
-        <div className="flex items-center justify-between">
-          <span className="font-mono font-black text-xs text-[#10542C] bg-emerald-100 px-2 py-0.5 rounded-lg">
-            {binCode}
-          </span>
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-black text-xs text-[#10542C] bg-emerald-100 px-2 py-0.5 rounded-lg">
+              {binCode}
+            </span>
+            {lots.length > 1 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                {lots.length} lô
+              </span>
+            )}
+          </div>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${fefoBadgeClass}`}>
             <Clock className="w-3 h-3" />
-            Còn {remainingHours}h (FEFO {remainingHours > 18 ? 'OK' : 'Cần Xuất'})
+            {urgency.label}
           </span>
         </div>
 
-        <div>
-          <span className="font-mono font-bold text-xs text-[#10542C] block">{lot.contract_code}</span>
-          <strong className="text-xs text-slate-900 block truncate">{lot.product_name || 'Nông sản VietGAP'}</strong>
-          <span className="text-[11px] text-slate-600 block truncate">Bán: {lot.farmer_name || 'Nhà vườn'}</span>
-        </div>
+        {(() => {
+          const accentBorders = [
+            'border-l-emerald-600',
+            'border-l-blue-600',
+            'border-l-amber-600',
+            'border-l-purple-600',
+          ];
+          let crateCursor = 1;
+          const lotRanges = lots.map((l, idx) => {
+            const w = Number(l.actual_harvest_weight_kg || l.offered_weight_kg || 150);
+            const pkgs = Math.max(1, Number(l.package_count || 10));
+            const startCrate = crateCursor;
+            const endCrate = crateCursor + pkgs - 1;
+            crateCursor = endCrate + 1;
+            const code = String(l.contract_code || l.id);
+            const shortCode = code.replace(/^HD-\d{4}-/, '') || String(l.id);
+            return { l, idx, w, pkgs, startCrate, endCrate, code, shortCode };
+          });
+          const hasSelectionInBin = lotRanges.some((r) => r.code === selectedBinContractCode);
+
+          return (
+            <>
+              <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-0.5">
+                {lotRanges.map(({ l, idx, w, pkgs, startCrate, endCrate, code, shortCode }) => {
+                  const isSelected = selectedBinContractCode === code;
+                  const isDimmed = hasSelectionInBin && !isSelected;
+                  const shippingOpt = String(l.shipping_option || l.shippingOption || '').toUpperCase();
+                  const isSelfPickup =
+                    shippingOpt === 'PA3' ||
+                    shippingOpt === 'FARM_PICKUP' ||
+                    shippingOpt === 'BUYER_SELF_TRANSPORT' ||
+                    shippingOpt.includes('PICKUP') ||
+                    shippingOpt.includes('SELF');
+
+                  return (
+                    <button
+                      type="button"
+                      key={String(l.id || code)}
+                      onClick={() => setSelectedBinContractCode((prev) => (prev === code ? null : code))}
+                      className={`w-full text-left rounded-lg px-2.5 py-1.5 border border-l-4 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-100 border-emerald-500 border-l-emerald-600 ring-2 ring-emerald-400/70 shadow-xs'
+                          : isDimmed
+                          ? `bg-white/60 border-slate-200 ${accentBorders[idx % accentBorders.length]} opacity-55 hover:opacity-90`
+                          : `bg-white/90 border-emerald-200/80 ${accentBorders[idx % accentBorders.length]} hover:bg-emerald-50/70`
+                      }`}
+                      title="Bấm vào hợp đồng để đổi màu xanh các thùng của đơn này"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-mono font-bold text-[11px] text-[#10542C]">{l.contract_code}</span>
+                        <span
+                          className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-800'
+                          }`}
+                        >
+                          Thùng #{startCrate}–#{endCrate}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <span className="text-[11px] font-semibold text-slate-800 truncate">{l.product_name || 'Nông sản VietGAP'}</span>
+                        <span className="font-mono text-[10px] font-bold text-slate-700 shrink-0">{w} kg ({pkgs} thùng)</span>
+                      </div>
+                      <div className="text-[10px] text-slate-600 truncate">
+                        Mua: <strong className="text-slate-800">{l.buyer_name || l.buyer_company || 'Khách sỉ'}</strong>
+                      </div>
+                      <div className="flex items-center justify-between gap-1 mt-1 text-[10px]">
+                        <span className="font-mono text-slate-500 truncate" title={String(l.qr_code_data || `Tem ${shortCode}-01..${String(pkgs).padStart(2, '0')}`)}>
+                          Tem: <strong className="text-slate-700">{shortCode}-01..{String(pkgs).padStart(2, '0')}</strong>
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded font-bold shrink-0 ${isSelfPickup ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                          {isSelfPickup ? 'PA3 · Tự lấy' : 'PA2 · Xe HoNa'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Sơ đồ từng thùng trong ô kệ: bấm vào HĐ để tô xanh các thùng thuộc đơn đó */}
+              <div className="pt-1.5 border-t border-emerald-200/60">
+                <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Sơ đồ thùng ({totalPackages} thùng):</span>
+                  <span className="text-[9px] text-emerald-700 font-medium">
+                    {hasSelectionInBin ? `Đang chọn ${selectedBinContractCode}` : 'Bấm HĐ để tô xanh'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {lotRanges.flatMap(({ code, shortCode, pkgs, startCrate }) =>
+                    Array.from({ length: pkgs }, (_, i) => {
+                      const crateNo = startCrate + i;
+                      const isCrateSelected = selectedBinContractCode === code;
+                      return (
+                        <button
+                          type="button"
+                          key={`${code}-${crateNo}`}
+                          onClick={() => setSelectedBinContractCode((prev) => (prev === code ? null : code))}
+                          title={`${code} · Thùng #${crateNo} (Tem ${shortCode}-${String(i + 1).padStart(2, '0')})`}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border transition-all cursor-pointer ${
+                            isCrateSelected
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs scale-105'
+                              : hasSelectionInBin
+                              ? 'bg-slate-100 text-slate-400 border-slate-200'
+                              : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400'
+                          }`}
+                        >
+                          #{crateNo}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
 
         <div className="pt-2 border-t border-emerald-200/80 flex items-center justify-between text-xs">
           <span className="text-slate-500">Tải trọng:</span>
-          <strong className="font-mono text-[#10542C]">{weight} kg ({lot.package_count || 10} thùng)</strong>
+          <strong className="font-mono text-[#10542C]">{totalWeight} kg ({totalPackages} thùng)</strong>
         </div>
 
         <div className="flex items-center justify-between text-[10px] pt-1 text-slate-500">
           <span>Nhiệt độ buồng: <strong className="text-blue-700">2.8°C</strong></span>
-          <span className={isQcPassed ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-            {isQcPassed ? 'QC: Pass ✓' : 'Chờ Lab QC'}
+          <span className={allQcPassed ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+            {allQcPassed ? 'QC: Pass ✓' : 'Chờ Lab QC'}
           </span>
         </div>
       </div>
@@ -477,50 +732,6 @@ export default function AdminQcPage() {
           <span>{error}</span>
         </div>
       )}
-
-      {/* 2. THANH CHỌN TRẠM TRUNG CHUYỂN (5 HUB CHÍNH THỨC) */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-            <MapPin className="w-4 h-4 text-[#10542C]" />
-            <span>Mạng Lưới 5 Trạm Trung Chuyển Lạnh Chuẩn Cross-Docking</span>
-          </div>
-          <span className="text-[11px] text-slate-500 font-mono">
-            Đang chọn: <strong className="text-[#10542C]">{currentHub.hubName}</strong>
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {hubs.map((hub) => {
-            const isSelected = hub.id === selectedHubId;
-            return (
-              <button
-                key={hub.id}
-                type="button"
-                onClick={() => setSelectedHubId(hub.id)}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-[#10542C] bg-emerald-50/50 shadow-xs ring-2 ring-[#10542C]/20'
-                    : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                    isSelected ? 'bg-[#10542C] text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {hub.hubCode}
-                  </span>
-                  {isSelected && <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />}
-                </div>
-                <strong className="text-xs font-bold text-slate-900 block mt-2 line-clamp-1">
-                  {hub.hubName}
-                </strong>
-                <span className="text-[11px] text-slate-500 block mt-0.5 line-clamp-1">{hub.address}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {/* 3. BẢNG 4 CHỈ SỐ KPI VẬN HÀNH THỜI GIAN THỰC */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -676,9 +887,6 @@ export default function AdminQcPage() {
                 <Scale className="w-3.5 h-3.5" /> Cân Tải Trọng Cổng & Kiểm Soát Chuỗi Lạnh
               </span>
               <h3 className="text-sm font-bold">Tiếp nhận các chuyến xe lạnh thu gom từ rẫy về {currentHub.hubName}</h3>
-              <p className="text-xs text-slate-300">
-                Quy trình đối soát: Cân Tổng (Gross) $\rightarrow$ Cân Bì (Tare) $\rightarrow$ Cân Tịnh (Net) $\rightarrow$ Đo nhiệt độ cuống $\rightarrow$ Nhập kho mát.
-              </p>
             </div>
           </div>
 
@@ -841,8 +1049,11 @@ export default function AdminQcPage() {
                     {filteredInventory.map((row) => {
                       const isQcPassed = row.qc_status === 'QC_PASSED';
                       const isReceivedAtHub =
-                        ['AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND'].includes(row.status) ||
-                        Boolean(row.hub_rack_bin);
+                        Boolean(row.hub_inbound_at) ||
+                        Boolean(row.hub_rack_bin) ||
+                        row.fulfillment_status === 'HUB_DELIVERED' ||
+                        row.status === 'HUB_DELIVERED' ||
+                        row.status === 'READY_OUTBOUND';
                       const brixVal = row.qc_brix || 12.5;
                       const nitrateVal = row.qc_nitrate_ppm || 240;
 
@@ -881,18 +1092,44 @@ export default function AdminQcPage() {
                             )}
                           </td>
                           <td className="p-3.5 text-center whitespace-nowrap">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
-                              isQcPassed
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                : isReceivedAtHub
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : 'bg-slate-100 text-slate-600 border-slate-300'
-                            }`}>
-                              {isQcPassed ? 'ĐÃ ĐẠT QC' : isReceivedAtHub ? 'CHỜ KIỂM ĐỊNH' : 'XE ĐANG VẬN CHUYỂN'}
-                            </span>
+                            {row.qc_status === 'QC_FAILED' || row.status === 'QC_FAILED' ? (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border bg-rose-50 text-rose-800 border-rose-300">
+                                KHÔNG ĐẠT QC
+                              </span>
+                            ) : (
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+                                isQcPassed
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : isReceivedAtHub
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : 'bg-slate-100 text-slate-600 border-slate-300'
+                              }`}>
+                                {isQcPassed ? 'ĐÃ ĐẠT QC' : isReceivedAtHub ? 'CHỜ KIỂM ĐỊNH' : 'XE ĐANG VẬN CHUYỂN'}
+                              </span>
+                            )}
                           </td>
                           <td className="p-3.5 text-right pr-5 whitespace-nowrap">
-                            {isReceivedAtHub ? (
+                            {row.qc_status === 'QC_FAILED' || row.status === 'QC_FAILED' ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openQcInspectionModal(row)}
+                                  className="px-2.5 py-1.5 rounded-xl font-bold text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                                >
+                                  Kiểm Lại
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReturningContract(row);
+                                    setReturnRef(`REF-QC-${row.contract_code || row.id}`);
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                                >
+                                  Hoàn Hàng & Hoàn Cọc
+                                </button>
+                              </div>
+                            ) : isReceivedAtHub ? (
                               <button
                                 type="button"
                                 onClick={() => openQcInspectionModal(row)}
@@ -932,6 +1169,20 @@ export default function AdminQcPage() {
       {/* ========================================================================= */}
       {activeTab === 'FEFO_STORAGE' && (
         <div className="space-y-6">
+          {/* Giám sát Nhiệt độ & Độ ẩm Kho Lạnh Realtime (Wokwi IoT + Giả lập) */}
+          {warehouseLayout && warehouseLayout.zones && warehouseLayout.zones.length > 0 && (
+            <WarehouseIotMonitorPanel
+              hubId={selectedHubId}
+              zones={warehouseLayout.zones}
+              telemetryList={iotReadings}
+              onTelemetryUpdated={handleTelemetryReading}
+              compact={true}
+            />
+          )}
+
+          {/* Không Gian Kho Lạnh 3D Digital Twin (Theo Dữ Liệu Thật DB) */}
+          <Warehouse3DDigitalTwin layout={warehouseLayout} zoneTelemetryMap={zoneTelemetryMap} />
+
           {/* Header giải thích nguyên tắc FEFO */}
           <div className="p-5 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white rounded-3xl shadow-lg space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-400">
@@ -944,16 +1195,16 @@ export default function AdminQcPage() {
             </p>
             <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-slate-200">🟢 An toàn: Còn &gt; 18 giờ lưu kho</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-[#c2935b]" />
+                <span className="text-slate-200">📦 Mặc định (Bình thường): Còn &gt; 24h trước ngày Buyer cần nhận</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-slate-200">🟡 Cần xuất sớm: Còn 6h - 18h</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <span className="text-slate-200">🟡 Màu vàng (Nguy cơ trễ): Còn ≤ 24h trước hạn giao Buyer</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                <span className="text-slate-200">🔴 Báo động quá hạn: Dưới 6 giờ</span>
+                <span className="text-slate-200">🔴 Màu đỏ (Trễ hạn / Lỗi QC): Quá hạn giao Buyer hoặc QC Không đạt</span>
               </span>
             </div>
           </div>
@@ -1092,18 +1343,18 @@ export default function AdminQcPage() {
           <div className="p-4 bg-gradient-to-r from-purple-900 to-indigo-950 text-white rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md">
             <div className="space-y-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                <Truck className="w-3.5 h-3.5" /> Chuỗi Cung Ứng Xuất Kho Chặng Cuối (Outbound Cross-docking)
+                <Truck className="w-3.5 h-3.5" /> Xuất Kho Giao Hàng
               </span>
-              <h3 className="text-sm font-bold">Các lô hàng đã qua kiểm định QC Pass, sẵn sàng bốc lên xe giao Buyer</h3>
+              <h3 className="text-sm font-bold">Các lô hàng đã đạt kiểm định, sẵn sàng bốc lên xe giao Thương lái</h3>
               <p className="text-xs text-purple-200">
-                Lập chuyến xe giao hàng đa điểm (Outbound Delivery Trip) và kích hoạt giám sát hành trình ePOD.
+                Tạo chuyến xe giao hàng và theo dõi quá trình vận chuyển, ký nhận.
               </p>
             </div>
             <Link
-              href="/admin/outbound-dispatch"
+              href={`${basePath}/outbound-dispatch`}
               className="px-4 py-2.5 rounded-xl bg-white text-purple-950 font-bold text-xs flex items-center gap-2 hover:bg-purple-50 transition cursor-pointer shrink-0"
             >
-              <span>Mở Bảng Điều Phối Xuất Kho Outbound</span>
+              <span>Mở Bảng Điều Phối Xuất Kho</span>
               <ArrowRight className="w-4 h-4 text-purple-800" />
             </Link>
           </div>
@@ -1154,7 +1405,7 @@ export default function AdminQcPage() {
                     </div>
 
                     <Link
-                      href={`/admin/outbound-dispatch?contractCode=${item.contract_code}`}
+                      href={`${basePath}/outbound-dispatch?contractCode=${item.contract_code}`}
                       className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
                     >
                       <Truck className="w-3.5 h-3.5" />
@@ -1252,12 +1503,32 @@ export default function AdminQcPage() {
                   <label className="font-bold text-slate-700 block mb-1">Phân Vùng Buồng Lạnh</label>
                   <select
                     value={receivingZone}
-                    onChange={(e) => setReceivingZone(e.target.value)}
+                    onChange={(e) => {
+                      const zName = e.target.value;
+                      setReceivingZone(zName);
+                      const matchedZone = warehouseLayout?.zones?.find((z) => z.zoneName === zName);
+                      const firstBin = matchedZone?.bins?.find((b) => b.status === 'ACTIVE');
+                      if (firstBin) {
+                        setReceivingBin(`${firstBin.rackCode} / ${firstBin.binCode}`);
+                      }
+                    }}
                     className="w-full p-2.5 border rounded-xl text-slate-800 font-medium focus:outline-none focus:border-[#10542C]"
                   >
-                    <option value="Zone A (Rau lá 2-4°C)">Zone A (Rau lá 2-4°C)</option>
-                    <option value="Zone B (Củ quả 6-10°C)">Zone B (Củ quả 6-10°C)</option>
-                    <option value="Zone C (Trái cây 8-12°C)">Zone C (Trái cây 8-12°C)</option>
+                    {warehouseLayout?.zones && warehouseLayout.zones.length > 0 ? (
+                      warehouseLayout.zones
+                        .filter((z) => z.status === 'ACTIVE')
+                        .map((z) => (
+                          <option key={z.id} value={z.zoneName}>
+                            {z.zoneName} ({z.tempMin}°C–{z.tempMax}°C)
+                          </option>
+                        ))
+                    ) : (
+                      <>
+                        <option value="Zone A (Rau lá 2-4°C)">Zone A (Rau lá 2-4°C)</option>
+                        <option value="Zone B (Củ quả 6-10°C)">Zone B (Củ quả 6-10°C)</option>
+                        <option value="Zone C (Trái cây 8-12°C)">Zone C (Trái cây 8-12°C)</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -1268,10 +1539,27 @@ export default function AdminQcPage() {
                     onChange={(e) => setReceivingBin(e.target.value)}
                     className="w-full p-2.5 border rounded-xl text-slate-800 font-medium focus:outline-none focus:border-[#10542C]"
                   >
-                    <option value="R-01 / Bin A-01">R-01 / Bin A-01</option>
-                    <option value="R-01 / Bin A-02">R-01 / Bin A-02</option>
-                    <option value="R-02 / Bin A-03">R-02 / Bin A-03</option>
-                    <option value="R-03 / Bin B-01">R-03 / Bin B-01</option>
+                    {(() => {
+                      const activeZone =
+                        warehouseLayout?.zones?.find((z) => z.zoneName === receivingZone) ||
+                        warehouseLayout?.zones?.[0];
+                      const activeBins = activeZone?.bins?.filter((b) => b.status === 'ACTIVE') || [];
+                      if (activeBins.length > 0) {
+                        return activeBins.map((b) => (
+                          <option key={b.id} value={`${b.rackCode} / ${b.binCode}`}>
+                            {b.rackCode} / {b.binCode} (Trống {Math.round(b.availableKg)} kg)
+                          </option>
+                        ));
+                      }
+                      return (
+                        <>
+                          <option value="R-01 / Bin A-01">R-01 / Bin A-01</option>
+                          <option value="R-01 / Bin A-02">R-01 / Bin A-02</option>
+                          <option value="R-02 / Bin A-03">R-02 / Bin A-03</option>
+                          <option value="R-03 / Bin B-01">R-03 / Bin B-01</option>
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               </div>
@@ -1349,7 +1637,7 @@ export default function AdminQcPage() {
                     onChange={(e) => setBrix(e.target.value)}
                     className="w-full p-2.5 border rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">Tiêu chuẩn: $\ge 12.0$ °Bx</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Tiêu chuẩn: ≥ 12.0 °Bx</span>
                 </div>
 
                 {/* Đo nồng độ Nitrate ppm */}
@@ -1364,7 +1652,7 @@ export default function AdminQcPage() {
                     onChange={(e) => setNitrate(e.target.value)}
                     className="w-full p-2.5 border rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">Ngưỡng an toàn: $\le 300$ ppm (VietGAP)</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Ngưỡng an toàn: ≤ 300 ppm (VietGAP)</span>
                 </div>
               </div>
 
@@ -1419,13 +1707,32 @@ export default function AdminQcPage() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Kỹ Thuật Viên Thực Hiện Thử Nghiệm</label>
-                <input
-                  type="text"
-                  value={qcInspector}
-                  onChange={(e) => setQcInspector(e.target.value)}
-                  className="w-full p-2.5 border rounded-xl text-slate-800 focus:outline-none focus:border-amber-600"
-                />
+                <label className="font-bold text-slate-700 block mb-1">Kỹ Thuật Viên Thực Hiện Thử Nghiệm *</label>
+                {qcTechnicians.length > 0 ? (
+                  <select
+                    value={qcInspector}
+                    onChange={(e) => setQcInspector(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-slate-800 bg-white font-semibold focus:outline-none focus:border-amber-600"
+                  >
+                    <option value="">-- Chọn kỹ thuật viên kiểm định tại kho --</option>
+                    {qcTechnicians.map((tech) => {
+                      const label = `${tech.fullName} (${tech.driverCode})`;
+                      return (
+                        <option key={tech.id} value={label}>
+                          {label} · SĐT: {tech.phone}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <div className="p-2.5 rounded-xl border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+                    Kho hiện tại chưa có Kỹ thuật viên QC đang trực. Vui lòng thêm KTV trong{' '}
+                    <Link href={`${basePath}/staff`} className="font-bold underline text-[#10542C]">
+                      Quản lý Nhân Viên & Tài Xế
+                    </Link>
+                    .
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1436,6 +1743,47 @@ export default function AdminQcPage() {
                   onChange={(e) => setQcNotes(e.target.value)}
                   className="w-full p-2.5 border rounded-xl text-slate-800 focus:outline-none focus:border-amber-600"
                 />
+              </div>
+
+              <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-2.5">
+                <span className="font-bold text-slate-800 block text-xs">Kết Quả Phê Duyệt Kiểm Định *</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQcDecision('PASS')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      qcDecision === 'PASS'
+                        ? 'bg-[#10542C] text-white border-[#10542C]'
+                        : 'bg-white text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    ✓ Đạt Chuẩn QC (Nhập Lưu Kho)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQcDecision('FAIL')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      qcDecision === 'FAIL'
+                        ? 'bg-rose-600 text-white border-rose-600'
+                        : 'bg-white text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    ✕ Không Đạt QC (Chờ Hoàn Hàng)
+                  </button>
+                </div>
+                {qcDecision === 'FAIL' && (
+                  <div>
+                    <label className="font-bold text-rose-800 block mb-1 text-[11px]">
+                      Lý do không đạt QC (gửi tới Buyer & Nhà vườn) *
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={qcRejectReason}
+                      onChange={(e) => setQcRejectReason(e.target.value)}
+                      className="w-full p-2.5 border border-rose-300 rounded-xl text-slate-800 bg-white text-xs"
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1450,11 +1798,15 @@ export default function AdminQcPage() {
               <button
                 type="button"
                 disabled={submitting}
-                onClick={handleApproveQcLab}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shadow-xs flex items-center gap-2"
+                onClick={handleSubmitQcDecision}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white transition cursor-pointer shadow-xs flex items-center gap-2 ${
+                  qcDecision === 'FAIL' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-600 hover:bg-amber-700'
+                }`}
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                <span>Phê Duyệt QC Pass & Cấp Chứng Chỉ</span>
+                <span>
+                  {qcDecision === 'FAIL' ? 'Xác Nhận Không Đạt QC' : 'Phê Duyệt QC Pass & Cấp Chứng Chỉ'}
+                </span>
               </button>
             </div>
           </div>
@@ -1514,6 +1866,82 @@ export default function AdminQcPage() {
                 className="w-full py-2.5 rounded-xl text-xs font-bold bg-[#10542C] hover:bg-[#0C3E20] text-white transition cursor-pointer text-center"
               >
                 Đóng & Tiếp Tục Điều Hành Kho
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: XỬ LÝ HOÀN HÀNG & HOÀN CỌC 30% KHI QC KHÔNG ĐẠT */}
+      {returningContract && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-rose-200">
+            <div className="flex items-center justify-between pb-3 border-b border-rose-100">
+              <div>
+                <h3 className="text-base font-bold text-rose-900">
+                  Hoàn Hàng & Hoàn Cọc 30% — {returningContract.contract_code}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Lô hàng không đạt kiểm định QC sẽ được trả về Nhà vườn & hoàn cọc Escrow cho Buyer.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReturningContract(null)}
+                className="p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Hình thức hoàn trả hàng cho Nhà vườn</label>
+                <select
+                  value={returnMethod}
+                  onChange={(e) => setReturnMethod(e.target.value)}
+                  className="w-full p-2.5 border rounded-xl bg-white font-semibold"
+                >
+                  <option value="Trả hàng trực tiếp cho Nhà vườn tại Kho HoNa">Trả hàng trực tiếp cho Nhà vườn tại Kho HoNa</option>
+                  <option value="Xe lạnh HoNa hoàn trả hàng về tận vườn">Xe lạnh HoNa hoàn trả hàng về tận vườn</option>
+                  <option value="Tiêu hủy tại kho theo biên bản kiểm định (dương tính BVTV)">Tiêu hủy tại kho theo biên bản kiểm định (dương tính BVTV)</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Mã tham chiếu hoàn cọc Escrow</label>
+                <input
+                  type="text"
+                  value={returnRef}
+                  onChange={(e) => setReturnRef(e.target.value)}
+                  className="w-full p-2.5 border rounded-xl font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Ghi chú biên bản hoàn trả & hoàn cọc</label>
+                <textarea
+                  rows={2}
+                  value={returnNotes}
+                  onChange={(e) => setReturnNotes(e.target.value)}
+                  className="w-full p-2.5 border rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setReturningContract(null)}
+                className="px-4 py-2 rounded-xl border text-xs font-bold cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleConfirmReturnRefund}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+              >
+                {submitting ? 'Đang xử lý...' : 'Xác Nhận Hoàn Hàng & Hoàn Cọc 30%'}
               </button>
             </div>
           </div>

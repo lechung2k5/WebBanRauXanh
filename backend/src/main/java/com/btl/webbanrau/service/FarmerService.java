@@ -62,13 +62,32 @@ public class FarmerService {
                 .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException("Yêu cầu đăng nhập tài khoản Nông Dân để thực hiện thao tác này!"));
     }
 
+    private boolean belongsToFarmerAccount(HarvestLot lot, String companyName, String fullName, String profileFarmName) {
+        if (lot == null) return false;
+        String lotFarmerName = lot.getFarmerName() != null ? lot.getFarmerName().trim() : "";
+        if (lotFarmerName.isEmpty()) return true;
+        if (!companyName.isEmpty() && lotFarmerName.equalsIgnoreCase(companyName)) return true;
+        if (!fullName.isEmpty() && lotFarmerName.equalsIgnoreCase(fullName)) return true;
+        if (!profileFarmName.isEmpty() && lotFarmerName.equalsIgnoreCase(profileFarmName)) return true;
+        return false;
+    }
+
     // 1. Dashboard Stats
     @Transactional(readOnly = true)
     public FarmerStatsResponse getDashboardStats() {
         User farmer = getCurrentFarmer();
         BigDecimal totalRevenue = settlementRepository.sumTotalPayoutByFarmer(farmer);
         BigDecimal escrowHolding = b2bContractRepository.sumEscrowDepositHolding(farmer);
-        long openLotsCount = harvestLotRepository.countByFarmerAndStatus(farmer, "OPEN");
+        String companyName = farmer.getCompanyName() != null ? farmer.getCompanyName().trim() : "";
+        String fullName = farmer.getFullName() != null ? farmer.getFullName().trim() : "";
+        String profileFarmName = farmerProfileRepository.findByUser(farmer)
+                .map(FarmerProfile::getFarmName)
+                .map(String::trim)
+                .orElse("");
+        long openLotsCount = harvestLotRepository.findByFarmerIdOrderByCreatedAtDesc(farmer.getId()).stream()
+                .filter(lot -> "OPEN".equalsIgnoreCase(lot.getStatus()))
+                .filter(lot -> belongsToFarmerAccount(lot, companyName, fullName, profileFarmName))
+                .count();
         long runningContracts = b2bContractRepository.countActiveContractsByFarmer(farmer);
         long pendingRfq = rfqNegotiationRepository.countByFarmerAndStatus(farmer, RfqStatus.WAITING_FARMER);
 
@@ -86,20 +105,51 @@ public class FarmerService {
     public FarmerProfileResponse getProfile() {
         User farmer = getCurrentFarmer();
         FarmerProfile profile = farmerProfileRepository.findByUser(farmer)
-                .orElseGet(() -> farmerProfileRepository.save(FarmerProfile.builder()
-                        .user(farmer)
-                        .farmName(farmer.getFullName())
-                        .farmerType("COOPERATIVE")
-                        .pucCode("VN-LDO-PUC-0849")
-                        .certifications("VietGAP, GlobalGAP, Organic")
-                        .taxCode("5801456789")
-                        .idCardNumber("068095001234")
-                        .bankAccount("5400205219999")
-                        .bankAccountName("HTX RAU SACH DA LAT GAP")
-                        .bankName("Agribank")
-                        .location(farmer.getAddress() != null ? farmer.getAddress() : "Đà Lạt, Lâm Đồng")
-                        .cultivatedArea("45 Hecta")
-                        .build()));
+                .orElseGet(() -> {
+                    String resolvedFarmName = (farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank())
+                            ? farmer.getCompanyName().trim()
+                            : (farmer.getFullName() != null ? farmer.getFullName().trim() : "");
+                    return farmerProfileRepository.save(FarmerProfile.builder()
+                            .user(farmer)
+                            .farmName(resolvedFarmName)
+                            .farmerType(farmer.isHouseholdFarmer() ? "HOUSEHOLD" : "COOPERATIVE")
+                            .pucCode(farmer.getPucCode() != null ? farmer.getPucCode() : "")
+                            .certifications(farmer.getCertification() != null ? farmer.getCertification() : "")
+                            .certImageUrl(farmer.getCertificationUrl() != null ? farmer.getCertificationUrl() : "")
+                            .taxCode(farmer.getTaxCode() != null ? farmer.getTaxCode() : "")
+                            .idCardNumber("")
+                            .bankAccount(farmer.getBankAccountNo() != null ? farmer.getBankAccountNo() : "")
+                            .bankAccountName(farmer.getFullName() != null ? farmer.getFullName().toUpperCase() : "")
+                            .bankName(farmer.getBankName() != null ? farmer.getBankName() : "")
+                            .location(farmer.getAddress() != null ? farmer.getAddress() : "")
+                            .cultivatedArea("")
+                            .build());
+                });
+
+        boolean changed = false;
+        if ((profile.getBankAccount() == null || profile.getBankAccount().isBlank()) && farmer.getBankAccountNo() != null && !farmer.getBankAccountNo().isBlank()) {
+            profile.setBankAccount(farmer.getBankAccountNo());
+            changed = true;
+        }
+        if ((profile.getBankName() == null || profile.getBankName().isBlank()) && farmer.getBankName() != null && !farmer.getBankName().isBlank()) {
+            profile.setBankName(farmer.getBankName());
+            changed = true;
+        }
+        if ((profile.getPucCode() == null || profile.getPucCode().isBlank()) && farmer.getPucCode() != null && !farmer.getPucCode().isBlank()) {
+            profile.setPucCode(farmer.getPucCode());
+            changed = true;
+        }
+        if ((profile.getCertifications() == null || profile.getCertifications().isBlank()) && farmer.getCertification() != null && !farmer.getCertification().isBlank()) {
+            profile.setCertifications(farmer.getCertification());
+            changed = true;
+        }
+        if ((profile.getTaxCode() == null || profile.getTaxCode().isBlank()) && farmer.getTaxCode() != null && !farmer.getTaxCode().isBlank()) {
+            profile.setTaxCode(farmer.getTaxCode());
+            changed = true;
+        }
+        if (changed) {
+            profile = farmerProfileRepository.save(profile);
+        }
 
         return mapToProfileResponse(profile, farmer);
     }
@@ -121,9 +171,17 @@ public class FarmerService {
         if (request.getBankAccount() != null) profile.setBankAccount(request.getBankAccount());
         if (request.getBankAccountName() != null) profile.setBankAccountName(request.getBankAccountName());
         if (request.getBankName() != null) profile.setBankName(request.getBankName());
-        if (request.getLocation() != null) profile.setLocation(request.getLocation());
+        if (request.getLocation() != null) {
+            profile.setLocation(request.getLocation());
+            farmer.setAddress(request.getLocation());
+        }
+        if (request.getBankAccount() != null) farmer.setBankAccountNo(request.getBankAccount());
+        if (request.getBankName() != null) farmer.setBankName(request.getBankName());
+        if (request.getPucCode() != null) farmer.setPucCode(request.getPucCode());
+        if (request.getCertifications() != null) farmer.setCertification(request.getCertifications());
         if (request.getCultivatedArea() != null) profile.setCultivatedArea(request.getCultivatedArea());
 
+        userRepository.save(farmer);
         FarmerProfile saved = farmerProfileRepository.save(profile);
         return mapToProfileResponse(saved, farmer);
     }
@@ -133,7 +191,15 @@ public class FarmerService {
     public List<HarvestLotResponse> getHarvestLots() {
         User farmer = getCurrentFarmer();
         List<HarvestLot> lots = harvestLotRepository.findByFarmerIdOrderByCreatedAtDesc(farmer.getId());
+        String companyName = farmer.getCompanyName() != null ? farmer.getCompanyName().trim() : "";
+        String fullName = farmer.getFullName() != null ? farmer.getFullName().trim() : "";
+        String profileFarmName = farmerProfileRepository.findByUser(farmer)
+                .map(FarmerProfile::getFarmName)
+                .map(String::trim)
+                .orElse("");
+
         return lots.stream()
+                .filter(lot -> belongsToFarmerAccount(lot, companyName, fullName, profileFarmName))
                 .map(this::mapToLotResponse)
                 .toList();
     }
@@ -370,8 +436,6 @@ public class FarmerService {
         if ("ACCEPT".equals(action)) {
             rfq.setStatus(RfqStatus.ACCEPTED);
             HarvestLot lot = rfq.getHarvestLot();
-            lot.setStatus("NEGOTIATING");
-            harvestLotRepository.save(lot);
 
             // Tự động sinh Hợp Đồng B2B điện tử kèm mã duy nhất
             String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
@@ -380,7 +444,10 @@ public class FarmerService {
             if (lot.getAvailableWeightKg() == null || lot.getAvailableWeightKg().compareTo(BigDecimal.valueOf(quantity)) < 0) {
                 throw new IllegalArgumentException("Lô không còn đủ sản lượng để chốt hợp đồng.");
             }
-            lot.setAvailableWeightKg(lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)));
+            BigDecimal newAvailable = lot.getAvailableWeightKg().subtract(BigDecimal.valueOf(quantity)).max(BigDecimal.ZERO);
+            lot.setAvailableWeightKg(newAvailable);
+            lot.setRemainingQuantity(newAvailable.doubleValue());
+            lot.setStatus(newAvailable.compareTo(BigDecimal.ZERO) <= 0 ? "SOLD_OUT" : "OPEN");
             harvestLotRepository.save(lot);
             BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
             BigDecimal depositAmount = totalAmount.multiply(BigDecimal.valueOf(0.3)); // Cọc 30%
@@ -487,11 +554,14 @@ public class FarmerService {
             contract.setGrade1Ratio(request.getGrade1Ratio());
         }
         contract.setHarvestedAt(java.time.LocalDateTime.now());
-        contract.setFulfillmentStatus("HARVESTED");
-        contract.setStatus("HARVESTED");
+        contract.setPackagingApproved(false);
+        contract.setPackagingApprovedAt(null);
+        contract.setDeliveryNotes(null);
+        contract.setFulfillmentStatus("HARVEST_SUBMITTED");
+        contract.setStatus("HARVEST_SUBMITTED");
         B2bContract saved = b2bContractRepository.save(contract);
         B2bContractResponse res = mapToContractResponse(saved);
-        b2bRealtimeService.notifyContractUpdated("HARVESTED", contract.getContractCode(), res);
+        b2bRealtimeService.notifyContractUpdated("HARVEST_SUBMITTED", contract.getContractCode(), res);
         return res;
     }
 
@@ -990,9 +1060,17 @@ public class FarmerService {
 
         // Nếu đã cọc 30% thì sinh ngay B2bContract với trạng thái DEPOSIT_PAID
         if (isDepositPaid) {
-            lot.setStatus("NEGOTIATING");
-            double newRemaining = Math.max(0, lot.getRemainingQuantity() - request.getRequestedQuantity());
-            lot.setRemainingQuantity(newRemaining);
+            BigDecimal currentAvailable = lot.getAvailableWeightKg() != null
+                    ? lot.getAvailableWeightKg()
+                    : BigDecimal.valueOf(lot.getRemainingQuantity() != null ? lot.getRemainingQuantity() : 0.0);
+            BigDecimal reqQty = BigDecimal.valueOf(request.getRequestedQuantity());
+            if (currentAvailable.compareTo(reqQty) < 0) {
+                throw new IllegalArgumentException("Lô hàng không còn đủ sản lượng khả dụng để đặt cọc.");
+            }
+            BigDecimal newRemaining = currentAvailable.subtract(reqQty).max(BigDecimal.ZERO);
+            lot.setAvailableWeightKg(newRemaining);
+            lot.setRemainingQuantity(newRemaining.doubleValue());
+            lot.setStatus(newRemaining.compareTo(BigDecimal.ZERO) <= 0 ? "SOLD_OUT" : "OPEN");
             harvestLotRepository.save(lot);
 
             String contractCode = "HD-" + java.time.Year.now().getValue() + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
@@ -1330,7 +1408,9 @@ public class FarmerService {
                 .id(lot.getId())
                 .lotCode(lot.getLotCode())
                 .farmerId(lot.getFarmerId() != null ? lot.getFarmerId() : (lot.getFarmer() != null ? lot.getFarmer().getId() : null))
-                .farmerName(lot.getFarmer() != null ? (lot.getFarmer().getCompanyName() != null && !lot.getFarmer().getCompanyName().isBlank() ? lot.getFarmer().getCompanyName() : lot.getFarmer().getFullName()) : lot.getFarmerName())
+                .farmerName(lot.getFarmerName() != null && !lot.getFarmerName().isBlank()
+                        ? lot.getFarmerName()
+                        : (lot.getFarmer() != null ? (lot.getFarmer().getCompanyName() != null && !lot.getFarmer().getCompanyName().isBlank() ? lot.getFarmer().getCompanyName() : lot.getFarmer().getFullName()) : ""))
                 .productName(lot.getProductName())
                 .category(lot.getCategory())
                 .categorySlug(lot.getCategorySlug())
@@ -1382,6 +1462,8 @@ public class FarmerService {
                 .rejectReason(rfq.getRejectReason())
                 .deliveryDate(rfq.getDeliveryDate())
                 .hubLocation(rfq.getHubLocation())
+                .shippingOption(rfq.getShippingOption())
+                .notes(rfq.getNotes())
                 .status(rfq.getStatus())
                 .statusLabel(RfqStatus.label(rfq.getStatus()))
                 .nextActor(RfqStatus.nextActor(rfq.getStatus()))
@@ -1446,35 +1528,58 @@ public class FarmerService {
     }
 
     public static int computeFulfillmentStep(String status, String depositStatus, String fulfillmentStatus) {
+        return computeFulfillmentStep(status, depositStatus, fulfillmentStatus, null);
+    }
+
+    public static int computeFulfillmentStep(String status, String depositStatus, String fulfillmentStatus, String remainingPaymentStatus) {
         String s = (status != null ? status : "").toUpperCase();
         String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
         String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+        String rps = (remainingPaymentStatus != null ? remainingPaymentStatus : "").toUpperCase();
 
-        if (s.equals("COMPLETED") || s.equals("SETTLED") || fs.equals("COMPLETED")) {
+        if (s.equals("COMPLETED") || s.equals("SETTLED") || fs.equals("COMPLETED")
+                || ((s.equals("DELIVERED") || fs.equals("DELIVERED")) && rps.equals("PAID"))) {
             return 6;
         }
-        if (s.equals("DELIVERED") || s.equals("IN_TRANSIT") || s.equals("OUTBOUND_DISPATCHED") || fs.equals("DELIVERED") || fs.equals("IN_TRANSIT")) {
+        if (s.equals("DELIVERED") || s.equals("IN_TRANSIT") || fs.equals("DELIVERED") || fs.equals("IN_TRANSIT")) {
             return 5;
         }
-        if (s.equals("QC_PASSED") || s.equals("AT_HUB_QC") || s.equals("IN_TRANSIT_HUB") || s.equals("PICKUP_DISPATCHED") || fs.equals("HUB_DELIVERED")) {
+        if (s.equals("QC_PASSED") || s.equals("READY_OUTBOUND") || s.equals("OUTBOUND_DISPATCHED") || s.equals("QC_FAILED") || s.equals("AT_HUB_QC") || fs.equals("HUB_DELIVERED") || fs.equals("QC_FAILED") || fs.equals("QC_RETURNED_REFUNDED")) {
             return 4;
         }
-        if (s.equals("PACKAGING_APPROVED") || s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+        if (s.equals("IN_TRANSIT_HUB") || s.equals("PICKUP_DISPATCHED")
+                || s.equals("PACKAGING_APPROVED") || fs.equals("PACKAGING_APPROVED")) {
             return 3;
         }
-        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID") || fs.equals("HARVESTING") || fs.equals("WAITING_HARVEST")) {
+        if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID")
+                || s.equals("HARVEST_SUBMITTED") || s.equals("HARVEST_REJECTED") || s.equals("HARVESTED")
+                || fs.equals("HARVEST_SUBMITTED") || fs.equals("HARVESTED")
+                || fs.equals("HARVESTING") || fs.equals("WAITING_HARVEST")) {
             return 2;
         }
         return 1;
     }
 
     public static String computeFulfillmentStatusName(String status, String depositStatus, String fulfillmentStatus, Boolean packagingApproved) {
+        return computeFulfillmentStatusName(status, depositStatus, fulfillmentStatus, packagingApproved, null);
+    }
+
+    public static String computeFulfillmentStatusName(String status, String depositStatus, String fulfillmentStatus, Boolean packagingApproved, String qcStatus) {
+        return computeFulfillmentStatusName(status, depositStatus, fulfillmentStatus, packagingApproved, qcStatus, null);
+    }
+
+    public static String computeFulfillmentStatusName(String status, String depositStatus, String fulfillmentStatus, Boolean packagingApproved, String qcStatus, String remainingPaymentStatus) {
         String s = (status != null ? status : "").toUpperCase();
         String fs = (fulfillmentStatus != null ? fulfillmentStatus : "").toUpperCase();
         String ds = (depositStatus != null ? depositStatus : "").toUpperCase();
+        String qs = (qcStatus != null ? qcStatus : "").toUpperCase();
+        String rps = (remainingPaymentStatus != null ? remainingPaymentStatus : "").toUpperCase();
 
         if (s.equals("COMPLETED") || fs.equals("COMPLETED")) {
-            return "Giao Dịch Thành Công · Đã Quyết Toán 100% Tiền Tươi";
+            return "Hoàn Thành · Đã Giao Hàng & Thanh Toán Đủ 100%";
+        }
+        if ((s.equals("DELIVERED") || fs.equals("DELIVERED")) && rps.equals("PAID")) {
+            return "Hoàn Thành · Buyer Đã Thanh Toán Đủ 100%";
         }
         if (s.equals("SETTLED")) {
             return "Buyer Đã Ký ePOD và Thanh Toán 70% · Chờ Kế Toán Giải Ngân";
@@ -1488,7 +1593,13 @@ public class FarmerService {
         if (s.equals("OUTBOUND_DISPATCHED")) {
             return "Đã Điều Phối Xe Lạnh Chặng Cuối (Outbound)";
         }
-        if (s.equals("QC_PASSED")) {
+        if (fs.equals("QC_RETURNED_REFUNDED") || qs.equals("QC_RETURNED") || (s.equals("CANCELLED") && fs.contains("QC_RETURNED"))) {
+            return "Không Đạt QC · Đã Hoàn Hàng & Hoàn Cọc 30% Escrow";
+        }
+        if (s.equals("QC_FAILED") || fs.equals("QC_FAILED") || qs.equals("QC_FAILED")) {
+            return "Không Đạt Kiểm Định QC · Chờ Kho Xử Lý Hoàn Hàng & Hoàn Cọc";
+        }
+        if (s.equals("QC_PASSED") || (qs.equals("QC_PASSED") && (s.equals("AT_HUB_QC") || fs.equals("HUB_DELIVERED")))) {
             return "Đạt Chuẩn QC HoNa Fresh · Đang Lưu Kho Mát Chờ Xuất";
         }
         if (s.equals("AT_HUB_QC") || fs.equals("HUB_DELIVERED")) {
@@ -1501,15 +1612,41 @@ public class FarmerService {
             return "Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng";
         }
         if (s.equals("PACKAGING_APPROVED") || Boolean.TRUE.equals(packagingApproved)) {
-            return "BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom";
+            return "BQT Đã Duyệt Bao Bì · Đã Thu Hoạch Xong & Chờ Điều Xe";
         }
-        if (s.equals("HARVESTED") || fs.equals("HARVESTED")) {
-            return "Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì";
+        if (s.equals("HARVEST_REJECTED")) {
+            return "BQT Yêu Cầu Làm Lại Nghiệm Thu · Vui Lòng Cập Nhật";
+        }
+        if (s.equals("HARVEST_SUBMITTED") || fs.equals("HARVEST_SUBMITTED") || s.equals("HARVESTED") || fs.equals("HARVESTED")) {
+            return "Đã Nộp Nghiệm Thu · Chờ BQT Duyệt Đóng Gói";
         }
         if (s.equals("ACTIVE") || s.equals("DEPOSIT_PAID") || ds.equals("DEPOSIT_PAID")) {
             return "Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói";
         }
         return "Chờ Buyer Đặt Cọc 30% Escrow";
+    }
+
+    private Map<String, Object> loadLatestOutboundTripInfo(B2bContract c) {
+        if (c == null || c.getId() == null) return Map.of();
+        String st = c.getStatus() != null ? c.getStatus().toUpperCase() : "";
+        String fs = c.getFulfillmentStatus() != null ? c.getFulfillmentStatus().toUpperCase() : "";
+        if (!st.equals("IN_TRANSIT") && !st.equals("OUTBOUND_DISPATCHED") && !st.equals("DELIVERED") && !st.equals("SETTLED")
+                && !fs.equals("IN_TRANSIT") && !fs.equals("OUTBOUND_DISPATCHED") && !fs.equals("DELIVERED")) {
+            return Map.of();
+        }
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT t.trip_code, t.current_lat, t.current_lng, t.gps_updated_at
+                FROM outbound_delivery_stops s
+                JOIN outbound_delivery_trips t ON t.id = s.trip_id
+                WHERE s.contract_id = ? AND s.status <> 'CANCELLED' AND t.status <> 'CANCELLED'
+                ORDER BY t.id DESC
+                LIMIT 1
+            """, c.getId());
+            return rows.isEmpty() ? Map.of() : rows.get(0);
+        } catch (Exception ex) {
+            return Map.of();
+        }
     }
 
     private B2bContractResponse mapToContractResponse(B2bContract c) {
@@ -1523,16 +1660,42 @@ public class FarmerService {
         BigDecimal remaining = total.subtract(deposit);
         if (remaining.compareTo(BigDecimal.ZERO) < 0) remaining = BigDecimal.ZERO;
 
-        String pucCode = (c.getHarvestLot() != null && c.getHarvestLot().getPucCode() != null)
+        String pucCode = (c.getHarvestLot() != null && c.getHarvestLot().getPucCode() != null && !c.getHarvestLot().getPucCode().isBlank())
                 ? c.getHarvestLot().getPucCode()
-                : (profile != null && profile.getPucCode() != null ? profile.getPucCode() : "VN-LDO-PUC-0849");
-        String farmName = profile != null && profile.getFarmName() != null ? profile.getFarmName() : (farmer != null ? farmer.getFullName() : "Nông trại VietGAP HoNa Fresh");
+                : (profile != null && profile.getPucCode() != null && !profile.getPucCode().isBlank() ? profile.getPucCode() : "VN-LDO-PUC-0849");
+        String farmName = profile != null && profile.getFarmName() != null && !profile.getFarmName().isBlank()
+                ? profile.getFarmName()
+                : (farmer != null && farmer.getCompanyName() != null && !farmer.getCompanyName().isBlank()
+                    ? farmer.getCompanyName()
+                    : (farmer != null ? farmer.getFullName() : "Nông trại VietGAP HoNa Fresh"));
+        String farmerRepName = farmer != null && farmer.getFullName() != null && !farmer.getFullName().isBlank()
+                ? farmer.getFullName()
+                : farmName;
         String farmerPhone = farmer != null && farmer.getPhone() != null ? farmer.getPhone() : "0912.849.688";
-        String farmerAddress = profile != null && profile.getLocation() != null ? profile.getLocation() : (farmer != null ? farmer.getAddress() : "Đà Lạt, Lâm Đồng");
+        String farmerAddress = profile != null && profile.getLocation() != null && !profile.getLocation().isBlank()
+                ? profile.getLocation()
+                : (farmer != null && farmer.getAddress() != null && !farmer.getAddress().isBlank() ? farmer.getAddress() : "Đà Lạt, Lâm Đồng");
+
+        User buyer = c.getBuyer();
+        String buyerCompany = buyer != null && buyer.getCompanyName() != null && !buyer.getCompanyName().isBlank()
+                ? buyer.getCompanyName()
+                : c.getBuyerName();
+        String resolvedBuyerAddress = (buyer != null && buyer.getWarehouseAddress() != null && !buyer.getWarehouseAddress().isBlank())
+                ? buyer.getWarehouseAddress()
+                : (c.getDeliveryAddress() != null && !c.getDeliveryAddress().isBlank()
+                    ? c.getDeliveryAddress()
+                    : (c.getRfq() != null && c.getRfq().getHubLocation() != null && !c.getRfq().getHubLocation().isBlank()
+                        ? c.getRfq().getHubLocation()
+                        : (buyer != null ? buyer.getAddress() : "")));
+        String shippingOption = (c.getRfq() != null && c.getRfq().getShippingOption() != null && !c.getRfq().getShippingOption().isBlank())
+                ? c.getRfq().getShippingOption()
+                : "CROSS_DOCKING_HUB";
         String img = c.getHarvestLot() != null ? c.getHarvestLot().getImageUrl() : "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600";
 
-        int step = computeFulfillmentStep(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus());
-        String stepName = computeFulfillmentStatusName(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus(), c.getPackagingApproved());
+        int step = computeFulfillmentStep(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus(), c.getRemainingPaymentStatus());
+        String stepName = computeFulfillmentStatusName(c.getStatus(), c.getDepositStatus(), c.getFulfillmentStatus(), c.getPackagingApproved(), c.getQcStatus(), c.getRemainingPaymentStatus());
+
+        Map<String, Object> tripInfo = loadLatestOutboundTripInfo(c);
 
         return B2bContractResponse.builder()
                 .id(c.getId())
@@ -1544,7 +1707,10 @@ public class FarmerService {
                 .productName(c.getHarvestLot() != null ? c.getHarvestLot().getProductName() : "Nông sản")
                 .imageUrl(img)
                 .buyerName(c.getBuyerName())
+                .buyerCompany(buyerCompany)
                 .buyerPhone(c.getBuyerPhone())
+                .buyerAddress(resolvedBuyerAddress)
+                .shippingOption(shippingOption)
                 .quantity(c.getQuantity())
                 .unitPrice(c.getUnitPrice())
                 .totalAmount(total)
@@ -1565,6 +1731,8 @@ public class FarmerService {
                 .hasQc(hasQc)
                 .pucCode(pucCode)
                 .farmName(farmName)
+                .farmerName(farmerRepName)
+                .farmerCompany(farmName)
                 .farmerPhone(farmerPhone)
                 .farmerAddress(farmerAddress)
                 .settlementId(stlId)
@@ -1576,6 +1744,7 @@ public class FarmerService {
                 .harvestedAt(c.getHarvestedAt())
                 .packagingApproved(c.getPackagingApproved())
                 .packagingApprovedAt(c.getPackagingApprovedAt())
+                .deliveryNotes(c.getDeliveryNotes())
                 .farmPickupAddress(c.getFarmPickupAddress())
                 .pickupTruckPlate(c.getPickupTruckPlate())
                 .pickupDriverName(c.getPickupDriverName())
@@ -1592,6 +1761,11 @@ public class FarmerService {
                 .outboundTruckPlate(c.getOutboundTruckPlate())
                 .outboundDriverName(c.getOutboundDriverName())
                 .outboundDispatchedAt(c.getOutboundDispatchedAt())
+                .deliveryAddress(resolvedBuyerAddress)
+                .driverGpsLat(tripInfo.get("current_lat") != null ? ((Number) tripInfo.get("current_lat")).doubleValue() : null)
+                .driverGpsLng(tripInfo.get("current_lng") != null ? ((Number) tripInfo.get("current_lng")).doubleValue() : null)
+                .driverGpsUpdatedAt(tripInfo.get("gps_updated_at") instanceof java.sql.Timestamp ts ? ts.toLocalDateTime() : null)
+                .outboundTripCode(tripInfo.get("trip_code") != null ? String.valueOf(tripInfo.get("trip_code")) : null)
                 .remainingPaymentStatus(c.getRemainingPaymentStatus())
                 .remainingPaidAt(c.getRemainingPaidAt())
                 .epodDeliveredWeightKg(c.getEpodDeliveredWeightKg())

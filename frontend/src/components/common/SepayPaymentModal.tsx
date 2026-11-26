@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   CheckCircle2,
@@ -20,6 +20,7 @@ import {
   checkOrderPaymentStatus,
   checkContractDepositStatus,
 } from '@/services/sepayService';
+import { b2bWebSocket } from '@/services/websocketService';
 
 interface SepayPaymentModalProps {
   isOpen: boolean;
@@ -50,6 +51,10 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
   const [checking, setChecking] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(600); // 10 phút đếm ngược
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
   // Nội dung chuyển khoản chuẩn hóa
   const cleanCode = code.toUpperCase().replaceAll(/[^A-Z0-9-]/g, '');
@@ -72,28 +77,28 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
     }
   };
 
-  // 1. Kiểm tra trạng thái thanh toán từ máy chủ
-  const verifyPayment = useCallback(async () => {
+  // 1. Kiểm tra trạng thái thanh toán từ máy chủ (chỉ chạy khi người dùng bấm kiểm tra hoặc vừa mở modal)
+  const verifyPayment = useCallback(async (silent = false) => {
     if (!code || isPaid) return;
-    setChecking(true);
+    if (!silent) setChecking(true);
     try {
       if (type === 'ORDER') {
         const res = await checkOrderPaymentStatus(code);
         if (res.isPaid) {
           setIsPaid(true);
-          if (onSuccess) onSuccess();
+          onSuccessRef.current?.();
         }
       } else if (type === 'CONTRACT') {
         const res = await checkContractDepositStatus(code);
         if (res.isDepositPaid) {
           setIsPaid(true);
-          if (onSuccess) onSuccess();
+          onSuccessRef.current?.();
         }
       }
     } finally {
-      setChecking(false);
+      if (!silent) setChecking(false);
     }
-  }, [code, isPaid, type, onSuccess]);
+  }, [code, isPaid, type]);
 
   const handleManualConfirm = async () => {
     if (checking) return;
@@ -103,9 +108,9 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
       if (onManualConfirm) {
         await onManualConfirm();
         setIsPaid(true);
-        onSuccess?.();
+        onSuccessRef.current?.();
       } else {
-        await verifyPayment();
+        await verifyPayment(false);
       }
     } catch (error) {
       setManualError(error instanceof Error ? error.message : 'Không thể xác nhận thanh toán. Vui lòng thử lại.');
@@ -114,16 +119,53 @@ export const SepayPaymentModal: React.FC<SepayPaymentModalProps> = ({
     }
   };
 
-  // 2. Tự động kiểm tra định kỳ mỗi 3 giây
+  // 2. Lắng nghe trực tiếp WebSocket STOMP (/topic/contracts) khi SePay Webhook báo thanh toán thành công
   useEffect(() => {
-    if (!isOpen || isPaid || (type === 'FINAL_PAYMENT' && onManualConfirm)) return;
+    if (!isOpen || isPaid || !code) return;
 
-    const interval = setInterval(() => {
-      void verifyPayment();
-    }, 3000);
+    // Kiểm tra nhẹ 1 lần duy nhất lúc mở modal (silent, không gây nháy/spam)
+    if (type === 'CONTRACT' || type === 'ORDER') {
+      void verifyPayment(true);
+    }
 
-    return () => clearInterval(interval);
-  }, [isOpen, isPaid, type, onManualConfirm, verifyPayment]);
+    if (type !== 'CONTRACT' && type !== 'FINAL_PAYMENT') return;
+
+    const targetCode = code.trim().toUpperCase();
+    const unsubscribe = b2bWebSocket.subscribeContracts((payload: any) => {
+      const action = String(payload?.action || '').toUpperCase();
+      const contractObj = payload?.contract || payload;
+      const eventCode = String(
+        payload?.contractCode || contractObj?.contractCode || contractObj?.contract_code || ''
+      )
+        .trim()
+        .toUpperCase();
+
+      if (!eventCode || eventCode !== targetCode) return;
+
+      const depositStatus = String(contractObj?.depositStatus || contractObj?.deposit_status || '').toUpperCase();
+      const remainingStatus = String(
+        contractObj?.remainingPaymentStatus || contractObj?.remaining_payment_status || ''
+      ).toUpperCase();
+
+      const contractStatus = String(contractObj?.status || payload?.status || '').toUpperCase();
+      if (
+        (type === 'CONTRACT' && (action === 'DEPOSIT_PAID' || depositStatus === 'DEPOSIT_PAID')) ||
+        (type === 'FINAL_PAYMENT' &&
+          (action === 'BALANCE_PAID' ||
+            action === 'FINAL_PAID' ||
+            action === 'SETTLED' ||
+            remainingStatus === 'PAID' ||
+            contractStatus === 'SETTLED'))
+      ) {
+        setIsPaid(true);
+        onSuccessRef.current?.();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOpen, isPaid, code, type, verifyPayment]);
 
   // 3. Bộ đếm ngược thời gian
   useEffect(() => {

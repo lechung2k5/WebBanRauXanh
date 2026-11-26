@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useId } from 'react';
+import React, { useState, useId, useEffect } from 'react';
 import {
   Scale,
   Package,
@@ -17,7 +17,9 @@ import {
   Upload,
 } from 'lucide-react';
 import ImageUploadField from '@/components/ImageUploadField';
+import { AddressAutocomplete } from '@/components/common/AddressAutocomplete';
 import { B2bSyncContract } from '@/services/b2bSyncService';
+import { getFarmerProfileApi, getStoredFarmerUser } from '@/services/farmerApi';
 
 interface HarvestPackagingModalProps {
   contract: B2bSyncContract;
@@ -35,6 +37,22 @@ interface HarvestPackagingModalProps {
   }) => Promise<void>;
 }
 
+const PACKAGE_TYPE_OPTIONS = [
+  'Thùng xốp 15kg (Dán tem niêm phong)',
+  'Thùng carton 5 lớp 20kg (Lỗ thoáng)',
+  'Sọt nhựa 25kg (Lót lá chuối tươi)',
+  'Túi lưới chuyên dụng 10kg',
+];
+
+const TRUCK_ACCESS_OPTIONS = [
+  'Đường bê tông nông thôn 6m, xe tải 5 tấn vào tận bãi sân đóng gói nhà vườn',
+  'Đường nhựa / Quốc lộ rộng ≥ 8m, xe tải 8 - 10 tấn vào tận kho vườn',
+  'Đường nhựa / Đá dăm 4m, xe tải lạnh nhỏ 1.5 - 2.5 tấn vào tận rẫy',
+  'Đường hẹp / Dốc đồi (< 3.5m), trung chuyển ra điểm tập kết đầu đường',
+  'Cầu yếu / Hạn chế tải trọng dưới 3.5 tấn (chỉ dùng xe tải nhỏ)',
+  'Đường lớn / Container ≥ 15 tấn vào thuận lợi 24/24',
+];
+
 export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
   contract,
   isOpen,
@@ -48,17 +66,36 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
   const [packageType, setPackageType] = useState<string>(
     contract.packageType || 'Thùng xốp 15kg (Dán tem niêm phong)'
   );
+  const [isCustomPackage, setIsCustomPackage] = useState<boolean>(() => {
+    return Boolean(contract.packageType && !PACKAGE_TYPE_OPTIONS.includes(contract.packageType));
+  });
   const [boxCapacity, setBoxCapacity] = useState<number>(15);
   const [boxCount, setBoxCount] = useState<number>(
     contract.packageCount || Math.ceil(defaultQty / 15)
   );
-  const [proofImage, setProofImage] = useState<string>(
-    contract.harvestProofImageUrl || 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600'
-  );
+  const [proofImage, setProofImage] = useState<string>(contract.harvestProofImageUrl || '');
   const [farmPickupAddress, setFarmPickupAddress] = useState<string>(() => {
-    const raw = contract.farmPickupAddress || contract.farmerCompany || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng';
+    const storedUser = getStoredFarmerUser();
+    const raw = contract.farmPickupAddress || storedUser?.address || '';
     return raw.replace(/\s*\(\s*(?:s[đd]t|số\s*điện\s*thoại)?\s*đ[oóòỏõọôốồổỗộ]n\s*xe[\s\S]*?\)/giu, '').replace(/\(\s*\)/g, '').trim();
   });
+
+  useEffect(() => {
+    if (!isOpen || contract.farmPickupAddress) return;
+    let cancelled = false;
+    void getFarmerProfileApi()
+      .then((prof) => {
+        if (cancelled) return;
+        const profileAddr = (prof?.location || '').trim();
+        if (profileAddr) {
+          setFarmPickupAddress((prev) => prev || profileAddr);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, contract.farmPickupAddress]);
   const [truckAccessNote, setTruckAccessNote] = useState<string>(() => {
     const raw = contract.farmPickupAddress || '';
     const match = raw.match(/[-–—]\s*([^\)]+)/u);
@@ -328,6 +365,14 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (actualWeight <= 0) return;
+    if (!packageType.trim()) {
+      alert('Vui lòng chọn hoặc nhập quy cách kiện / thùng đóng gói!');
+      return;
+    }
+    if (!proofImage.trim()) {
+      alert('Bắt buộc tải lên ảnh minh chứng cân và đóng thùng thực tế trước khi gửi!');
+      return;
+    }
     setSubmitting(true);
     try {
       const qrData = `HONAFRESH-PUC-${contract.contractCode}-PACK-${boxCount}`;
@@ -479,15 +524,36 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
                       Quy Cách Kiện / Thùng *
                     </label>
                     <select
-                      value={packageType}
-                      onChange={(e) => handlePackageTypeChange(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-medium focus:ring-2 focus:ring-[#10542C]"
+                      value={isCustomPackage ? '__CUSTOM__' : packageType}
+                      onChange={(e) => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomPackage(true);
+                          if (PACKAGE_TYPE_OPTIONS.includes(packageType)) {
+                            setPackageType('');
+                          }
+                        } else {
+                          setIsCustomPackage(false);
+                          handlePackageTypeChange(e.target.value);
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-medium focus:ring-2 focus:ring-[#10542C] cursor-pointer"
                     >
                       <option value="Thùng xốp 15kg (Dán tem niêm phong)">Thùng xốp 15kg (Lót giấy rơm giữ ẩm)</option>
                       <option value="Thùng carton 5 lớp 20kg (Lỗ thoáng)">Thùng carton 5 lớp 20kg (Lỗ thông khí)</option>
                       <option value="Sọt nhựa 25kg (Lót lá chuối tươi)">Sọt nhựa 25kg (Lót lá chuối tươi)</option>
                       <option value="Túi lưới chuyên dụng 10kg">Túi lưới chuyên dụng 10kg</option>
+                      <option value="__CUSTOM__">Khác (Tự nhập quy cách...)</option>
                     </select>
+                    {isCustomPackage && (
+                      <input
+                        type="text"
+                        required
+                        value={packageType}
+                        onChange={(e) => setPackageType(e.target.value)}
+                        placeholder="Nhập quy cách đóng gói (VD: Rổ nhựa 12kg bọc màng co)..."
+                        className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-emerald-300 text-gray-800 text-xs focus:ring-2 focus:ring-[#10542C]"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 mb-1">
@@ -511,20 +577,15 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
                   3. Địa Chỉ Cụ Thể Để Xe Lạnh HoNa Đến Lấy Hàng
                 </span>
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    Địa Chỉ Vườn / Nhà Lưới Đón Xe *
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 text-rose-500 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      required
-                      value={farmPickupAddress}
-                      onChange={(e) => setFarmPickupAddress(e.target.value)}
-                      placeholder="Số nhà, đường, thôn rẫy, xã, huyện, tỉnh"
-                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs focus:ring-2 focus:ring-[#10542C]"
-                    />
-                  </div>
+                  <AddressAutocomplete
+                    name="farmPickupAddress"
+                    label="Địa Chỉ Vườn / Nhà Lưới Đón Xe *"
+                    required
+                    value={farmPickupAddress}
+                    onChange={(val) => setFarmPickupAddress(val)}
+                    placeholder="Nhập hoặc chọn địa chỉ trên bản đồ..."
+                    showCurrentLocationBtn
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -542,15 +603,22 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                      Cung Đường & Cầu Tải Trọng Xe
+                      Cung Đường &amp; Cầu Tải Trọng Xe
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={truckAccessNote}
                       onChange={(e) => setTruckAccessNote(e.target.value)}
-                      placeholder="VD: Xe tải 5 tấn vào tận sân, cầu không cấm tải"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs focus:ring-2 focus:ring-[#10542C]"
-                    />
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs focus:ring-2 focus:ring-[#10542C] cursor-pointer"
+                    >
+                      {!TRUCK_ACCESS_OPTIONS.includes(truckAccessNote) && truckAccessNote && (
+                        <option value={truckAccessNote}>{truckAccessNote}</option>
+                      )}
+                      {TRUCK_ACCESS_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -559,33 +627,20 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
               <div className="bg-gray-50/80 p-4 rounded-2xl border border-gray-100 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-800 uppercase tracking-wider block">
-                    4. Ảnh Minh Chứng Cân & Đóng Thùng
+                    4. Ảnh Minh Chứng Cân & Đóng Thùng *
                   </span>
-                  <span className="text-[11px] text-gray-500">Hỗ trợ JPG, PNG, WEBP tối đa 10MB</span>
+                  <span className="text-[11px] text-rose-600 font-semibold">Bắt buộc tải ảnh thực tế (JPG, PNG, WEBP)</span>
                 </div>
 
                 <ImageUploadField
                   name="harvestProofImageUrl"
-                  label="Tải ảnh chụp thực tế cân bàn / đóng kiện từ thiết bị"
+                  label="Tải ảnh chụp thực tế cân bàn / đóng kiện từ thiết bị *"
                   purpose="LOT"
                   value={proofImage}
                   onChange={(url) => setProofImage(url)}
                   onUploadingChange={setIsUploadingImage}
                   hint="Ảnh chụp rõ màn hình cân điện tử rẫy hoặc kiện hàng dán tem niêm phong"
                 />
-
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
-                    Hoặc dán trực tiếp liên kết URL ảnh (nếu có sẵn):
-                  </label>
-                  <input
-                    type="text"
-                    value={proofImage}
-                    onChange={(e) => setProofImage(e.target.value)}
-                    placeholder="https://images.unsplash.com/... hoặc link ảnh online"
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 font-mono text-xs focus:ring-2 focus:ring-[#10542C]"
-                  />
-                </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1">
@@ -723,7 +778,7 @@ export const HarvestPackagingModal: React.FC<HarvestPackagingModalProps> = ({
             ) : (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{isEditMode ? 'Lưu Cập Nhật & Bắn Socket Sang Admin' : 'Nộp Nghiệm Thu & Gửi Admin Điều Xe'}</span>
+                <span>{isEditMode ? 'Lưu Cập Nhật & Gửi Duyệt' : 'Nộp Nghiệm Thu & Gửi Admin Điều Xe'}</span>
               </>
             )}
           </button>

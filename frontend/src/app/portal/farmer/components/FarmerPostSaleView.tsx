@@ -1648,31 +1648,16 @@ export default function FarmerPostSaleView({
 
                   {fulfillmentStep === 5 && (
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                      <div className="px-3.5 py-2 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-1.5">
                         <Truck className="w-3.5 h-3.5 text-blue-600" />
                         <span>
-                          {currentSelectedContract?.epodSignedAt
-                            ? 'Buyer đã ký nhận biên bản điện tử ePOD thành công! Đang xử lý chuyển khoản 70% còn lại'
+                          {(currentSelectedContract as any)?.remainingPaymentStatus === 'PAID'
+                            ? 'Buyer đã thanh toán đủ 100% về Sàn · Đang chờ Kế toán Sàn giải ngân về STK Nhà vườn'
+                            : currentSelectedContract?.epodSignedAt
+                            ? 'Buyer đã ký nhận biên bản điện tử ePOD thành công! Đang chờ Buyer thanh toán nốt 70% về Sàn'
                             : 'Xe lạnh Outbound đang giao hàng đến kho Buyer · Chờ ký biên bản điện tử ePOD'}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFulfillmentStep(6);
-                          updateContractFulfillmentStep(selectedContractId, 6);
-                          setContracts((prev) =>
-                            prev.map((c) =>
-                              c.id === selectedContractId ? { ...c, fulfillmentStatus: 'COMPLETED', fulfillmentStep: 6 } : c
-                            )
-                          );
-                          void updateContractFulfillmentStatusApi(selectedContractId, 'COMPLETED').catch(() => {});
-                        }}
-                        className="px-4 py-2 bg-[#10542C] hover:bg-[#0d4524] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
-                      >
-                        <Award className="w-4 h-4" />
-                        <span>✓ Xác Nhận Quyết Toán Tiền Về Tài Khoản (Tiến Mốc 6)</span>
-                      </button>
                     </div>
                   )}
 

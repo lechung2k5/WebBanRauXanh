@@ -1,0 +1,13 @@
+{
+  "appId": "com.honafresh.staff",
+  "appName": "HoNa Staff QC",
+  "webDir": "www",
+  "server": {
+    "url": "http://localhost:3000/portal/warehouse-qc",
+    "cleartext": true,
+    "allowNavigation": ["localhost", "127.0.0.1"]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

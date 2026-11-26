@@ -333,34 +333,40 @@ export const SHIPPING_OPTIONS_VI = {
  * Chuẩn hóa 6 mốc tiến độ vận hành chuỗi lạnh B2B sang Tiếng Việt
  */
 export function formatFulfillmentStatusVi(rawStatus?: string | null, step?: number): string {
-  const s = String(rawStatus || '').trim().toUpperCase();
+  const raw = String(rawStatus || '').trim();
+  const s = raw.toUpperCase();
+
+  // Nếu đã là chuỗi tiếng Việt mô tả chi tiết (không phải mã enum viết hoa toàn bộ) -> giữ nguyên
+  if (raw && raw !== s && raw.includes(' ')) {
+    return raw;
+  }
 
   if (s.includes('WAITING_HARVEST') || s.includes('WAITING_DEPOSIT') || s.includes('WAITING_BUYER') || s === 'PENDING') {
-    return 'Chờ Cọc 30% & Thu Hoạch';
+    return 'Chờ Đặt Cọc 30% Escrow';
   }
-  if (s.includes('HARVESTING') || s.includes('HARVESTED') || s.includes('PACKED')) {
-    return 'Đã Thu Hoạch & Đóng Thùng Dán Tem';
+  if (s.includes('HARVESTING') || s.includes('HARVEST_SUBMITTED') || s.includes('HARVEST_REJECTED') || s.includes('HARVESTED') || s.includes('PACKAGING_APPROVED') || s.includes('PACKED')) {
+    return 'Đang Thu Hoạch & Đóng Gói Tại Vườn';
   }
-  if (s.includes('IN_TRANSIT') || s.includes('TRANSIT') || s.includes('SHIPPING')) {
-    return 'Xe Lạnh HoNa Đang Vận Chuyển';
+  if (s.includes('PICKUP_DISPATCHED') || s.includes('IN_TRANSIT_HUB')) {
+    return 'Xe Lạnh HoNa Đang Đến Lấy Hàng';
   }
   if (s.includes('HUB_DELIVERED') || s.includes('AT_HUB') || s.includes('QC_PASS') || s.includes('QC_PASSED')) {
-    return 'Đã Nhập Kho HoNa & Kiểm Định QC';
+    return 'Kiểm Định QC & Lưu Kho HoNa';
   }
-  if (s.includes('DELIVERING') || s.includes('OUT_FOR_DELIVERY')) {
-    return 'Đang Giao Đến Kho Khách Mua';
+  if (s.includes('OUTBOUND_DISPATCHED') || s.includes('IN_TRANSIT') || s.includes('DELIVERING') || s.includes('OUT_FOR_DELIVERY') || s.includes('DELIVERED')) {
+    return 'Đang Giao Hàng Đến Buyer';
   }
-  if (s.includes('COMPLETED') || s.includes('DELIVERED') || s.includes('SETTLED')) {
+  if (s.includes('COMPLETED') || s.includes('SETTLED')) {
     return 'Hoàn Tất Giao Nhận & Quyết Toán';
   }
 
-  // Dự phòng theo số bước step (1-6)
-  if (step === 1) return 'Chờ Cọc 30% & Thu Hoạch';
-  if (step === 2) return 'Đã Thu Hoạch & Đóng Thùng Dán Tem';
-  if (step === 3) return 'Xe Lạnh HoNa Đang Vận Chuyển';
-  if (step === 4) return 'Đã Nhập Kho HoNa & Kiểm Định QC';
-  if (step === 5) return 'Đang Giao Đến Kho Khách Mua';
+  // Dự phòng theo số bước step (1-6) chuẩn hóa
+  if (step === 1) return 'Chờ Đặt Cọc 30% Escrow';
+  if (step === 2) return 'Đang Thu Hoạch & Đóng Gói Tại Vườn';
+  if (step === 3) return 'Xe Lạnh HoNa Đang Đến Lấy Hàng';
+  if (step === 4) return 'Kiểm Định QC & Lưu Kho HoNa';
+  if (step === 5) return 'Đang Giao Hàng Đến Buyer';
   if (step === 6) return 'Hoàn Tất Giao Nhận & Quyết Toán';
 
-  return rawStatus || 'Đang Vận Hành Chuỗi Lạnh';
+  return raw || 'Đang Vận Hành Chuỗi Lạnh';
 }

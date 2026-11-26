@@ -169,7 +169,7 @@ public class FarmerController {
     @PostMapping("/contracts/{id}/settle")
     @Operation(summary = "Quyết toán giải ngân doanh thu hợp đồng về tài khoản ngân hàng (khấu trừ phí sàn 3%)")
     public ResponseEntity<ApiResponse<SettlementResponse>> settleContract(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success("Quyết toán và giải ngân về tài khoản ngân hàng thành công!", farmerService.settleContract(id)));
+        return ResponseEntity.status(403).body(ApiResponse.error(403, "Chỉ Bộ phận Kế toán / Quản trị viên Sàn HoNa Fresh mới có quyền đối soát và giải ngân về tài khoản Nhà vườn."));
     }
 
     @GetMapping("/contracts/{id}/reviews")

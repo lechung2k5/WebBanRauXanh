@@ -71,8 +71,9 @@ export function calculateLogisticsEstimates(
 
   // 3. Phương án 3: Khách hàng tự lấy tại Kho HoNa Fresh sau khi kiểm định QC
   // Quy trình: Xe nhỏ gom tại vườn về kho HoNa Fresh -> Kiểm định chất lượng QC & lưu buồng lạnh mát -> Khách hàng tự điều xe tải lạnh đến Kho HoNa Fresh bốc hàng
-  // Cước vận chuyển chặng 2 = 0 đ (Khách tự điều xe đến kho HoNa lấy). Khách hàng nghiệm thu biên bản QC tại kho và thanh toán 100% trước khi xe xuất kho.
-  const selfPickupTotal = 0;
+  // Vẫn tính chi phí Chặng 1 (gom từ vườn về kho) + Phí lưu kho lạnh & QC, nhưng miễn phí Chặng 2 (rẻ hơn PA2).
+  const minSelfPickupFee = distance < 50 ? 80000 : 120000;
+  const selfPickupTotal = Math.max(minSelfPickupFee, hubLeg1Fee + hubStorageFee);
 
   return {
     DIRECT_FARM_TO_BUYER: {
@@ -122,11 +123,12 @@ export function calculateLogisticsEstimates(
       description:
         'Nông sản được gom về Kho HoNa kiểm định QC đạt chuẩn ➔ Khách hàng tự điều xe tải lạnh đến Kho HoNa nhận hàng. Bắt buộc thanh toán 100% trước khi xuất kho.',
       estimatedFee: selfPickupTotal,
-      ratePerKg: 0,
-      distanceKm: 0,
+      ratePerKg: Math.round(selfPickupTotal / weight),
+      distanceKm: distance,
       breakdown: [
-        { label: 'Gom tận vườn về kho HoNa & Kiểm định chất lượng QC tại kho', amount: 0 },
-        { label: 'Cước vận chuyển giao tận nơi (Khách tự điều xe đến kho lấy)', amount: 0 },
+        { label: 'Chặng 1: Xe nhỏ thu gom tận vườn về kho HoNa Fresh', amount: hubLeg1Fee },
+        { label: 'Phí lưu buồng lạnh kho & kiểm định chất lượng QC tại kho', amount: hubStorageFee },
+        { label: 'Chặng 2: Cước giao tận nơi (Khách tự điều xe đến Kho HoNa lấy)', amount: 0 },
       ],
       suitability:
         'Dành cho khách hàng có sẵn xe tải lạnh, muốn tự đến Kho HoNa Fresh nghiệm thu kết quả kiểm định QC và bốc hàng.',
@@ -515,17 +517,21 @@ export function calculateB2bContractFinancials(contract: any): B2bContractFinanc
 
   const isSelfPickup =
     rawOpt === 'PA3' ||
+    rawOpt === 'FARM_PICKUP' ||
     rawOpt === 'BUYER_SELF_TRANSPORT' ||
+    rawOpt.includes('PICKUP') ||
+    rawOpt.includes('SELF') ||
     rawOpt.includes('TỰ VẬN CHUYỂN') ||
     rawOpt.includes('TỰ CHỞ') ||
     rawOpt.includes('TỰ LẤY');
 
   // 3. Cước vận chuyển chuỗi lạnh HoNa Fresh
   let shippingFee = 0;
-  if (isSelfPickup) {
-    shippingFee = 0;
-  } else if (Number(contract.shippingFee || contract.logistics_fee_amount) > 0) {
+  if (Number(contract.shippingFee || contract.logistics_fee_amount) > 0) {
     shippingFee = Number(contract.shippingFee || contract.logistics_fee_amount);
+  } else if (isSelfPickup) {
+    // PA3: Gom từ vườn về kho HoNa + lưu kho lạnh & QC (rẻ hơn PA2 do miễn chặng 2)
+    shippingFee = Math.max(120000, Math.round(quantityKg * 550));
   } else if (rawOpt.includes('DIRECT') || rawOpt === 'PA1') {
     shippingFee = Math.round(quantityKg * 1200 + 450000);
   } else {
@@ -549,7 +555,7 @@ export function calculateB2bContractFinancials(contract: any): B2bContractFinanc
     : 'CROSS_DOCKING_HUB';
 
   const shippingMethodLabel = isSelfPickup
-    ? 'Khách hàng tự vận chuyển (Miễn cước xe lạnh)'
+    ? 'PA3: Khách tự lấy tại Kho HoNa (Gom vườn & lưu kho lạnh)'
     : (rawOpt.includes('DIRECT') || rawOpt === 'PA1')
     ? 'PA1: Xe lạnh HoNa Fresh giao riêng hỏa tốc'
     : 'PA2: Xe lạnh HoNa Fresh giao tiêu chuẩn qua kho';

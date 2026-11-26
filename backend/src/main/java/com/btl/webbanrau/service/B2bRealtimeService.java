@@ -94,4 +94,35 @@ public class B2bRealtimeService {
             log.warn("Failed to send WebSocket Dispatch Trip notification", e);
         }
     }
+
+    public void notifyWarehouseIotUpdated(Long hubId, Object readingData) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("action", "TELEMETRY_UPDATED");
+            payload.put("hubId", hubId);
+            payload.put("reading", readingData);
+            payload.put("timestamp", System.currentTimeMillis());
+
+            messagingTemplate.convertAndSend("/topic/warehouse-iot", payload);
+            if (hubId != null) {
+                messagingTemplate.convertAndSend("/topic/warehouse-iot/" + hubId, payload);
+            }
+            log.info("B2B Realtime: Sent Warehouse IoT update for hubId [{}]", hubId);
+        } catch (Exception e) {
+            log.warn("Failed to send WebSocket Warehouse IoT notification", e);
+        }
+    }
+
+    public void notifyProcurementUpdated(String action, Object data) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("action", action);
+            payload.put("procurement", data);
+            payload.put("timestamp", System.currentTimeMillis());
+            messagingTemplate.convertAndSend("/topic/procurements", payload);
+            log.info("B2B Realtime: Sent procurement update [{}] to /topic/procurements", action);
+        } catch (Exception e) {
+            log.warn("Failed to send WebSocket procurement notification", e);
+        }
+    }
 }

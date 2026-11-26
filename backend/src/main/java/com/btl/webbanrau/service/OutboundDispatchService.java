@@ -48,6 +48,14 @@ public class OutboundDispatchService {
             boolean isQcPassed = "QC_PASSED".equalsIgnoreCase(c.getQcStatus()) || "PASSED".equalsIgnoreCase(c.getQcStatus());
             if (!isQcPassed) continue;
 
+            // 1b. Loại trừ đơn PA3 (Buyer tự tới kho HoNa lấy hàng) khỏi điều phối xe giao hàng Outbound
+            String rawOpt = (c.getRfq() != null && c.getRfq().getShippingOption() != null)
+                    ? c.getRfq().getShippingOption().trim().toUpperCase()
+                    : "";
+            boolean isSelfPickup = rawOpt.equals("PA3") || rawOpt.equals("FARM_PICKUP")
+                    || rawOpt.equals("BUYER_SELF_TRANSPORT") || rawOpt.contains("PICKUP") || rawOpt.contains("SELF");
+            if (isSelfPickup) continue;
+
             // 2. Kiểm tra quy tắc ONCE: chưa có stop Outbound nào đang hoạt động
             if (outboundDeliveryStopRepository.existsActiveByContractId(c.getId())) {
                 continue;
@@ -86,7 +94,7 @@ public class OutboundDispatchService {
                     .buyerId(c.getBuyer() != null ? c.getBuyer().getId() : null)
                     .buyerName(c.getBuyerName() != null ? c.getBuyerName() : (c.getBuyer() != null ? c.getBuyer().getFullName() : "Buyer"))
                     .buyerPhone(c.getBuyerPhone() != null ? c.getBuyerPhone() : (c.getBuyer() != null ? c.getBuyer().getPhone() : ""))
-                    .deliveryAddress(c.getDeliveryAddress() != null ? c.getDeliveryAddress() : "Kho Buyer tiếp nhận")
+                    .deliveryAddress(resolveBuyerDeliveryAddress(c))
                     .buyerWarehouseId(buyerWarehouseId)
                     .productName(c.getHarvestLot() != null ? c.getHarvestLot().getProductName() : "Nông sản")
                     .qualifiedWeightKg(qualifiedWeight)
@@ -190,10 +198,15 @@ public class OutboundDispatchService {
                 bw = buyerWarehouseRepository.findById(item.getBuyerWarehouseId()).orElse(null);
             }
 
-            String address = item.getDeliveryAddress() != null && !item.getDeliveryAddress().isBlank()
-                    ? item.getDeliveryAddress()
-                    : (bw != null ? bw.getAddress() : contract.getDeliveryAddress());
-            if (address == null || address.isBlank()) address = "Kho Buyer";
+            String rawItemAddr = item.getDeliveryAddress();
+            if (rawItemAddr != null && (rawItemAddr.isBlank() || rawItemAddr.equalsIgnoreCase("Kho Buyer tiếp nhận") || rawItemAddr.equalsIgnoreCase("Kho Buyer"))) {
+                rawItemAddr = null;
+            }
+            String address = rawItemAddr != null
+                    ? rawItemAddr
+                    : (bw != null && bw.getAddress() != null && !bw.getAddress().isBlank()
+                        ? bw.getAddress()
+                        : resolveBuyerDeliveryAddress(contract));
 
             String contactName = item.getContactName() != null ? item.getContactName() : contract.getBuyerName();
             String contactPhone = item.getContactPhone() != null ? item.getContactPhone() : contract.getBuyerPhone();
@@ -212,11 +225,10 @@ public class OutboundDispatchService {
 
             outboundDeliveryStopRepository.save(stop);
 
-            // Cập nhật hợp đồng
-            contract.setStatus("OUTBOUND_DISPATCHED");
+            // Cập nhật hợp đồng: đã xếp xe sẵn sàng tại kho, CHỜ XUẤT BẾN (chỉ chuyển IN_TRANSIT khi bấm Xuất Bến)
+            contract.setStatus("READY_OUTBOUND");
             contract.setOutboundTruckPlate(vehicle.getPlateNumber());
             contract.setOutboundDriverName(driver.getFullName());
-            contract.setOutboundDispatchedAt(LocalDateTime.now());
             contract.setOutboundManifestCode(savedTrip.getTripCode());
             b2bContractRepository.save(contract);
 
@@ -234,12 +246,20 @@ public class OutboundDispatchService {
      */
     @Transactional(readOnly = true)
     public List<OutboundDeliveryTrip> getTripsByHub(Long hubId) {
-        if (hubId == null) {
-            return outboundDeliveryTripRepository.findAll().stream()
-                    .sorted((a, b) -> b.getId().compareTo(a.getId()))
-                    .toList();
+        List<OutboundDeliveryTrip> trips = (hubId == null)
+                ? outboundDeliveryTripRepository.findAll().stream().sorted((a, b) -> b.getId().compareTo(a.getId())).toList()
+                : outboundDeliveryTripRepository.findByHubIdOrderByCreatedAtDesc(hubId);
+        // Khởi tạo lazy harvestLot trong transaction để OutboundDeliveryStop trả đúng productName
+        for (OutboundDeliveryTrip t : trips) {
+            if (t.getStops() != null) {
+                for (OutboundDeliveryStop s : t.getStops()) {
+                    if (s.getContract() != null && s.getContract().getHarvestLot() != null) {
+                        s.getContract().getHarvestLot().getProductName();
+                    }
+                }
+            }
         }
-        return outboundDeliveryTripRepository.findByHubIdOrderByCreatedAtDesc(hubId);
+        return trips;
     }
 
     /**
@@ -257,7 +277,7 @@ public class OutboundDispatchService {
     @Transactional(readOnly = true)
     public List<OutboundDeliveryStop> getCompletedDeliveries(Long hubId) {
         List<OutboundDeliveryStop> all = outboundDeliveryStopRepository.findAll();
-        return all.stream()
+        List<OutboundDeliveryStop> result = all.stream()
                 .filter(s -> hubId == null || (s.getTrip() != null && s.getTrip().getHub() != null && hubId.equals(s.getTrip().getHub().getId())))
                 .filter(s -> "BUYER_CONFIRMED".equals(s.getStatus()) 
                         || "DELIVERED".equals(s.getStatus()) 
@@ -269,6 +289,12 @@ public class OutboundDispatchService {
                     return b.getId().compareTo(a.getId());
                 })
                 .toList();
+        for (OutboundDeliveryStop s : result) {
+            if (s.getContract() != null && s.getContract().getHarvestLot() != null) {
+                s.getContract().getHarvestLot().getProductName();
+            }
+        }
+        return result;
     }
 
     /**
@@ -319,6 +345,229 @@ public class OutboundDispatchService {
 
         b2bRealtimeService.notifyDispatchTripUpdated("OUTBOUND_TRIP_CANCELLED", trip.getId(), trip);
         log.info("Cancelled outbound trip {}", trip.getTripCode());
+    }
+
+    /**
+     * Tối ưu giao hàng: Tự động ghép các đơn QC_PASSED vào xe phù hợp sức chứa (kg & m³).
+     * Nếu xe đang bận giao chuyến khác (ON_TRIP/ASSIGNED), chuyển sang xe rảnh khác hoặc xếp vào Chuyến sau (Chờ xe về).
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> generateAutoDispatchPlan(Long hubId) {
+        WarehouseHub hub = warehouseHubRepository.findById(hubId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Hub: " + hubId));
+
+        List<EligibleOutboundContractDto> eligible = new ArrayList<>(getEligibleContracts(hubId));
+        eligible.sort((a, b) -> {
+            if (a.getHubDeliveryDate() != null && b.getHubDeliveryDate() != null) {
+                int cmp = a.getHubDeliveryDate().compareTo(b.getHubDeliveryDate());
+                if (cmp != 0) return cmp;
+            } else if (a.getHubDeliveryDate() != null) {
+                return -1;
+            } else if (b.getHubDeliveryDate() != null) {
+                return 1;
+            }
+            BigDecimal wa = a.getQualifiedWeightKg() != null ? a.getQualifiedWeightKg() : BigDecimal.ZERO;
+            BigDecimal wb = b.getQualifiedWeightKg() != null ? b.getQualifiedWeightKg() : BigDecimal.ZERO;
+            return wb.compareTo(wa);
+        });
+
+        List<FleetVehicle> allVehicles = fleetVehicleRepository.findByWarehouseIdOrderByPlateNumberAsc(hubId)
+                .stream()
+                .filter(v -> !"MAINTENANCE".equalsIgnoreCase(v.getStatus()))
+                .toList();
+
+        List<FleetVehicle> vehiclePoolAsc = allVehicles.stream()
+                .filter(v -> "AVAILABLE".equalsIgnoreCase(v.getStatus()))
+                .sorted(Comparator
+                        .comparing((FleetVehicle v) -> v.getCapacityKg() != null ? v.getCapacityKg() : BigDecimal.ZERO)
+                        .thenComparing(v -> v.getVolumeM3() != null ? v.getVolumeM3() : BigDecimal.ZERO))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        List<FleetVehicle> busyVehicles = allVehicles.stream()
+                .filter(v -> "ON_TRIP".equalsIgnoreCase(v.getStatus()) || "ASSIGNED".equalsIgnoreCase(v.getStatus()))
+                .sorted((a, b) -> {
+                    BigDecimal ca = a.getCapacityKg() != null ? a.getCapacityKg() : BigDecimal.ZERO;
+                    BigDecimal cb = b.getCapacityKg() != null ? b.getCapacityKg() : BigDecimal.ZERO;
+                    return cb.compareTo(ca);
+                })
+                .toList();
+
+        Set<String> nonDriverRoles = Set.of("QC_TECH", "WH_STAFF", "DISPATCH", "ACCOUNTANT");
+        List<FleetDriver> driverPool = fleetDriverRepository
+                .findByWarehouseIdAndStatusOrderByExperienceYearsDesc(hubId, "AVAILABLE")
+                .stream()
+                .filter(d -> d.getLicenseClass() == null || !nonDriverRoles.contains(d.getLicenseClass().trim().toUpperCase()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        List<EligibleOutboundContractDto> remaining = new ArrayList<>(eligible);
+        List<Map<String, Object>> readyTrips = new ArrayList<>();
+        List<Map<String, Object>> queuedTrips = new ArrayList<>();
+
+        while (!remaining.isEmpty() && !vehiclePoolAsc.isEmpty() && !driverPool.isEmpty()) {
+            BigDecimal totalRemainingKg = remaining.stream()
+                    .map(c -> c.getQualifiedWeightKg() != null ? c.getQualifiedWeightKg() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal totalRemainingM3 = remaining.stream()
+                    .map(c -> c.getVolumeM3() != null ? c.getVolumeM3() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // Best-Fit:
+            // 1. Tìm xe NHỎ NHẤT chứa được toàn bộ các đơn còn lại
+            FleetVehicle selectedVehicle = null;
+            for (FleetVehicle v : vehiclePoolAsc) {
+                BigDecimal capKg = v.getCapacityKg() != null ? v.getCapacityKg() : BigDecimal.ZERO;
+                BigDecimal capM3 = v.getVolumeM3() != null ? v.getVolumeM3() : new BigDecimal("999");
+                if (capKg.compareTo(totalRemainingKg) >= 0 && capM3.compareTo(totalRemainingM3) >= 0) {
+                    selectedVehicle = v;
+                    break;
+                }
+            }
+            // 2. Nếu không xe nào chở hết một lần, chọn xe LỚN NHẤT để tối thiểu số chuyến
+            if (selectedVehicle == null) {
+                for (int i = vehiclePoolAsc.size() - 1; i >= 0; i--) {
+                    FleetVehicle v = vehiclePoolAsc.get(i);
+                    BigDecimal capKg = v.getCapacityKg() != null ? v.getCapacityKg() : BigDecimal.ZERO;
+                    BigDecimal capM3 = v.getVolumeM3() != null ? v.getVolumeM3() : new BigDecimal("999");
+                    boolean fitsAny = remaining.stream().anyMatch(c -> {
+                        BigDecimal w = c.getQualifiedWeightKg() != null ? c.getQualifiedWeightKg() : BigDecimal.ZERO;
+                        BigDecimal vol = c.getVolumeM3() != null ? c.getVolumeM3() : BigDecimal.ZERO;
+                        return w.compareTo(capKg) <= 0 && vol.compareTo(capM3) <= 0;
+                    });
+                    if (fitsAny) {
+                        selectedVehicle = v;
+                        break;
+                    }
+                }
+            }
+
+            if (selectedVehicle == null) break;
+            vehiclePoolAsc.remove(selectedVehicle);
+
+            BigDecimal capKg = selectedVehicle.getCapacityKg() != null ? selectedVehicle.getCapacityKg() : BigDecimal.ZERO;
+            BigDecimal capM3 = selectedVehicle.getVolumeM3() != null ? selectedVehicle.getVolumeM3() : new BigDecimal("999");
+
+            List<EligibleOutboundContractDto> packed = new ArrayList<>();
+            BigDecimal usedKg = BigDecimal.ZERO;
+            BigDecimal usedM3 = BigDecimal.ZERO;
+
+            Iterator<EligibleOutboundContractDto> it = remaining.iterator();
+            while (it.hasNext()) {
+                EligibleOutboundContractDto c = it.next();
+                BigDecimal w = c.getQualifiedWeightKg() != null ? c.getQualifiedWeightKg() : BigDecimal.ZERO;
+                BigDecimal vol = c.getVolumeM3() != null ? c.getVolumeM3() : BigDecimal.ZERO;
+                if (usedKg.add(w).compareTo(capKg) <= 0 && usedM3.add(vol).compareTo(capM3) <= 0) {
+                    packed.add(c);
+                    usedKg = usedKg.add(w);
+                    usedM3 = usedM3.add(vol);
+                    it.remove();
+                }
+            }
+
+            if (!packed.isEmpty()) {
+                // Sắp xếp thứ tự điểm dừng theo địa chỉ giao để gom cung đường gọn hơn
+                packed.sort(Comparator.comparing(c -> Objects.toString(c.getDeliveryAddress(), ""), String.CASE_INSENSITIVE_ORDER));
+                FleetDriver drv = driverPool.remove(0);
+                int utilPct = capKg.compareTo(BigDecimal.ZERO) > 0
+                        ? usedKg.multiply(BigDecimal.valueOf(100)).divide(capKg, 0, RoundingMode.HALF_UP).intValue()
+                        : 0;
+
+                Map<String, Object> tripPlan = new LinkedHashMap<>();
+                tripPlan.put("vehicleId", selectedVehicle.getId());
+                tripPlan.put("plateNumber", selectedVehicle.getPlateNumber());
+                tripPlan.put("vehicleModel", selectedVehicle.getVehicleModel());
+                tripPlan.put("capacityKg", capKg);
+                tripPlan.put("volumeM3", capM3);
+                tripPlan.put("driverId", drv.getId());
+                tripPlan.put("driverName", drv.getFullName());
+                tripPlan.put("driverPhone", drv.getPhone());
+                tripPlan.put("totalWeightKg", usedKg);
+                tripPlan.put("totalVolumeM3", usedM3.setScale(2, RoundingMode.HALF_UP));
+                tripPlan.put("utilizationPct", Math.min(100, utilPct));
+                tripPlan.put("stops", packed);
+                readyTrips.add(tripPlan);
+            }
+        }
+
+        // Các đơn còn lại: nếu hết xe rảnh / tài xế rảnh -> xếp dự kiến vào chuyến sau (chờ xe đang giao quay về)
+        for (FleetVehicle v : busyVehicles) {
+            if (remaining.isEmpty()) break;
+
+            BigDecimal capKg = v.getCapacityKg() != null ? v.getCapacityKg() : BigDecimal.ZERO;
+            BigDecimal capM3 = v.getVolumeM3() != null ? v.getVolumeM3() : new BigDecimal("999");
+
+            List<EligibleOutboundContractDto> packed = new ArrayList<>();
+            BigDecimal usedKg = BigDecimal.ZERO;
+            BigDecimal usedM3 = BigDecimal.ZERO;
+
+            Iterator<EligibleOutboundContractDto> it = remaining.iterator();
+            while (it.hasNext()) {
+                EligibleOutboundContractDto c = it.next();
+                BigDecimal w = c.getQualifiedWeightKg() != null ? c.getQualifiedWeightKg() : BigDecimal.ZERO;
+                BigDecimal vol = c.getVolumeM3() != null ? c.getVolumeM3() : BigDecimal.ZERO;
+                if (usedKg.add(w).compareTo(capKg) <= 0 && usedM3.add(vol).compareTo(capM3) <= 0) {
+                    packed.add(c);
+                    usedKg = usedKg.add(w);
+                    usedM3 = usedM3.add(vol);
+                    it.remove();
+                }
+            }
+
+            if (!packed.isEmpty()) {
+                Map<String, Object> queuedPlan = new LinkedHashMap<>();
+                queuedPlan.put("vehicleId", v.getId());
+                queuedPlan.put("plateNumber", v.getPlateNumber());
+                queuedPlan.put("vehicleModel", v.getVehicleModel());
+                queuedPlan.put("capacityKg", capKg);
+                queuedPlan.put("currentVehicleStatus", v.getStatus());
+                queuedPlan.put("estimatedReason", "Xe đang thực hiện chuyến khác — dự kiến tự động ghép chuyến sau khi xe về kho");
+                queuedPlan.put("totalWeightKg", usedKg);
+                queuedPlan.put("totalVolumeM3", usedM3.setScale(2, RoundingMode.HALF_UP));
+                queuedPlan.put("stops", packed);
+                queuedTrips.add(queuedPlan);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("hubId", hub.getId());
+        result.put("hubName", hub.getHubName());
+        result.put("totalEligible", eligible.size());
+        result.put("readyTrips", readyTrips);
+        result.put("queuedTrips", queuedTrips);
+        result.put("unassignedContracts", remaining);
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> executeAutoDispatch(Long hubId, List<ConfirmOutboundTripRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            throw new IllegalArgumentException("Không có chuyến xe nào để xác nhận.");
+        }
+        List<String> tripCodes = new ArrayList<>();
+        for (ConfirmOutboundTripRequest req : requests) {
+            OutboundDeliveryTrip created = confirmOutboundTrip(hubId, req);
+            tripCodes.add(created.getTripCode());
+        }
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("createdCount", tripCodes.size());
+        res.put("tripCodes", tripCodes);
+        return res;
+    }
+
+    private String resolveBuyerDeliveryAddress(B2bContract c) {
+        if (c == null) return "Địa chỉ Thương lái";
+        if (c.getBuyer() != null && c.getBuyer().getWarehouseAddress() != null && !c.getBuyer().getWarehouseAddress().isBlank()) {
+            return c.getBuyer().getWarehouseAddress().trim();
+        }
+        if (c.getDeliveryAddress() != null && !c.getDeliveryAddress().isBlank()) {
+            return c.getDeliveryAddress().trim();
+        }
+        if (c.getRfq() != null && c.getRfq().getHubLocation() != null && !c.getRfq().getHubLocation().isBlank()) {
+            return c.getRfq().getHubLocation().trim();
+        }
+        if (c.getBuyer() != null && c.getBuyer().getAddress() != null && !c.getBuyer().getAddress().isBlank()) {
+            return c.getBuyer().getAddress().trim();
+        }
+        return "Địa chỉ Thương lái";
     }
 
     private BigDecimal getContractQualifiedWeight(B2bContract c) {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   Truck,
   Route,
@@ -55,6 +55,9 @@ import {
 } from '@/services/fleetDispatchApi';
 import { b2bWebSocket } from '@/services/websocketService';
 import { subscribeB2bSyncEvents } from '@/services/b2bSyncService';
+import ImageUploadField from '@/components/ImageUploadField';
+import OutboundFleetMap from '@/components/admin/OutboundFleetMap';
+import { api } from '@/services/auth';
 
 // =========================================================================
 // 1. MẠNG LƯỚI 5 HUB TRUNG CHUYỂN VẬN HÀNH THỰC TẾ
@@ -152,6 +155,8 @@ const parsePickupDetails = (rawStr: unknown) => {
 // 2. MAIN COMPONENT: ADMIN INBOUND DISPATCH CONSOLE
 // =========================================================================
 function AdminInboundDispatchContent() {
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith('/manager') ? '/manager' : '/admin';
   const searchParams = useSearchParams();
   const highlightCode = searchParams.get('contractCode') || '';
 
@@ -160,16 +165,33 @@ function AdminInboundDispatchContent() {
 
   // Hubs & Hub được chọn
   const [hubs, setHubs] = useState<WarehouseHubDto[]>(DEFAULT_OFFICIAL_HUBS);
-  const [selectedHubId, setSelectedHubId] = useState<number>(2); // Mặc định Hub Đức Trọng
+  const [selectedHubId, setSelectedHubId] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hona_admin_selected_hub_id');
+      if (saved) return Number(saved);
+    }
+    return 2;
+  });
+
+  useEffect(() => {
+    const onHubChanged = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (custom.detail) setSelectedHubId(Number(custom.detail));
+    };
+    window.addEventListener('hona-admin-hub-changed', onHubChanged);
+    return () => window.removeEventListener('hona-admin-hub-changed', onHubChanged);
+  }, []);
 
   // Dữ liệu thời gian thực
   const [waitingLots, setWaitingLots] = useState<WaitingLotDto[]>([]);
   const [vehicles, setVehicles] = useState<FleetVehicleDto[]>([]);
   const [drivers, setDrivers] = useState<FleetDriverDto[]>([]);
   const [trips, setTrips] = useState<PickupTripDto[]>([]);
+  const [coldAssets, setColdAssets] = useState<any[]>([]);
+  const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
 
-  // Tìm kiếm & Lọc
-  const [searchQuery, setSearchQuery] = useState<string>(highlightCode);
+  // Tìm kiếm & Lọc (không dùng highlightCode làm bộ lọc để vẫn hiện đủ các đơn chờ gom cùng tuyến)
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedContractIds, setSelectedContractIds] = useState<number[]>([]);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -215,17 +237,19 @@ function AdminInboundDispatchContent() {
       }
 
       // 2. Tải danh sách xe và tài xế của Hub
-      const [vList, dList, wLots, tList] = await Promise.all([
+      const [vList, dList, wLots, tList, assets] = await Promise.all([
         fleetDispatchApi.getVehicles(hubId).catch(() => []),
         fleetDispatchApi.getDrivers(hubId).catch(() => []),
         fleetDispatchApi.getWaitingLots(hubId).catch(() => []),
         fleetDispatchApi.getTrips(hubId).catch(() => []),
+        api<any[]>('admin/cold-assets').catch(() => []),
       ]);
 
       setVehicles(vList);
       setDrivers(dList);
       setWaitingLots(wLots);
       setTrips(tList);
+      setColdAssets(Array.isArray(assets) ? assets : []);
     } catch (err: any) {
       console.error('Lỗi nạp dữ liệu điều phối:', err);
     } finally {
@@ -292,7 +316,8 @@ function AdminInboundDispatchContent() {
       const nextMap = { ...assignmentMap };
       let changed = false;
       const defaultVehicle = vehicles.find((v) => v.status === 'AVAILABLE') || vehicles[0];
-      const defaultDriver = drivers.find((d) => d.status === 'AVAILABLE') || drivers[0];
+      const truckDrivers = drivers.filter((d) => !['QC_TECH', 'WH_STAFF', 'DISPATCH', 'ACCOUNTANT'].includes(String(d.licenseClass || '').toUpperCase()));
+      const defaultDriver = truckDrivers.find((d) => d.status === 'AVAILABLE') || truckDrivers[0];
 
       for (const lot of waitingLots) {
         const key = String(lot.id);
@@ -437,6 +462,140 @@ function AdminInboundDispatchContent() {
     }
   };
 
+  // 4.1. ĐIỀU KHIỂN TIẾN ĐỘ CHUYẾN XE & NHẬN HÀNG TẠI RẪY / HUB
+  const [tripActionId, setTripActionId] = useState<number | null>(null);
+  const [stopActionId, setStopActionId] = useState<number | null>(null);
+
+  // Modal Kiểm Duyệt & Nhận Hàng Tại Rẫy
+  const [inspectingStop, setInspectingStop] = useState<PickupTripDto['stops'][number] | null>(null);
+  const [stopInspectMode, setStopInspectMode] = useState<'LOAD' | 'ISSUE'>('LOAD');
+  const [stopActualWeight, setStopActualWeight] = useState<number>(0);
+  const [stopActualPackages, setStopActualPackages] = useState<number>(0);
+  const [stopChecklist, setStopChecklist] = useState({
+    pucMatched: true,
+    qualityOk: true,
+    precooledOk: true,
+  });
+  const [stopHandoverPhoto, setStopHandoverPhoto] = useState<string>('');
+  const [stopUploadingPhoto, setStopUploadingPhoto] = useState<boolean>(false);
+  const [stopNotes, setStopNotes] = useState<string>('');
+  const [stopIssueReason, setStopIssueReason] = useState<string>('Thiếu sản lượng thực tế hoặc chưa đạt cảm quan');
+  const [stopIssueNotes, setStopIssueNotes] = useState<string>('');
+  const [submittingStopModal, setSubmittingStopModal] = useState<boolean>(false);
+
+  const openStopInspectModal = (stop: PickupTripDto['stops'][number]) => {
+    setInspectingStop(stop);
+    setStopInspectMode('LOAD');
+    setStopActualWeight(Number(stop.actualWeightKg || stop.weightKg || 0));
+    setStopActualPackages(Number(stop.actualPackageCount || stop.packageCount || 1));
+    setStopChecklist({ pucMatched: true, qualityOk: true, precooledOk: true });
+    setStopHandoverPhoto(stop.handoverPhotoUrl || '');
+    setStopNotes('Đã kiểm đếm cân thực tế, đối chiếu tem PUC và xếp hàng lên xe lạnh đạt chuẩn.');
+    setStopIssueReason('Thiếu sản lượng thực tế hoặc chưa đạt cảm quan');
+    setStopIssueNotes('');
+  };
+
+  const handleSubmitStopInspection = async () => {
+    if (!inspectingStop) return;
+    setSubmittingStopModal(true);
+    try {
+      if (stopInspectMode === 'LOAD') {
+        await fleetDispatchApi.loadStop(inspectingStop.id, {
+          actualWeightKg: stopActualWeight,
+          actualPackageCount: stopActualPackages,
+          handoverPhotoUrl: stopHandoverPhoto || undefined,
+          handoverSignatureData: 'ADMIN_VERIFIED_FARM_HANDOVER',
+          notes: stopNotes.trim() || 'Đã kiểm duyệt và bốc hàng lên xe lạnh tại rẫy',
+        });
+        showToast(
+          `Đã kiểm duyệt & xác nhận bốc ${stopActualWeight} kg (${stopActualPackages} thùng) tại ${inspectingStop.farmerName}!`
+        );
+      } else {
+        await fleetDispatchApi.reportStopIssue(inspectingStop.id, {
+          issueReason: stopIssueReason,
+          issueNotes: stopIssueNotes.trim() || undefined,
+        });
+        showToast(`Đã ghi nhận báo cáo sự cố tại điểm rẫy ${inspectingStop.farmerName}!`);
+      }
+      setInspectingStop(null);
+      await loadHubData(selectedHubId);
+    } catch (err: any) {
+      alert(`Lỗi kiểm duyệt điểm dừng: ${err?.message || 'Không thể thực hiện'}`);
+    } finally {
+      setSubmittingStopModal(false);
+    }
+  };
+
+  const handleTripAction = async (
+    trip: PickupTripDto,
+    action: 'ACKNOWLEDGE' | 'DEPART' | 'RETURN_HUB' | 'ARRIVE_HUB' | 'COMPLETE_RECEIVING'
+  ) => {
+    setTripActionId(trip.id);
+    try {
+      if (action === 'ACKNOWLEDGE') {
+        await fleetDispatchApi.acknowledgeTrip(trip.id);
+        showToast(`Chuyến ${trip.tripCode}: Tài xế đã tiếp nhận!`);
+      } else if (action === 'DEPART') {
+        await fleetDispatchApi.departTrip(trip.id);
+        showToast(`Chuyến ${trip.tripCode}: Đã xuất bến đi thu gom tại rẫy!`);
+      } else if (action === 'RETURN_HUB') {
+        await fleetDispatchApi.returnToHub(trip.id);
+        showToast(`Chuyến ${trip.tripCode}: Đã gom đủ hàng, đang quay về Kho!`);
+      } else if (action === 'ARRIVE_HUB') {
+        await fleetDispatchApi.confirmTruckArrival(trip.id);
+        showToast(`Chuyến ${trip.tripCode}: Xe đã tới cổng Kho chờ nhập kho!`);
+      } else if (action === 'COMPLETE_RECEIVING') {
+        const stops = trip.stops || [];
+        await fleetDispatchApi.completeReceiving(trip.id, {
+          actualTotalWeightKg: trip.actualTotalWeightKg || trip.totalWeightKg,
+          actualTotalPackages: trip.actualTotalPackages || trip.totalPackages,
+          receivingNotes: 'Admin xác nhận nhận hàng & nhập kho lạnh từ bảng điều phối',
+          lotItems: stops.map((s) => ({
+            contractId: s.contractId,
+            receivedWeightKg: s.actualWeightKg || s.weightKg,
+            qualifiedWeightKg: s.actualWeightKg || s.weightKg,
+            rejectedWeightKg: 0,
+            packageCount: s.actualPackageCount || s.packageCount,
+            coldZone: 'Zone A (Lạnh mát 2-6°C)',
+            rackBin: 'Kệ R-01 Ô A-01',
+            qcNotes: 'Đạt chuẩn nhập kho HoNa Fresh',
+          })),
+        });
+        showToast(`Chuyến ${trip.tripCode}: Đã hoàn tất nhận hàng & nhập Kho!`);
+      }
+      await loadHubData(selectedHubId);
+    } catch (err: any) {
+      alert(`Lỗi cập nhật chuyến ${trip.tripCode}: ${err?.message || 'Không thể thực hiện'}`);
+    } finally {
+      setTripActionId(null);
+    }
+  };
+
+  const handleStopAction = async (
+    stop: PickupTripDto['stops'][number],
+    action: 'ARRIVE' | 'LOAD'
+  ) => {
+    setStopActionId(stop.id);
+    try {
+      if (action === 'ARRIVE') {
+        await fleetDispatchApi.arriveStop(stop.id);
+        showToast(`Đã xác nhận xe tới điểm rẫy ${stop.farmerName}!`);
+      } else {
+        await fleetDispatchApi.loadStop(stop.id, {
+          actualWeightKg: stop.actualWeightKg || stop.weightKg,
+          actualPackageCount: stop.actualPackageCount || stop.packageCount,
+          notes: 'Xác nhận đã bốc hàng lên xe lạnh tại rẫy',
+        });
+        showToast(`Đã xác nhận nhận & bốc hàng (${stop.actualWeightKg || stop.weightKg} kg) tại ${stop.farmerName}!`);
+      }
+      await loadHubData(selectedHubId);
+    } catch (err: any) {
+      alert(`Lỗi cập nhật điểm dừng: ${err?.message || 'Không thể thực hiện'}`);
+    } finally {
+      setStopActionId(null);
+    }
+  };
+
   // 5. CẬP NHẬT TRẠNG THÁI PHƯƠNG TIỆN (Toggle Sẵn Sàng / Bảo Trì)
   const handleToggleVehicleStatus = async (vehicle: FleetVehicleDto) => {
     const nextStatus = vehicle.status === 'AVAILABLE' ? 'MAINTENANCE' : 'AVAILABLE';
@@ -449,7 +608,53 @@ function AdminInboundDispatchContent() {
     }
   };
 
-  // 6. CẬP NHẬT TRẠNG THÁI TÀI XẾ (Toggle Sẵn Sàng / Nghỉ Phép)
+  // 6. CẬP NHẬT TRẠNG THÁI NHÂN VIÊN / TÀI XẾ (Toggle Sẵn Sàng / Nghỉ Phép)
+  const [staffFilter, setStaffFilter] = useState<'ALL' | 'DRIVER' | 'QC_TECH'>('ALL');
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [newStaffRole, setNewStaffRole] = useState<'DRIVER' | 'QC_TECH'>('QC_TECH');
+  const [newStaffCode, setNewStaffCode] = useState('');
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffPhone, setNewStaffPhone] = useState('');
+  const [newStaffLicenseNo, setNewStaffLicenseNo] = useState('');
+  const [newStaffLicenseClass, setNewStaffLicenseClass] = useState('C');
+  const [newStaffExp, setNewStaffExp] = useState(2);
+  const [creatingStaff, setCreatingStaff] = useState(false);
+
+  const handleCreateStaff = async () => {
+    if (!newStaffCode.trim() || !newStaffName.trim() || !newStaffPhone.trim()) {
+      alert('Vui lòng nhập đầy đủ mã nhân viên, họ tên và số điện thoại.');
+      return;
+    }
+    setCreatingStaff(true);
+    try {
+      await fleetDispatchApi.createDriver({
+        warehouseId: selectedHubId,
+        driverCode: newStaffCode.trim().toUpperCase(),
+        fullName: newStaffName.trim(),
+        phone: newStaffPhone.trim(),
+        licenseNumber:
+          newStaffLicenseNo.trim() ||
+          `${newStaffRole === 'QC_TECH' ? 'QC' : 'GPLX'}-${Date.now().toString().slice(-6)}`,
+        licenseClass: newStaffRole === 'QC_TECH' ? 'QC_TECH' : newStaffLicenseClass,
+        experienceYears: Number(newStaffExp) || 1,
+        status: 'AVAILABLE',
+      });
+      showToast(
+        `Đã thêm ${newStaffRole === 'QC_TECH' ? 'KTV Kiểm định QC' : 'Tài xế'} ${newStaffName.trim()} vào ${currentHub.hubName}!`
+      );
+      setShowAddStaffModal(false);
+      setNewStaffCode('');
+      setNewStaffName('');
+      setNewStaffPhone('');
+      setNewStaffLicenseNo('');
+      await loadHubData(selectedHubId);
+    } catch (err: any) {
+      alert(`Lỗi thêm nhân viên: ${err?.message || 'Không thể lưu'}`);
+    } finally {
+      setCreatingStaff(false);
+    }
+  };
+
   const handleToggleDriverStatus = async (driver: FleetDriverDto) => {
     const nextStatus = driver.status === 'AVAILABLE' ? 'OFF_DUTY' : 'AVAILABLE';
     try {
@@ -500,7 +705,7 @@ function AdminInboundDispatchContent() {
               <span>Làm mới</span>
             </button>
             <Link
-              href="/admin/contracts"
+              href={`${basePath}/contracts`}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-2xs"
             >
               <span>Xem Sổ Hợp Đồng B2B</span>
@@ -509,50 +714,16 @@ function AdminInboundDispatchContent() {
           </div>
         </div>
 
-        {/* 2. CHỌN HUB TRUNG CHUYỂN HOẠT ĐỘNG (5 TRẠM TRỌNG ĐIỂM) */}
-        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Warehouse className="w-5 h-5 text-[#10542C]" />
-              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Chọn Kho Quản Lý Vận Tải
-              </span>
-            </div>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-              {currentHub.region}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            {hubs.map((hub) => {
-              const isSelected = hub.id === selectedHubId;
-              return (
-                <button
-                  key={hub.id}
-                  type="button"
-                  onClick={() => setSelectedHubId(hub.id)}
-                  className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-[#10542C] bg-emerald-50/40 ring-2 ring-[#10542C]/20 shadow-xs'
-                      : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-bold text-slate-500">{hub.hubCode}</span>
-                    {isSelected && <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />}
-                  </div>
-                  <strong className="text-xs font-bold text-slate-900 block mt-1 line-clamp-1">
-                    {hub.hubName}
-                  </strong>
-                  <span className="text-[11px] text-slate-500 block mt-0.5 line-clamp-1">{hub.address}</span>
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 text-[10px] text-slate-600 font-bold">
-                    <span>Hotline: {hub.hotline}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {/* 2. BẢN ĐỒ GIÁM SÁT ĐỘI XE & LỘ TRÌNH LẤY HÀNG RẪY */}
+        <OutboundFleetMap
+          mode="INBOUND"
+          hub={currentHub}
+          vehicles={vehicles}
+          trips={trips}
+          coldAssets={coldAssets}
+          focusedTripId={focusedTripId}
+          onSelectTrip={setFocusedTripId}
+        />
 
         {/* 3. THANH TAB & ĐIỀU HƯỚNG */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -606,7 +777,7 @@ function AdminInboundDispatchContent() {
               }`}
             >
               <User className="w-4 h-4 text-purple-600" />
-              <span>Tài Xế ({drivers.length})</span>
+              <span>Nhân Viên & Tài Xế ({drivers.length})</span>
             </button>
           </div>
 
@@ -635,9 +806,6 @@ function AdminInboundDispatchContent() {
                 <h3 className="text-base font-bold text-white">
                   Tự động gom chuyến lấy hàng tại {currentHub.hubName}
                 </h3>
-                <p className="text-xs text-slate-300 max-w-2xl">
-                  Hệ thống tự động phân cụm địa lý rẫy, kiểm tra đồng thời tải trọng (kg) và thể tích ($m^3$) thùng lạnh, khớp hạng GPLX tài xế theo Luật ATGT 2024/2025.
-                </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
@@ -720,9 +888,6 @@ function AdminInboundDispatchContent() {
                 <h3 className="text-base font-bold text-slate-800">
                   Không có hợp đồng nào đang chờ điều phối lấy hàng tại {currentHub.hubName}
                 </h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Chỉ các hợp đồng đã được BQT phê duyệt quy cách đóng gói (`packaging_approved = true`) và chưa điều xe mới xuất hiện tại đây.
-                </p>
               </div>
             ) : (
               <>
@@ -893,7 +1058,9 @@ function AdminInboundDispatchContent() {
                                 }}
                                 className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-[#10542C]"
                               >
-                                {drivers.map((d) => (
+                                {drivers
+                                  .filter((d) => !['QC_TECH', 'WH_STAFF', 'DISPATCH', 'ACCOUNTANT'].includes(String(d.licenseClass || '').toUpperCase()))
+                                  .map((d) => (
                                   <option key={d.id} value={d.id}>
                                     {d.fullName} (Bằng {d.licenseClass} - {d.phone}) [{d.status}]
                                   </option>
@@ -1001,17 +1168,29 @@ function AdminInboundDispatchContent() {
                                 {isCancelled
                                   ? 'ĐÃ HỦY CHUYẾN'
                                   : isCompleted
-                                  ? 'GĐ 7.2: ĐÃ NHẬP KHO'
+                                  ? 'ĐÃ NHẬP KHO'
                                   : trip.status === 'ARRIVED_AT_WAREHOUSE'
-                                  ? 'GĐ 7.1: ĐÃ ĐẾN CỔNG KHO'
+                                  ? 'ĐÃ ĐẾN CỔNG KHO'
                                   : trip.status === 'RETURNING'
-                                  ? 'GĐ 6: ĐANG VỀ HUB'
+                                  ? 'ĐANG VỀ KHO'
                                   : trip.status === 'ON_TRIP' || trip.status === 'DEPARTED'
-                                  ? 'GĐ 3-4: ĐANG THU GOM RẪY'
+                                  ? 'ĐANG THU GOM RẪY'
                                   : trip.status === 'ACKNOWLEDGED'
-                                  ? 'GĐ 2: TÀI XẾ ĐÃ NHẬN'
-                                  : 'GĐ 1: ĐÃ PHÂN CÔNG'}
+                                  ? 'TÀI XẾ ĐÃ NHẬN'
+                                  : 'ĐÃ PHÂN CÔNG'}
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFocusedTripId(trip.id);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition cursor-pointer flex items-center gap-1"
+                                title="Hiển thị lộ trình chuyến này trên bản đồ"
+                              >
+                                <MapPin className="w-3 h-3" />
+                                <span>Xem bản đồ</span>
+                              </button>
                             </div>
                             <span className="text-[11px] text-slate-500">
                               Khởi tạo: {trip.createdAt ? new Date(trip.createdAt).toLocaleString('vi-VN') : 'Mới tạo'}
@@ -1024,20 +1203,84 @@ function AdminInboundDispatchContent() {
                           </div>
                         </div>
 
-                        {/* Nút bấm Hủy Chuyến */}
-                        {canCancel && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCancellingTrip(trip);
-                              setCancelReason('Xe tải gặp sự cố kỹ thuật đột xuất');
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-bold transition cursor-pointer"
-                          >
-                            <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                            <span>Hủy Chuyến & Trả Lô Về Hàng Chờ</span>
-                          </button>
-                        )}
+                        {/* Nhóm nút điều khiển tiến độ chuyến & hủy chuyến */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {trip.status === 'ASSIGNED' && (
+                            <button
+                              type="button"
+                              disabled={tripActionId === trip.id}
+                              onClick={() => handleTripAction(trip, 'ACKNOWLEDGE')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>{tripActionId === trip.id ? 'Đang xử lý...' : 'Tiếp Nhận Chuyến'}</span>
+                            </button>
+                          )}
+
+                          {trip.status === 'ACKNOWLEDGED' && (
+                            <button
+                              type="button"
+                              disabled={tripActionId === trip.id}
+                              onClick={() => handleTripAction(trip, 'DEPART')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                            >
+                              <Truck className="w-3.5 h-3.5" />
+                              <span>{tripActionId === trip.id ? 'Đang xử lý...' : 'Xuất Bến Lấy Hàng'}</span>
+                            </button>
+                          )}
+
+                          {(trip.status === 'ON_TRIP' || trip.status === 'DEPARTED') &&
+                            totalStopsCount > 0 &&
+                            loadedStopsCount >= totalStopsCount && (
+                              <button
+                                type="button"
+                                disabled={tripActionId === trip.id}
+                                onClick={() => handleTripAction(trip, 'RETURN_HUB')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                              >
+                                <Navigation className="w-3.5 h-3.5" />
+                                <span>{tripActionId === trip.id ? 'Đang xử lý...' : 'Đã Gom Đủ · Quay Về Kho'}</span>
+                              </button>
+                            )}
+
+                          {trip.status === 'RETURNING' && (
+                            <button
+                              type="button"
+                              disabled={tripActionId === trip.id}
+                              onClick={() => handleTripAction(trip, 'ARRIVE_HUB')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>{tripActionId === trip.id ? 'Đang xử lý...' : 'Xác Nhận Tới Cổng Kho'}</span>
+                            </button>
+                          )}
+
+                          {trip.status === 'ARRIVED_AT_WAREHOUSE' && (
+                            <button
+                              type="button"
+                              disabled={tripActionId === trip.id}
+                              onClick={() => handleTripAction(trip, 'COMPLETE_RECEIVING')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#10542C] hover:bg-[#0d4624] disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>{tripActionId === trip.id ? 'Đang xử lý...' : 'Nhận Hàng & Nhập Kho'}</span>
+                            </button>
+                          )}
+
+                          {canCancel && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancellingTrip(trip);
+                                setCancelReason('Xe tải gặp sự cố kỹ thuật đột xuất');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-bold transition cursor-pointer"
+                            >
+                              <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Hủy Chuyến & Trả Lô Về Hàng Chờ</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Tiến độ thu gom */}
@@ -1046,7 +1289,7 @@ function AdminInboundDispatchContent() {
                           <div className="flex items-center justify-between text-xs">
                             <span className="text-slate-600 font-semibold">
                               Tiến độ lộ trình: <strong className="text-[#10542C] font-mono">{loadedStopsCount}/{totalStopsCount} rẫy đã bốc hàng</strong>
-                              {trip.status === 'RETURNING' && <span className="text-amber-700 font-bold ml-2">· Đang trên đường về Hub</span>}
+                              {trip.status === 'RETURNING' && <span className="text-amber-700 font-bold ml-2">· Đang trên đường về Kho</span>}
                               {trip.status === 'ARRIVED_AT_WAREHOUSE' && <span className="text-purple-700 font-bold ml-2">· Xe đã tới cổng kho</span>}
                             </span>
                             <span className="font-mono font-bold text-emerald-800">{progressPct}%</span>
@@ -1175,6 +1418,29 @@ function AdminInboundDispatchContent() {
                                         {isStopLoaded ? 'ĐÃ BỐC HÀNG' : isStopIssue ? 'SỰ CỐ' : isStopArrived ? 'ĐÃ TỚI RẪY' : 'CHỜ ĐÓN XE'}
                                       </span>
                                     </div>
+
+                                    {!isCancelled && !isCompleted && !isStopLoaded && (trip.status === 'ASSIGNED' || trip.status === 'ACKNOWLEDGED' || trip.status === 'ON_TRIP' || trip.status === 'DEPARTED') && (
+                                      <div className="flex items-center gap-1.5 pt-1.5 flex-wrap">
+                                        {stop.status === 'PENDING' && (
+                                          <button
+                                            type="button"
+                                            disabled={stopActionId === stop.id}
+                                            onClick={() => handleStopAction(stop, 'ARRIVE')}
+                                            className="px-2 py-1 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 text-blue-800 text-[10px] font-bold transition cursor-pointer"
+                                          >
+                                            {stopActionId === stop.id ? '...' : 'Đã Tới Rẫy'}
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={stopActionId === stop.id}
+                                          onClick={() => openStopInspectModal(stop)}
+                                          className="px-2.5 py-1 rounded-lg bg-[#10542C] hover:bg-[#0d4624] disabled:opacity-50 text-white text-[10px] font-bold transition cursor-pointer"
+                                        >
+                                          Kiểm Duyệt & Nhận Hàng
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -1268,23 +1534,71 @@ function AdminInboundDispatchContent() {
           </div>
         )}
 
-        {/* 8. TAB 4: QUẢN LÝ TÀI XẾ (FLEET DRIVERS) */}
+        {/* 8. TAB 4: QUẢN LÝ NHÂN VIÊN & TÀI XẾ (DRIVERS & QC TECHNICIANS) */}
         {activeTab === 'DRIVERS' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-800">
-                Đội ngũ tài xế trực thuộc {currentHub.hubName}
-              </h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  Đội ngũ Nhân viên & Tài xế trực thuộc {currentHub.hubName}
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Quản lý chung Tài xế xe lạnh và Kỹ thuật viên kiểm định QC trong kho.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl text-[11px] font-bold">
+                  {[
+                    { key: 'ALL' as const, label: `Tất cả (${drivers.length})` },
+                    { key: 'DRIVER' as const, label: `Tài xế (${drivers.filter((d) => d.licenseClass !== 'QC_TECH').length})` },
+                    { key: 'QC_TECH' as const, label: `KTV QC (${drivers.filter((d) => d.licenseClass === 'QC_TECH').length})` },
+                  ].map((f) => (
+                    <button
+                      key={f.key}
+                      type="button"
+                      onClick={() => setStaffFilter(f.key)}
+                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                        staffFilter === f.key ? 'bg-white text-[#10542C] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewStaffRole('QC_TECH');
+                    setNewStaffCode(`KTV-${Date.now().toString().slice(-4)}`);
+                    setShowAddStaffModal(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#10542C] hover:bg-[#0d4624] text-white text-xs font-bold transition cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Thêm Nhân Viên / Tài Xế</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {drivers.map((d) => {
+              {drivers
+                .filter((d) => {
+                  if (staffFilter === 'QC_TECH') return d.licenseClass === 'QC_TECH';
+                  if (staffFilter === 'DRIVER') return d.licenseClass !== 'QC_TECH';
+                  return true;
+                })
+                .map((d) => {
                 const isAvail = d.status === 'AVAILABLE';
+                const isQcTech = d.licenseClass === 'QC_TECH';
                 return (
                   <div key={d.id} className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-2xs space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <User className="w-5 h-5 text-purple-700" />
+                        {isQcTech ? (
+                          <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                        ) : (
+                          <User className="w-5 h-5 text-purple-700" />
+                        )}
                         <div>
                           <strong className="text-xs font-bold text-slate-900 block">{d.fullName}</strong>
                           <span className="font-mono text-[10px] text-slate-500">{d.driverCode}</span>
@@ -1301,7 +1615,13 @@ function AdminInboundDispatchContent() {
                             : 'bg-slate-200 text-slate-700'
                         }`}
                       >
-                        {d.status}
+                        {d.status === 'AVAILABLE'
+                          ? 'Sẵn sàng làm việc'
+                          : d.status === 'ON_TRIP'
+                          ? 'Đang chạy chuyến'
+                          : d.status === 'ASSIGNED'
+                          ? 'Đã phân công'
+                          : 'Nghỉ phép / Tạm ngưng'}
                       </span>
                     </div>
 
@@ -1311,13 +1631,19 @@ function AdminInboundDispatchContent() {
                         <strong className="font-mono text-slate-800">{d.phone}</strong>
                       </div>
                       <div className="flex justify-between text-slate-600">
-                        <span>Số GPLX:</span>
+                        <span>{isQcTech ? 'Mã chứng chỉ QC:' : 'Số GPLX:'}</span>
                         <span className="font-mono text-slate-700">{d.licenseNumber}</span>
                       </div>
                       <div className="flex justify-between text-slate-600">
-                        <span>Hạng bằng lái:</span>
-                        <span className="font-bold text-purple-800 px-2 py-0.5 rounded bg-purple-50 border border-purple-200">
-                          Hạng {d.licenseClass}
+                        <span>{isQcTech ? 'Chức danh:' : 'Hạng bằng lái:'}</span>
+                        <span
+                          className={`font-bold px-2 py-0.5 rounded border ${
+                            isQcTech
+                              ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                              : 'text-purple-800 bg-purple-50 border-purple-200'
+                          }`}
+                        >
+                          {isQcTech ? 'KTV Kiểm Định QC' : `Hạng ${d.licenseClass}`}
                         </span>
                       </div>
                       <div className="flex justify-between text-slate-600">
@@ -1587,6 +1913,374 @@ function AdminInboundDispatchContent() {
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
                 {isSubmitting ? 'Đang Hủy...' : 'Xác Nhận Hủy Chuyến'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10.1 MODAL KIỂM DUYỆT & NHẬN HÀNG TẠI RẪY */}
+      {inspectingStop && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            <div className="px-6 py-4 bg-emerald-50/80 border-b border-emerald-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#10542C] text-white flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Kiểm Duyệt & Nhận Hàng Tại Rẫy
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    <strong className="text-[#10542C]">{inspectingStop.farmerName}</strong> ·{' '}
+                    <span className="font-mono">HĐ-{inspectingStop.contractId}</span> · Dự kiến{' '}
+                    <strong>{inspectingStop.weightKg} kg</strong> ({inspectingStop.packageCount} thùng)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingStop(null)}
+                className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-500 flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4">
+              {/* Chọn kết quả kiểm duyệt */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setStopInspectMode('LOAD')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    stopInspectMode === 'LOAD'
+                      ? 'bg-[#10542C] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Đạt Chuẩn · Nhận & Bốc Hàng</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStopInspectMode('ISSUE')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    stopInspectMode === 'ISSUE'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Không Đạt · Báo Sự Cố</span>
+                </button>
+              </div>
+
+              {stopInspectMode === 'LOAD' ? (
+                <>
+                  {/* Checklist kiểm duyệt 3 bước */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                      1. Checklist Kiểm Duyệt Bắt Buộc Tại Rẫy
+                    </span>
+                    {[
+                      { key: 'pucMatched' as const, label: 'Đã đối chiếu đúng mã hợp đồng & tem truy xuất vùng trồng (PUC) trên thùng' },
+                      { key: 'qualityOk' as const, label: 'Cảm quan nông sản tươi, không dập nát, không sâu bệnh hoặc ẩm úng' },
+                      { key: 'precooledOk' as const, label: 'Đóng thùng đúng quy cách & đã xếp lên thùng xe lạnh (2-6°C)' },
+                    ].map((item) => (
+                      <label key={item.key} className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stopChecklist[item.key]}
+                          onChange={(e) =>
+                            setStopChecklist((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                          }
+                          className="mt-0.5 rounded border-slate-300 text-[#10542C] focus:ring-[#10542C]"
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Cân đếm thực tế */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Khối lượng cân thực nhận (kg) *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={stopActualWeight}
+                        onChange={(e) => setStopActualWeight(Math.max(0, Number(e.target.value)))}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Số thùng / kiện thực nhận *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={stopActualPackages}
+                        onChange={(e) => setStopActualPackages(Math.max(1, Number(e.target.value)))}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#10542C]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Upload ảnh biên bản bàn giao */}
+                  <ImageUploadField
+                    name="handoverPhotoUrl"
+                    label="2. Ảnh thực tế bàn cân / hàng xếp lên xe lạnh"
+                    purpose="EPOD"
+                    value={stopHandoverPhoto}
+                    onChange={(url) => setStopHandoverPhoto(url)}
+                    onUploadingChange={setStopUploadingPhoto}
+                  />
+
+                  {/* Ghi chú */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Ghi chú kiểm duyệt bàn giao
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={stopNotes}
+                      onChange={(e) => setStopNotes(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#10542C]"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3 p-4 rounded-2xl bg-rose-50/70 border border-rose-200">
+                  <div>
+                    <label className="block text-xs font-bold text-rose-900 mb-1.5">
+                      Lý do sự cố tại rẫy *
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {[
+                        'Thiếu sản lượng thực tế',
+                        'Nông sản dập nát / không đạt cảm quan',
+                        'Chưa đóng thùng hoặc thiếu tem PUC',
+                        'Nhà vườn chưa sẵn sàng giao hàng',
+                      ].map((reason) => (
+                        <button
+                          key={reason}
+                          type="button"
+                          onClick={() => setStopIssueReason(reason)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                            stopIssueReason === reason
+                              ? 'bg-rose-600 text-white border-rose-600'
+                              : 'bg-white text-rose-800 border-rose-200 hover:bg-rose-100/60'
+                          }`}
+                        >
+                          {reason}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={stopIssueReason}
+                      onChange={(e) => setStopIssueReason(e.target.value)}
+                      className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-rose-900 mb-1">
+                      Mô tả chi tiết hiện trường
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={stopIssueNotes}
+                      onChange={(e) => setStopIssueNotes(e.target.value)}
+                      placeholder="Ghi rõ số kg thiếu, tình trạng hàng hóa hoặc hướng xử lý..."
+                      className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={submittingStopModal}
+                onClick={() => setInspectingStop(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                disabled={
+                  submittingStopModal ||
+                  stopUploadingPhoto ||
+                  (stopInspectMode === 'LOAD' &&
+                    (!stopChecklist.pucMatched ||
+                      !stopChecklist.qualityOk ||
+                      !stopChecklist.precooledOk ||
+                      stopActualWeight <= 0)) ||
+                  (stopInspectMode === 'ISSUE' && !stopIssueReason.trim())
+                }
+                onClick={handleSubmitStopInspection}
+                className={`px-4 py-2 rounded-xl text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 ${
+                  stopInspectMode === 'LOAD'
+                    ? 'bg-[#10542C] hover:bg-[#0d4624]'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+              >
+                {submittingStopModal
+                  ? 'Đang lưu...'
+                  : stopUploadingPhoto
+                  ? 'Đang tải ảnh...'
+                  : stopInspectMode === 'LOAD'
+                  ? 'Xác Nhận Đạt Chuẩn & Bốc Hàng'
+                  : 'Gửi Báo Cáo Sự Cố'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10.2 MODAL THÊM NHÂN VIÊN / TÀI XẾ */}
+      {showAddStaffModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Thêm Nhân Viên / Tài Xế Kho</h3>
+                <p className="text-xs text-slate-500">{currentHub.hubName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddStaffModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewStaffRole('QC_TECH');
+                  setNewStaffCode(`KTV-${Date.now().toString().slice(-4)}`);
+                }}
+                className={`py-2 rounded-lg transition cursor-pointer ${
+                  newStaffRole === 'QC_TECH' ? 'bg-[#10542C] text-white' : 'text-slate-600'
+                }`}
+              >
+                KTV Kiểm Định QC
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewStaffRole('DRIVER');
+                  setNewStaffCode(`DRV-${Date.now().toString().slice(-4)}`);
+                }}
+                className={`py-2 rounded-lg transition cursor-pointer ${
+                  newStaffRole === 'DRIVER' ? 'bg-[#10542C] text-white' : 'text-slate-600'
+                }`}
+              >
+                Tài Xế Xe Lạnh
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Mã nhân viên *</label>
+                  <input
+                    type="text"
+                    value={newStaffCode}
+                    onChange={(e) => setNewStaffCode(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono font-bold"
+                    placeholder="KTV-DT-01"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Số điện thoại *</label>
+                  <input
+                    type="text"
+                    value={newStaffPhone}
+                    onChange={(e) => setNewStaffPhone(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono"
+                    placeholder="0912.345.678"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Họ và tên *</label>
+                <input
+                  type="text"
+                  value={newStaffName}
+                  onChange={(e) => setNewStaffName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder={newStaffRole === 'QC_TECH' ? 'VD: KTV. Lê Hoàng Yến' : 'VD: Nguyễn Văn Tài'}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {newStaffRole === 'QC_TECH' ? 'Mã chứng chỉ QC' : 'Số GPLX'}
+                  </label>
+                  <input
+                    type="text"
+                    value={newStaffLicenseNo}
+                    onChange={(e) => setNewStaffLicenseNo(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono"
+                    placeholder={newStaffRole === 'QC_TECH' ? 'QC-CERT-01' : '790123456789'}
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {newStaffRole === 'QC_TECH' ? 'Kinh nghiệm (năm)' : 'Hạng bằng lái'}
+                  </label>
+                  {newStaffRole === 'QC_TECH' ? (
+                    <input
+                      type="number"
+                      min={1}
+                      value={newStaffExp}
+                      onChange={(e) => setNewStaffExp(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono"
+                    />
+                  ) : (
+                    <select
+                      value={newStaffLicenseClass}
+                      onChange={(e) => setNewStaffLicenseClass(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white font-bold"
+                    >
+                      <option value="B2">Hạng B2</option>
+                      <option value="C">Hạng C</option>
+                      <option value="C1">Hạng C1</option>
+                      <option value="CE">Hạng CE</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowAddStaffModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={creatingStaff}
+                onClick={handleCreateStaff}
+                className="px-4 py-2 rounded-xl bg-[#10542C] hover:bg-[#0d4624] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                {creatingStaff ? 'Đang lưu...' : 'Lưu Nhân Viên'}
               </button>
             </div>
           </div>

@@ -11,6 +11,7 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
   className?: string;
   scrollTargetId?: string;
+  itemLabel?: string;
 }
 
 export default function Pagination({
@@ -21,6 +22,7 @@ export default function Pagination({
   onPageChange,
   className = '',
   scrollTargetId,
+  itemLabel = 'nông sản tươi ngon',
 }: PaginationProps) {
   if (totalPages <= 1) return null;
 
@@ -66,7 +68,7 @@ export default function Pagination({
       {totalItems !== undefined && (
         <div className="text-xs text-[#6B7280]">
           Hiển thị <span className="font-bold text-[#10542C]">{startItem} - {endItem}</span> trong{' '}
-          <span className="font-bold text-[#10542C]">{totalItems}</span> nông sản tươi ngon
+          <span className="font-bold text-[#10542C]">{totalItems}</span> {itemLabel}
         </div>
       )}
 

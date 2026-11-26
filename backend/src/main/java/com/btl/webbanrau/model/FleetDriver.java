@@ -46,4 +46,17 @@ public class FleetDriver extends BaseEntity {
     @Builder.Default
     @Column(name = "experience_years")
     private Integer experienceYears = 1;
+
+    @Column(name = "username", unique = true, length = 80)
+    private String username;
+
+    @Column(name = "email", unique = true, length = 150)
+    private String email;
+
+    @JsonIgnore
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
+    @Column(name = "user_id")
+    private Long userId;
 }

@@ -1,0 +1,51 @@
+﻿STT,Mã Use Case,Tên Use Case (≤ 8 chữ),Actor
+1,UC_G01,Xem thông tin giới thiệu sàn,Guest
+2,UC_G02,Xem danh mục lô nông sản,Guest
+3,UC_G03,Xem thông tin các nông trại,Guest
+4,UC_G04,Đăng ký tài khoản thành viên,Guest
+5,UC_G05,Đăng nhập vào hệ thống,Guest
+6,UC_G06,Khôi phục mật khẩu qua OTP,Guest
+7,UC_B01,Quản lý hồ sơ cá nhân,Buyer
+8,UC_B02,Tìm kiếm và lọc nông sản,Buyer
+9,UC_B03,Tạo đơn đàm phán RFQ,Buyer
+10,UC_B04,Thương lượng giá lô nông sản,Buyer
+11,UC_B05,Chốt đơn lô nông sản,Buyer
+12,UC_B06,Quản lý hợp đồng B2B,Buyer
+13,UC_B07,Thanh toán tiền ký quỹ 30%,Buyer
+14,UC_B08,Nhắn tin trao đổi đối tác,Buyer
+15,UC_B09,Xem trạng thái lô hàng,Buyer
+16,UC_B10,Xác nhận nhận hàng ePOD,Buyer
+17,UC_B11,Đánh giá chất lượng nông sản,Buyer
+18,UC_B12,Xem thống kê chi tiêu,Buyer
+19,UC_F01,Quản lý hồ sơ nông trại,Farmer
+20,UC_F02,Đăng bán lô nông sản,Farmer
+21,UC_F03,Quản lý thông tin nông sản,Farmer
+22,UC_F04,Quản lý đơn đàm phán,Farmer
+23,UC_F05,Quản lý hợp đồng mua bán,Farmer
+24,UC_F06,Thực hiện thu hoạch đóng gói,Farmer
+25,UC_F07,In tem mã vạch QR,Farmer
+26,UC_F08,Bàn giao lô hàng xe gom,Farmer
+27,UC_F09,Nhắn tin trao đổi đối tác,Farmer
+28,UC_F10,Quản lý giải ngân nguồn tiền,Farmer
+29,UC_F11,Yêu cầu rút tiền về,Farmer
+30,UC_F12,Xem thống kê doanh thu,Farmer
+31,UC_NVK01,Tiếp nhận lô hàng xuất vườn,Nhân viên kho
+32,UC_NVK02,Kiểm định chất lượng trạm Hub,Nhân viên kho
+33,UC_NVK03,Lập biên bản kiểm định KCS,Nhân viên kho
+34,UC_NVK04,Phân loại và dán nhãn lô,Nhân viên kho
+35,UC_NVK05,Xếp lô vào vị trí kệ,Nhân viên kho
+36,UC_NVK06,Đóng gói xuất kho lạnh,Nhân viên kho
+37,UC_QLK01,Quản lý vị trí lưu kho,Quản lý kho
+38,UC_QLK02,Giám sát nhiệt độ độ ẩm,Quản lý kho
+39,UC_QLK03,Điều phối vận chuyển lấy hàng,Quản lý kho
+40,UC_QLK04,Điều phối giao hàng chặng cuối,Quản lý kho
+41,UC_QLK05,Quản lý tồn kho trạm Hub,Quản lý kho
+42,UC_QLK06,Báo cáo hao hụt lưu kho,Quản lý kho
+43,UC_ADM01,Quản lý tài khoản người dùng,Admin
+44,UC_ADM02,Phê duyệt hồ sơ đối tác,Admin
+45,UC_ADM03,Quản lý nguồn cung nông sản,Admin
+46,UC_ADM04,Quản lý danh mục ngành hàng,Admin
+47,UC_ADM05,Quản lý hợp đồng mua bán,Admin
+48,UC_ADM06,Quản lý kế toán quyết toán,Admin
+49,UC_ADM07,Báo cáo thống kê tổng hợp,Admin
+50,UC_ADM08,Cài đặt cấu hình hệ thống,Admin

@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { Product, TieredPrice } from '@/types';
+import { useApp } from '@/context/AppContext';
 import { getProductGallery } from '@/services/imageService';
 import { getSimilarProductsApi, getProducts } from '@/services/api';
 import { Sparkles } from 'lucide-react';
@@ -48,6 +50,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onOpenDeposit,
   onSelectProduct,
 }) => {
+  const { currentUser } = useApp();
+  const router = useRouter();
+  const pathname = usePathname();
+  const requireAuth = () => {
+    if (!currentUser) {
+      onClose();
+      router.push(`/dang-nhap?redirect=${encodeURIComponent(pathname || '/san-pham')}`);
+      return false;
+    }
+    return true;
+  };
   const [activeTab, setActiveTab] = useState<'specs' | 'storage' | 'farm' | 'similar'>('specs');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
@@ -249,7 +262,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </span>
                 <span className="flex items-center gap-1 text-[#6B7280]">
                   <MapPin className="w-3.5 h-3.5 text-[#8BC34A]" />
-                  {product.farmLocation || 'Đơn Dương, Lâm Đồng'}
+                  {product.farmLocation || 'Chưa cập nhật địa chỉ vườn'}
                 </span>
               </div>
             </div>
@@ -354,6 +367,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (!requireAuth()) return;
                     if (onOpenNegotiation) onOpenNegotiation(product);
                   }}
                   className="py-3 bg-white hover:bg-[#F4F7F4] text-[#10542C] border-2 border-[#10542C] font-heading font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
@@ -365,6 +379,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (!requireAuth()) return;
                     if (onOpenDeposit) {
                       onClose();
                       onOpenDeposit(product);
@@ -484,25 +499,25 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5">
                         <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Đại Diện / Chủ Trang Trại:</span>
-                        <strong className="text-gray-900 font-semibold">{product.farmOwner || 'Nguyễn Văn Thành (Kỹ sư Nông học)'}</strong>
+                        <strong className="text-gray-900 font-semibold">{product.farmOwner || product.farmerName || 'Đang cập nhật'}</strong>
                       </div>
 
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5">
                         <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Mã Số Vùng Trồng (PUC Quốc Gia):</span>
-                        <strong className="font-mono text-[#10542C] font-black">{product.pucCode || 'VN-LDO-PUC-0849'}</strong>
+                        <strong className="font-mono text-[#10542C] font-black">{product.pucCode || 'Đang cập nhật'}</strong>
                       </div>
 
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5 sm:col-span-2">
                         <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Địa Chỉ Vùng Trồng Thực Tế:</span>
                         <span className="text-gray-800 font-medium flex items-center gap-1">
                           <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>{product.farmLocation || 'Thôn Lạc Trường, Xã Tu Tra, Huyện Đơn Dương, Tỉnh Lâm Đồng'}</span>
+                          <span>{product.farmLocation || 'Chưa cập nhật địa chỉ vườn trồng'}</span>
                         </span>
                       </div>
 
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5">
                         <span className="text-[#6B7280] block text-[10px] uppercase font-bold tracking-wider">Quy Mô & Năng Lực Vụ Mùa:</span>
-                        <strong className="text-gray-900 font-semibold">{product.farmArea || '24.5 Hecta (650 Tấn/vụ)'}</strong>
+                        <strong className="text-gray-900 font-semibold">{product.farmArea || 'Đang cập nhật'}</strong>
                       </div>
 
                       <div className="p-2.5 bg-[#F9F9F5] rounded-xl border border-[#EAECE8] space-y-0.5">
@@ -510,7 +525,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-mono text-gray-700 font-bold flex items-center gap-1">
                             <LockKeyhole className="w-3 h-3 text-amber-600" />
-                            098***.*** (Bảo mật giao dịch)
+                            {product.farmContactPhone
+                              ? `${product.farmContactPhone.slice(0, 3)}***.***`
+                              : '0** ***.***'} (Bảo mật giao dịch)
                           </span>
                           <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                             Mở sau khi cọc

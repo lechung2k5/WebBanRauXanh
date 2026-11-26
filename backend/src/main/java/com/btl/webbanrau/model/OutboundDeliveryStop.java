@@ -64,6 +64,33 @@ public class OutboundDeliveryStop {
         }
     }
 
+    @Transient
+    private String resolvedDeliveryAddress;
+
+    @JsonProperty("resolvedDeliveryAddress")
+    public String getResolvedDeliveryAddress() {
+        if (resolvedDeliveryAddress != null && !resolvedDeliveryAddress.isBlank()) {
+            return resolvedDeliveryAddress;
+        }
+        try {
+            if (buyerWarehouse != null && buyerWarehouse.getAddress() != null && !buyerWarehouse.getAddress().isBlank()) {
+                return buyerWarehouse.getAddress().trim();
+            }
+            if (contract != null) {
+                if (contract.getBuyer() != null && contract.getBuyer().getWarehouseAddress() != null && !contract.getBuyer().getWarehouseAddress().isBlank()) {
+                    return contract.getBuyer().getWarehouseAddress().trim();
+                }
+                if (contract.getDeliveryAddress() != null && !contract.getDeliveryAddress().isBlank()) {
+                    return contract.getDeliveryAddress().trim();
+                }
+                if (contract.getRfq() != null && contract.getRfq().getHubLocation() != null && !contract.getRfq().getHubLocation().isBlank()) {
+                    return contract.getRfq().getHubLocation().trim();
+                }
+            }
+        } catch (Exception ignored) {}
+        return deliveryAddressSnapshot;
+    }
+
     @JsonProperty("tripCode")
     public String getTripCode() {
         try {
@@ -95,6 +122,34 @@ public class OutboundDeliveryStop {
     public String getHubName() {
         try {
             return trip != null && trip.getHub() != null ? trip.getHub().getHubName() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @JsonProperty("productName")
+    public String getProductName() {
+        try {
+            return contract != null && contract.getHarvestLot() != null ? contract.getHarvestLot().getProductName() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @JsonProperty("unitPrice")
+    public BigDecimal getUnitPrice() {
+        try {
+            if (contract == null) return null;
+            return contract.getOfferedPricePerKg() != null ? contract.getOfferedPricePerKg() : contract.getUnitPrice();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @JsonProperty("packageCount")
+    public Integer getPackageCount() {
+        try {
+            return contract != null ? contract.getPackageCount() : null;
         } catch (Exception e) {
             return null;
         }

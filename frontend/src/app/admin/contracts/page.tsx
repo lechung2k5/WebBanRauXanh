@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { api } from '@/services/auth';
 import {
   Handshake,
@@ -54,6 +55,8 @@ import { ColdWarehouseInboundModal } from '@/components/admin/ColdWarehouseInbou
 import { OutboundDispatchManifestModal } from '@/components/admin/OutboundDispatchManifestModal';
 import { SettlementStatementModal } from '@/components/admin/SettlementStatementModal';
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
+import { calculateB2bContractFinancials } from '@/utils/logisticsCalculator';
+import Pagination from '@/components/Pagination';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
 
@@ -153,7 +156,30 @@ const CLAIM_STATUS_CONFIG: Record<
   },
 };
 
+const ADVANCED_CONTRACT_STATUSES = [
+  'PICKUP_DISPATCHED',
+  'IN_TRANSIT_HUB',
+  'HUB_DELIVERED',
+  'AT_HUB_QC',
+  'QC_PASSED',
+  'QC_FAILED',
+  'READY_OUTBOUND',
+  'OUTBOUND_DISPATCHED',
+  'IN_TRANSIT',
+  'DELIVERED',
+  'SETTLED',
+  'COMPLETED',
+];
+
 const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: string; text: string; border: string; dot: string }> = {
+  COMPLETED: {
+    label: 'Đã hoàn tất giao dịch',
+    desc: 'Đơn hàng đã giao thành công và hoàn tất toàn bộ quy trình B2B.',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-800',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
   SETTLED: {
     label: 'Đã hoàn tất & Giải ngân',
     desc: 'Hàng đã giao đạt chuẩn, tiền đã giải ngân về tài khoản nông dân.',
@@ -185,6 +211,38 @@ const STATUS_CONFIG: Record<string, { label: string; desc: string; bg: string; t
     text: 'text-purple-800',
     border: 'border-purple-200',
     dot: 'bg-purple-500',
+  },
+  READY_OUTBOUND: {
+    label: 'Đạt QC - Chờ xuất kho giao Buyer',
+    desc: 'Lô hàng đã đạt chuẩn QC tại kho HoNa, sẵn sàng xuất kho giao cho thương lái.',
+    bg: 'bg-teal-50',
+    text: 'text-teal-800',
+    border: 'border-teal-200',
+    dot: 'bg-teal-500',
+  },
+  QC_PASSED: {
+    label: 'Đạt chuẩn QC tại kho HoNa',
+    desc: 'Lô hàng đã vượt qua kiểm định chất lượng và đang lưu trữ trong buồng lạnh.',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-800',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+  QC_FAILED: {
+    label: 'Không đạt kiểm định QC',
+    desc: 'Lô hàng có chỉ số vượt ngưỡng cho phép, đang xử lý đối soát/hoàn hàng.',
+    bg: 'bg-rose-50',
+    text: 'text-rose-800',
+    border: 'border-rose-200',
+    dot: 'bg-rose-500',
+  },
+  HUB_DELIVERED: {
+    label: 'Đã về tới kho HoNa (Chờ QC)',
+    desc: 'Xe thu gom đã bàn giao hàng về trạm trung chuyển, chờ nhập kho và kiểm định.',
+    bg: 'bg-amber-50',
+    text: 'text-amber-800',
+    border: 'border-amber-200',
+    dot: 'bg-amber-500',
   },
   AT_HUB_QC: {
     label: 'Tại kho HoNa (Đang kiểm định QC)',
@@ -264,6 +322,7 @@ const formatStatusBadge = (rawStatus: unknown) => {
   const code = String(rawStatus || '').toUpperCase().trim();
   if (STATUS_CONFIG[code]) return STATUS_CONFIG[code];
 
+  if (code.includes('COMPLETE')) return STATUS_CONFIG['COMPLETED'];
   if (code.includes('HARVEST')) return STATUS_CONFIG['HARVESTED'];
   if (code.includes('PACKAGING')) return STATUS_CONFIG['PACKAGING_APPROVED'];
   if (code.includes('PICKUP')) return STATUS_CONFIG['PICKUP_DISPATCHED'];
@@ -339,6 +398,8 @@ const parsePickupDetails = (rawStr: unknown) => {
 };
 
 export default function AdminContractsPage() {
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith('/manager') ? '/manager' : '/admin';
   const [contracts, setContracts] = useState<Row[]>([]);
   const [claims, setClaims] = useState<Row[]>([]);
   const [stats, setStats] = useState<Row>({});
@@ -349,6 +410,16 @@ export default function AdminContractsPage() {
   const [claimDetail, setClaimDetail] = useState<Row | null>(null);
   const [paymentContractModal, setPaymentContractModal] = useState<Row | null>(null);
   const [inspectingContract, setInspectingContract] = useState<Row | null>(null);
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [rejectReasonsSelected, setRejectReasonsSelected] = useState<string[]>([]);
+  const [rejectNote, setRejectNote] = useState('');
+  const [submittingReject, setSubmittingReject] = useState(false);
+  const closeInspectModal = () => {
+    setInspectingContract(null);
+    setShowRejectForm(false);
+    setRejectReasonsSelected([]);
+    setRejectNote('');
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
@@ -443,14 +514,21 @@ export default function AdminContractsPage() {
           str(row.status) === 'HARVESTED'
         );
 
-        const serverStatus = str(row.status);
-        const serverFulfillment = str(row.fulfillment_status);
-        const isServerAdvanced = ['PICKUP_DISPATCHED', 'IN_TRANSIT_HUB', 'AT_HUB_QC', 'OUTBOUND_DISPATCHED', 'DELIVERED', 'SETTLED'].includes(serverStatus) ||
-          ['PICKUP_DISPATCHED', 'IN_TRANSIT_HUB', 'AT_HUB_QC', 'OUTBOUND_DISPATCHED', 'DELIVERED', 'SETTLED'].includes(serverFulfillment);
+        const serverStatus = str(row.status).toUpperCase();
+        const serverFulfillment = str(row.fulfillment_status).toUpperCase();
+        const syncStatus = str(sc?.status).toUpperCase();
+        const isServerAdvanced =
+          ADVANCED_CONTRACT_STATUSES.includes(serverStatus) ||
+          ADVANCED_CONTRACT_STATUSES.includes(serverFulfillment) ||
+          ADVANCED_CONTRACT_STATUSES.includes(syncStatus);
 
         let finalStatus = row.status;
         if (isServerAdvanced) {
-          finalStatus = serverStatus || serverFulfillment || row.status;
+          finalStatus = ADVANCED_CONTRACT_STATUSES.includes(serverStatus)
+            ? serverStatus
+            : ADVANCED_CONTRACT_STATUSES.includes(serverFulfillment)
+              ? serverFulfillment
+              : syncStatus;
         } else if (isPkgApproved) {
           finalStatus = 'PACKAGING_APPROVED';
         } else if (isHarvestDone && (isDepositPaid || str(row.status) === 'DEPOSIT_PAID' || str(row.status) === 'HARVESTED')) {
@@ -521,6 +599,8 @@ export default function AdminContractsPage() {
             (sc as any).packaging_approved ||
             sc.status === 'PACKAGING_APPROVED'
           );
+          const syncStatus = str(sc.status).toUpperCase();
+          const isSyncAdvanced = ADVANCED_CONTRACT_STATUSES.includes(syncStatus);
           return {
             id: sc.id,
             contract_code: sc.contractCode,
@@ -541,9 +621,25 @@ export default function AdminContractsPage() {
             deposit_30_amount: sc.depositAmount,
             deposit_received: (sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? sc.depositAmount : 0,
             deposit_status: (sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? 'DEPOSIT_PAID' : 'WAITING_DEPOSIT',
-            status: isPkgApproved ? 'PACKAGING_APPROVED' : (isHarvestDone ? 'HARVESTED' : ((sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID') ? 'DEPOSIT_PAID' : 'AGREED')),
+            status: isSyncAdvanced
+              ? syncStatus
+              : isPkgApproved
+                ? 'PACKAGING_APPROVED'
+                : isHarvestDone
+                  ? 'HARVESTED'
+                  : (sc.depositStatus === 'DEPOSIT_PAID' || (sc.depositStatus as string) === 'PAID')
+                    ? 'DEPOSIT_PAID'
+                    : 'AGREED',
             fulfillment_step: sc.fulfillmentStep,
-            fulfillment_status: isPkgApproved ? 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)' : (isHarvestDone ? 'HARVESTED' : sc.fulfillmentStep > 2 ? 'IN_TRANSIT' : 'WAITING_HARVEST'),
+            fulfillment_status: isSyncAdvanced
+              ? (sc.fulfillmentStatusName || syncStatus)
+              : isPkgApproved
+                ? 'Đã Duyệt Đóng Gói (Sẵn Sàng Điều Xe)'
+                : isHarvestDone
+                  ? 'HARVESTED'
+                  : sc.fulfillmentStep > 2
+                    ? 'IN_TRANSIT'
+                    : 'WAITING_HARVEST',
             actual_harvest_weight_kg: sc.actualHarvestWeightKg,
             grade1_ratio: (sc as any).grade1Ratio || 96,
             package_count: sc.packageCount,
@@ -735,6 +831,20 @@ export default function AdminContractsPage() {
       return matchSearch && matchStatus;
     });
   }, [contracts, searchQuery, statusFilter]);
+
+  const [contractsPage, setContractsPage] = useState<number>(1);
+  const ADMIN_CONTRACTS_PAGE_SIZE = 10;
+  useEffect(() => {
+    setContractsPage(1);
+  }, [searchQuery, statusFilter]);
+  const totalContractPages = Math.max(1, Math.ceil(filteredContracts.length / ADMIN_CONTRACTS_PAGE_SIZE));
+  const safeContractsPage = Math.min(contractsPage, totalContractPages);
+  const pagedContracts = useMemo(() => {
+    return filteredContracts.slice(
+      (safeContractsPage - 1) * ADMIN_CONTRACTS_PAGE_SIZE,
+      safeContractsPage * ADMIN_CONTRACTS_PAGE_SIZE
+    );
+  }, [filteredContracts, safeContractsPage]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { ALL: contracts.length };
@@ -938,14 +1048,28 @@ export default function AdminContractsPage() {
                   <th className="p-3.5 whitespace-nowrap">Bên Mua (Thương Lái)</th>
                   <th className="p-3.5 text-right whitespace-nowrap">Sản Lượng (kg)</th>
                   <th className="p-3.5 text-right whitespace-nowrap">Tổng Tiền Hàng (đ)</th>
-                  <th className="p-3.5 text-right whitespace-nowrap">Cọc 30% Đã Thu (đ)</th>
+                  <th className="p-3.5 text-right whitespace-nowrap">Cọc Đã Thu (đ)</th>
                   <th className="p-3.5 whitespace-nowrap">Trạng Thái</th>
                   <th className="p-3.5 text-right pr-5 whitespace-nowrap">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F0F2ED]">
-                {filteredContracts.map((row) => {
+                {pagedContracts.map((row) => {
                   const sCfg = formatStatusBadge(row.status);
+                  const fin = calculateB2bContractFinancials(row);
+                  const statusLabel = str(row.status) === 'DEPOSIT_PAID'
+                    ? (fin.isSelfPickup ? 'Đã cọc 100% bảo chứng' : 'Đã cọc 30% bảo chứng')
+                    : sCfg.label;
+                  const isPaidRow = Boolean(
+                    str(row.status) === 'DEPOSIT_PAID' ||
+                    str(row.deposit_status) === 'DEPOSIT_PAID' ||
+                    str(row.deposit_status) === 'PAID' ||
+                    Number(row.deposit_received || 0) > 0 ||
+                    Boolean(row.deposit_paid_at)
+                  );
+                  const displayedDeposit = isPaidRow
+                    ? (fin.isSelfPickup ? fin.depositAmount : Number(row.deposit_received || fin.depositAmount || 0))
+                    : 0;
 
                   return (
                     <tr key={str(row.id)} className="hover:bg-emerald-50/30 transition-colors">
@@ -972,22 +1096,17 @@ export default function AdminContractsPage() {
                         {money(row.offered_weight_kg)} kg
                       </td>
                       <td className="p-3.5 text-right font-black text-[#10542C] whitespace-nowrap">
-                        {money(
-                          (Number(row.offered_weight_kg) > 0 && Number(row.offered_price_per_kg || row.price_per_kg) > 0)
-                            ? Number(row.offered_weight_kg) * Number(row.offered_price_per_kg || row.price_per_kg)
-                            : row.total_goods_amount
-                        )}{' '}
-                        đ
+                        {money(fin.grandTotal)} đ
                       </td>
                       <td className="p-3.5 text-right font-bold text-emerald-700 whitespace-nowrap">
-                        {money(row.deposit_received)} đ
+                        {money(displayedDeposit)} đ
                       </td>
                       <td className="p-3.5 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${sCfg.bg} ${sCfg.text} ${sCfg.border}`}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />
-                          {sCfg.label}
+                          {statusLabel}
                         </span>
                       </td>
                       <td className="p-3.5 text-right pr-5 whitespace-nowrap">
@@ -1023,23 +1142,9 @@ export default function AdminContractsPage() {
                               Number(row.fulfillment_step || 0) >= 2
                             );
 
-                            const isAdvancedStage = [
-                              'PICKUP_DISPATCHED',
-                              'IN_TRANSIT_HUB',
-                              'IN_TRANSIT',
-                              'AT_HUB_QC',
-                              'OUTBOUND_DISPATCHED',
-                              'DELIVERED',
-                              'SETTLED',
-                            ].includes(str(row.status)) || [
-                              'PICKUP_DISPATCHED',
-                              'IN_TRANSIT_HUB',
-                              'IN_TRANSIT',
-                              'AT_HUB_QC',
-                              'OUTBOUND_DISPATCHED',
-                              'DELIVERED',
-                              'SETTLED',
-                            ].includes(rawFulfill);
+                            const isAdvancedStage =
+                              ADVANCED_CONTRACT_STATUSES.includes(str(row.status).toUpperCase()) ||
+                              ADVANCED_CONTRACT_STATUSES.includes(rawFulfill.toUpperCase());
 
                             // 0. Chờ buyer thanh toán 30% tiền cọc (Chỉ hiển thị, không thể nhấn)
                             if (
@@ -1050,10 +1155,12 @@ export default function AdminContractsPage() {
                               return (
                                 <span
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 rounded-xl border border-amber-200"
-                                  title="Hợp đồng đang chờ người mua (Buyer) thanh toán 30% tiền cọc bảo chứng Escrow qua VietQR"
+                                  title={fin.isSelfPickup
+                                    ? 'Hợp đồng tự lấy tại kho HoNa (PA3) yêu cầu người mua (Buyer) thanh toán 100% giá trị qua VietQR'
+                                    : 'Hợp đồng đang chờ người mua (Buyer) thanh toán 30% tiền cọc bảo chứng Escrow qua VietQR'}
                                 >
                                   <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                                  <span>Chờ buyer thanh toán 30% tiền cọc</span>
+                                  <span>{fin.isSelfPickup ? 'Chờ buyer thanh toán 100% tiền cọc' : 'Chờ buyer thanh toán 30% tiền cọc'}</span>
                                 </span>
                               );
                             }
@@ -1072,10 +1179,21 @@ export default function AdminContractsPage() {
                             }
 
                             // 2. Farmer đã thu hoạch xong -> Admin xem nghiệm thu & duyệt đóng gói trước khi điều phối xe
+                            if (!isAdvancedStage && str(row.status) === 'HARVEST_REJECTED') {
+                              return (
+                                <span className="text-[11px] text-rose-800 bg-rose-50 font-bold px-2.5 py-1 rounded-lg border border-rose-200 inline-flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-rose-600" />
+                                  Đã yêu cầu Farmer làm lại
+                                </span>
+                              );
+                            }
+
                             if (!isAdvancedStage && (
                               (isDepositPaid && isHarvestDone) ||
+                              str(row.status) === 'HARVEST_SUBMITTED' ||
                               str(row.status) === 'HARVESTED' ||
                               str(row.status) === 'PACKAGING_APPROVED' ||
+                              rawFulfill === 'HARVEST_SUBMITTED' ||
                               rawFulfill === 'HARVESTED'
                             )) {
                               const isApproved = Boolean(row.packaging_approved || (row as any).packagingApproved || str(row.status) === 'PACKAGING_APPROVED');
@@ -1107,7 +1225,7 @@ export default function AdminContractsPage() {
                                   </span>
                                   <div className="flex items-center gap-1.5">
                                     <Link
-                                      href={`/admin/inbound-dispatch?contractCode=${row.contract_code}`}
+                                      href={`${basePath}/inbound-dispatch?contractCode=${row.contract_code}`}
                                       className="px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-98"
                                       title="Mở Bảng Điều Phối Lấy Hàng Kiểm Định (Gán xe kho gần nhất & kiểm soát tải trọng)"
                                     >
@@ -1142,8 +1260,11 @@ export default function AdminContractsPage() {
                               );
                             }
 
-                            // 4. Đang trên đường về kho HoNa -> Nhập kho HoNa & Kiểm định QC
-                            if (rawFulfill === 'IN_TRANSIT_HUB' || str(row.status) === 'IN_TRANSIT_HUB') {
+                            // 4. Đang trên đường về kho HoNa / Đã về tới kho -> Nhập kho HoNa & Kiểm định QC
+                            if (
+                              ['IN_TRANSIT_HUB', 'HUB_DELIVERED'].includes(str(row.status).toUpperCase()) ||
+                              ['IN_TRANSIT_HUB', 'HUB_DELIVERED'].includes(rawFulfill.toUpperCase())
+                            ) {
                               return (
                                 <button
                                   type="button"
@@ -1157,8 +1278,29 @@ export default function AdminContractsPage() {
                               );
                             }
 
-                            // 5. Đã tại kho HoNa QC -> Điều xe xuất kho giao Buyer
-                            if (str(row.status) === 'AT_HUB_QC' || rawFulfill === 'AT_HUB_QC') {
+                            // 5. Đã tại kho HoNa QC / Đạt QC / Sẵn sàng xuất kho -> Phân biệt PA3 (tự lấy tại kho) và PA2 (điều xe giao)
+                            if (
+                              ['AT_HUB_QC', 'QC_PASSED', 'READY_OUTBOUND'].includes(str(row.status).toUpperCase()) ||
+                              ['AT_HUB_QC', 'QC_PASSED', 'READY_OUTBOUND'].includes(rawFulfill.toUpperCase())
+                            ) {
+                              const rowFin = calculateB2bContractFinancials(row);
+                              if (rowFin.isSelfPickup) {
+                                return (
+                                  <div className="flex flex-col items-end gap-1">
+                                    <span className="text-[10px] text-blue-800 bg-blue-50 font-bold px-2 py-0.5 rounded-md border border-blue-200">
+                                      PA3 · Buyer tự lấy tại kho HoNa
+                                    </span>
+                                    <Link
+                                      href={`${basePath}/outbound-dispatch`}
+                                      className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-2xs hover:shadow-xs flex items-center gap-1 cursor-pointer"
+                                      title="Đơn PA3 không dùng xe giao chặng 2 — bàn giao trực tiếp cho Buyer tại cổng kho"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Bàn giao tại kho (PA3)</span>
+                                    </Link>
+                                  </div>
+                                );
+                              }
                               return (
                                 <button
                                   type="button"
@@ -1222,6 +1364,14 @@ export default function AdminContractsPage() {
             </table>
           </div>
         )}
+        <Pagination
+          currentPage={safeContractsPage}
+          totalPages={totalContractPages}
+          totalItems={filteredContracts.length}
+          pageSize={ADMIN_CONTRACTS_PAGE_SIZE}
+          onPageChange={setContractsPage}
+          itemLabel="hợp đồng"
+        />
       </div>
 
       {/* Bảng Tranh Chấp & Khiếu Nại Bồi Thường */}
@@ -1439,15 +1589,23 @@ export default function AdminContractsPage() {
 
           const pickup = parsePickupDetails(detail.farm_pickup_address || (sc as any)?.farmPickupAddress || detail.farmer_address);
 
-          const farmerCompany = cleanStr(detail.farmer_company) || cleanStr(sc?.farmerCompany) || cleanStr(detail.farmer_name) || 'HTX Nông Nghiệp Đà Lạt GAP';
-          const farmerRep = cleanStr(detail.farmer_contact) || (cleanStr(sc?.farmerName) !== farmerCompany ? cleanStr(sc?.farmerName) : '') || 'Nguyễn Văn Nông';
+          const farmerCompany = cleanStr(detail.farmer_company) || cleanStr(detail.farmer_name) || cleanStr(sc?.farmerCompany) || 'HTX Nông Nghiệp Đà Lạt GAP';
+          const farmerRep = cleanStr(detail.farmer_contact) || (cleanStr(sc?.farmerName) !== farmerCompany ? cleanStr(sc?.farmerName) : '') || farmerCompany;
           const farmerPhone = cleanStr(detail.farmer_phone) || cleanStr(sc?.farmerPhone) || pickup.contactPhone || '0912.345.678';
-          const farmerAddr = pickup.farmLocation || 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng';
+          const farmerAddr =
+            cleanStr(detail.farmer_address) ||
+            (pickup.farmLocation !== 'Thôn Đa Quý, Xã Xuân Thọ, TP. Đà Lạt, Lâm Đồng' ? pickup.farmLocation : '') ||
+            'Chưa cập nhật địa chỉ vườn';
 
           const buyerCompany = cleanStr(detail.buyer_company) || cleanStr(sc?.buyerCompany) || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn';
           const buyerRep = cleanStr(detail.buyer_contact) || (cleanStr(sc?.buyerName) !== buyerCompany ? cleanStr(sc?.buyerName) : '') || cleanStr(detail.buyer_name) || 'Trần Thị Thương';
           const buyerPhone = cleanStr(detail.buyer_phone) || cleanStr(sc?.buyerPhone) || '0987.654.321';
-          const deliveryAddr = cleanStr(detail.delivery_address) || cleanStr(sc?.deliveryAddress) || 'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM';
+          const deliveryAddr =
+            cleanStr(detail.resolved_buyer_address) ||
+            cleanStr(detail.buyer_warehouse) ||
+            cleanStr(detail.delivery_address) ||
+            cleanStr(sc?.deliveryAddress) ||
+            'Kho Tổng Hợp Chuỗi Lạnh Thủ Đức, TP.HCM';
           const rfqCode = cleanStr(detail.rfq_code) || cleanStr(sc?.rfqCode) || (detail.contract_code ? `RFQ-${String(detail.contract_code).replace(/^HD-/, '')}` : 'RFQ-8915FD6E');
 
           const isDetailDepositPaid = Boolean(
@@ -1745,7 +1903,7 @@ export default function AdminContractsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setInspectingContract(null)}
+                onClick={closeInspectModal}
                 className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -1870,46 +2028,134 @@ export default function AdminContractsPage() {
                   );
                 })()}
               </div>
+
+              {showRejectForm && (
+                <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-rose-800">
+                      Nội Dung Yêu Cầu Nhà Vườn Làm Lại
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowRejectForm(false)}
+                      className="text-[11px] font-bold text-gray-500 hover:text-gray-800 cursor-pointer"
+                    >
+                      Thu gọn
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'Ảnh chụp cân & đóng thùng chưa rõ / không đúng thực tế',
+                      'Chưa thấy tem QR / mã vùng trồng PUC dán trên thùng',
+                      'Sản lượng thực thu hoặc số thùng chưa khớp quy cách',
+                      'Địa chỉ vườn / SĐT người đón xe cần kiểm tra lại',
+                    ].map((preset) => {
+                      const active = rejectReasonsSelected.includes(preset);
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setRejectReasonsSelected((prev) =>
+                              active ? prev.filter((item) => item !== preset) : [...prev, preset]
+                            );
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer text-left ${
+                            active
+                              ? 'bg-rose-600 text-white border-rose-600'
+                              : 'bg-white text-rose-800 border-rose-200 hover:bg-rose-100/60'
+                          }`}
+                        >
+                          {active ? '✓ ' : '+ '}
+                          {preset}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-rose-900 mb-1">
+                      Ghi chú cụ thể gửi Nhà vườn *
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={rejectNote}
+                      onChange={(e) => setRejectNote(e.target.value)}
+                      placeholder="Nhập rõ phần Nhà vườn cần chỉnh sửa hoặc chụp lại (ví dụ: Ảnh hiện tại không phải ảnh cân nông sản, vui lòng chụp lại thùng rau trên bàn cân có dán tem PUC)..."
+                      className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRejectForm(false)}
+                      className="px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 text-xs font-bold cursor-pointer"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      disabled={submittingReject || (rejectReasonsSelected.length === 0 && !rejectNote.trim())}
+                      onClick={async () => {
+                        const target = inspectingContract;
+                        const combined = [
+                          ...rejectReasonsSelected,
+                          ...(rejectNote.trim() ? [rejectNote.trim()] : []),
+                        ].join('; ');
+                        if (!combined) return;
+                        setSubmittingReject(true);
+                        try {
+                          if (target.id) {
+                            await api(`admin/contracts/${target.id}/reject-packaging`, 'POST', { reason: combined });
+                          }
+                          b2bWebSocket.publish('/topic/contracts', {
+                            action: 'PACKAGING_REJECTED',
+                            contractCode: String(target.contract_code),
+                            status: 'HARVEST_REJECTED',
+                            packagingApproved: false,
+                            reason: combined,
+                          });
+                          closeInspectModal();
+                          await loadData();
+                        } finally {
+                          setSubmittingReject(false);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      {submittingReject ? 'Đang gửi...' : 'Gửi Yêu Cầu Làm Lại'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer actions */}
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3 bg-gray-50">
               <button
                 type="button"
-                onClick={() => setInspectingContract(null)}
+                onClick={closeInspectModal}
                 className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-white text-xs font-bold transition cursor-pointer"
               >
                 Đóng
               </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const target = inspectingContract;
-                    if (target.id) {
-                      await api(`admin/contracts/${target.id}/approve-packaging`, 'POST').catch(() => {});
-                    }
-                    adminApprovePackaging(String(target.contract_code || target.id || ''), target);
-                    b2bWebSocket.publish('/topic/contracts', {
-                      action: 'PACKAGING_APPROVED',
-                      contractCode: String(target.contract_code),
-                      status: 'PACKAGING_APPROVED',
-                      packagingApproved: true,
-                    });
-                    setInspectingContract(null);
-                    await loadData();
-                    openDispatchPickupModal(target);
-                  }}
-                  className="px-4 py-2.5 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  title="Duyệt và điều xe nhanh cho riêng hợp đồng này"
-                >
-                  <Truck className="w-4 h-4 text-gray-600" />
-                  <span>Điều Phối Nhanh</span>
-                </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {!showRejectForm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRejectForm(true)}
+                    className="px-4 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title="Mở form ghi chú yêu cầu Nhà vườn sửa và nộp lại nghiệm thu"
+                  >
+                    <span>Yêu Cầu Làm Lại</span>
+                  </button>
+                )}
 
                 <Link
-                  href={`/admin/inbound-dispatch?contractCode=${inspectingContract.contract_code}`}
+                  href={`${basePath}/inbound-dispatch?contractCode=${inspectingContract.contract_code}`}
                   onClick={async () => {
                     const target = inspectingContract;
                     if (target.id) {
@@ -2020,6 +2266,7 @@ export default function AdminContractsPage() {
             });
             adminSettleContract(Number(activeModalContract.id), { payoutAmount: data.amount });
             b2bWebSocket.publish('/topic/contracts', { action: 'SETTLED', contractCode: String(activeModalContract.contract_code) });
+            b2bWebSocket.publish('/topic/dispatch', { action: 'SETTLED', contractId: activeModalContract.id, contractCode: String(activeModalContract.contract_code) });
             await loadData();
           }}
         />

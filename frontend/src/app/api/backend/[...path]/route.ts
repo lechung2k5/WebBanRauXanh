@@ -38,7 +38,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
   const contentType = request.headers.get('content-type') || '';
   const isMultipart = contentType.startsWith('multipart/form-data');
   const isJson = contentType.startsWith('application/json');
-  if (mutating && (!validOrigin || request.headers.get('x-hona-request') !== '1' || (!isJson && !isMultipart))) {
+  const hasNoBodyType = !contentType;
+  if (mutating && (!validOrigin || request.headers.get('x-hona-request') !== '1' || (!isJson && !isMultipart && !hasNoBodyType))) {
     return NextResponse.json({ code: 403, message: 'Yêu cầu không cùng nguồn hoặc thiếu CSRF header' }, { status: 403 });
   }
   let access = request.cookies.get(ACCESS)?.value;
@@ -54,6 +55,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     const maxBytes = isMultipart ? 7_000_000 : 4_000_000;
     if (Number(request.headers.get('content-length') || 0) > maxBytes) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
     let body: any = mutating ? (isMultipart ? await request.arrayBuffer() : await request.text()) : undefined;
+    if (typeof body === 'string' && body.length === 0) body = undefined;
     if (body && (typeof body === 'string' ? body.length : body.byteLength) > maxBytes) return NextResponse.json({ message: 'Dữ liệu quá lớn' }, { status: 413 });
     if (route === 'auth/refresh-token' || route === 'auth/logout') {
       if (!refresh) {
@@ -83,7 +85,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       const response = new NextResponse(result.body, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
       if (session) sessionCookies(response, session); return response;
     }
-    const data = await result.json();
+    const text = await result.text();
+    const data = text ? JSON.parse(text) : { code: result.status, message: result.ok ? 'OK' : 'Yêu cầu thất bại' };
     if (result.ok && data.result?.accessToken && data.result?.refreshToken) {
       session = { ...data.result } as Session;
       delete data.result.accessToken; delete data.result.refreshToken;

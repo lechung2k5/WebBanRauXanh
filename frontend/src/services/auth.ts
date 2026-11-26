@@ -34,6 +34,14 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   return data.result as T;
 }
 export const portalFor = (roles: string[]) => {
-  const routes: Record<string, string> = { ROLE_ADMIN: '/admin', ROLE_FARMER: '/portal/farmer', ROLE_BUYER: '/portal/buyer', ROLE_WAREHOUSE_QC: '/portal/warehouse-qc', ROLE_DRIVER: '/portal/driver', ROLE_ACCOUNTANT: '/portal/accountant' };
+  const routes: Record<string, string> = {
+    ROLE_ADMIN: '/admin/dashboard',
+    ROLE_WAREHOUSE_MANAGER: '/manager/dashboard',
+    ROLE_ACCOUNTANT: '/admin/accounting',
+    ROLE_FARMER: '/portal/farmer',
+    ROLE_BUYER: '/portal/buyer',
+    ROLE_WAREHOUSE_QC: '/portal/warehouse-qc',
+    ROLE_DRIVER: '/portal/driver',
+  };
   return Object.entries(routes).find(([role]) => roles.includes(role))?.[1] || '/';
 };

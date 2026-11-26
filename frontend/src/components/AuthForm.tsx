@@ -434,6 +434,13 @@ export default function AuthForm({
       !redirect.startsWith('/dang-')
         ? redirect
         : portalFor(user.roles);
+    const isNativeMobile =
+      typeof window !== 'undefined' &&
+      Boolean((window as unknown as { Capacitor?: unknown }).Capacitor);
+    if (isNativeMobile && safe === '/') {
+      setError('Tài khoản này không có quyền truy cập ứng dụng nội bộ (Tài xế / Kho QC).');
+      return;
+    }
     router.replace(safe);
     router.refresh();
   };

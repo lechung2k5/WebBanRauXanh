@@ -21,7 +21,10 @@ public class B2bContractResponse {
     private String productName;
     private String imageUrl;
     private String buyerName;
+    private String buyerCompany;
     private String buyerPhone;
+    private String buyerAddress;
+    private String shippingOption;
     private Double quantity;
     private BigDecimal unitPrice;
     private BigDecimal totalAmount;
@@ -44,6 +47,8 @@ public class B2bContractResponse {
     // Thông tin bổ trợ nhà vườn & vùng trồng
     private String pucCode;
     private String farmName;
+    private String farmerName;
+    private String farmerCompany;
     private String farmerPhone;
     private String farmerAddress;
     private Long settlementId;
@@ -76,6 +81,11 @@ public class B2bContractResponse {
     private String outboundTruckPlate;
     private String outboundDriverName;
     private LocalDateTime outboundDispatchedAt;
+    private String outboundTripCode;
+    private String deliveryAddress;
+    private Double driverGpsLat;
+    private Double driverGpsLng;
+    private LocalDateTime driverGpsUpdatedAt;
     private String remainingPaymentStatus;
     private LocalDateTime remainingPaidAt;
 

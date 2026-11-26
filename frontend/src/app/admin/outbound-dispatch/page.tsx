@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useApp } from '@/context/AppContext';
 import {
   Truck,
   Route,
@@ -42,6 +44,7 @@ import {
   Camera,
   Check,
   Receipt,
+  Printer,
 } from 'lucide-react';
 import {
   fleetDispatchApi,
@@ -51,23 +54,49 @@ import {
   EligibleOutboundContractDto,
   OutboundDeliveryTripDto,
   OutboundDeliveryStopDto,
+  AutoDispatchPlanDto,
   DEFAULT_OFFICIAL_HUBS,
 } from '@/services/fleetDispatchApi';
 import { b2bWebSocket } from '@/services/websocketService';
 import { api } from '@/services/auth';
+import OutboundFleetMap from '@/components/admin/OutboundFleetMap';
 
 export default function AdminOutboundDispatchPage() {
+  const pathname = usePathname();
+  const { currentUser } = useApp();
+  const isManagerView = Boolean(
+    pathname?.startsWith('/manager') ||
+    (currentUser && !currentUser.roles?.includes('ROLE_ADMIN') && (currentUser.roles?.includes('ROLE_WAREHOUSE_MANAGER') || currentUser.assignedHubId))
+  );
   const [hubs] = useState<WarehouseHubDto[]>(DEFAULT_OFFICIAL_HUBS);
-  const [selectedHubId, setSelectedHubId] = useState<number>(2); // Mặc định Hub Đức Trọng
+  const [selectedHubId, setSelectedHubId] = useState<number>(() => Number(currentUser?.assignedHubId || 2)); // Mặc định Hub Đức Trọng
+
+  useEffect(() => {
+    if (currentUser?.assignedHubId) {
+      setSelectedHubId(Number(currentUser.assignedHubId));
+    }
+  }, [currentUser?.assignedHubId]);
   const [activeTab, setActiveTab] = useState<'ELIGIBLE' | 'TRIPS' | 'COMPLETED'>('ELIGIBLE');
 
   const [eligibleContracts, setEligibleContracts] = useState<EligibleOutboundContractDto[]>([]);
+  const [pa3SelfPickupContracts, setPa3SelfPickupContracts] = useState<any[]>([]);
+  const [handingOverPa3Id, setHandingOverPa3Id] = useState<number | null>(null);
+  const [activePa3HandoverTask, setActivePa3HandoverTask] = useState<any | null>(null);
+  const [pa3ReceiverName, setPa3ReceiverName] = useState<string>('');
+  const [pa3ReceiverPhone, setPa3ReceiverPhone] = useState<string>('');
+  const [pa3HandoverPlate, setPa3HandoverPlate] = useState<string>('');
+  const [pa3SignatureText, setPa3SignatureText] = useState<string>('');
+  const [pa3HandoverNotes, setPa3HandoverNotes] = useState<string>('');
   const [trips, setTrips] = useState<OutboundDeliveryTripDto[]>([]);
   const [completedDeliveries, setCompletedDeliveries] = useState<OutboundDeliveryStopDto[]>([]);
   const [vehicles, setVehicles] = useState<FleetVehicleDto[]>([]);
   const [drivers, setDrivers] = useState<FleetDriverDto[]>([]);
   const [coldAssets, setColdAssets] = useState<any[]>([]);
   const [coldAlerts, setColdAlerts] = useState<any[]>([]);
+  const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
+  const [autoPlan, setAutoPlan] = useState<AutoDispatchPlanDto | null>(null);
+  const [loadingAutoPlan, setLoadingAutoPlan] = useState<boolean>(false);
+  const [confirmingAutoPlan, setConfirmingAutoPlan] = useState<boolean>(false);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -116,7 +145,7 @@ export default function AdminOutboundDispatchPage() {
     try {
       setLoading(true);
       setError(null);
-      const [eligibleRes, tripsRes, vehRes, drvRes, completedRes, coldAssetRes, coldAlertRes] = await Promise.all([
+      const [eligibleRes, tripsRes, vehRes, drvRes, completedRes, coldAssetRes, coldAlertRes, outboundTaskRes] = await Promise.all([
         fleetDispatchApi.getEligibleOutboundContracts(selectedHubId),
         fleetDispatchApi.getOutboundTrips(selectedHubId),
         fleetDispatchApi.getVehicles(selectedHubId, 'AVAILABLE'),
@@ -124,9 +153,11 @@ export default function AdminOutboundDispatchPage() {
         fleetDispatchApi.getCompletedDeliveries(selectedHubId).catch(() => []),
         api<any[]>('admin/cold-assets').catch(() => []),
         api<any[]>('admin/iot/alerts').catch(() => []),
+        fleetDispatchApi.getWarehouseOutboundTasks(selectedHubId).catch(() => ({ pa2Tasks: [], pa3Tasks: [], totalPending: 0 })),
       ]);
 
       setEligibleContracts(Array.isArray(eligibleRes) ? eligibleRes : []);
+      setPa3SelfPickupContracts(Array.isArray(outboundTaskRes?.pa3Tasks) ? outboundTaskRes.pa3Tasks : []);
       setTrips(Array.isArray(tripsRes) ? tripsRes : []);
       setVehicles(Array.isArray(vehRes) ? vehRes : []);
       setDrivers(Array.isArray(drvRes) ? drvRes : []);
@@ -143,10 +174,16 @@ export default function AdminOutboundDispatchPage() {
 
   useEffect(() => {
     loadData();
-    const unsub = b2bWebSocket.subscribeDispatch(() => {
+    const unsubDispatch = b2bWebSocket.subscribeDispatch(() => {
       loadData();
     });
-    return () => unsub();
+    const unsubContracts = b2bWebSocket.subscribeContracts(() => {
+      loadData();
+    });
+    return () => {
+      unsubDispatch();
+      unsubContracts();
+    };
   }, [loadData]);
 
   useEffect(() => {
@@ -161,6 +198,50 @@ export default function AdminOutboundDispatchPage() {
     }, 10000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const handleAutoDispatchPlan = async () => {
+    try {
+      setLoadingAutoPlan(true);
+      setError(null);
+      const plan = await fleetDispatchApi.getAutoDispatchPlan(selectedHubId);
+      setAutoPlan(plan);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tính toán phương án ghép chuyến tối ưu');
+    } finally {
+      setLoadingAutoPlan(false);
+    }
+  };
+
+  const handleConfirmAutoDispatchPlan = async () => {
+    if (!autoPlan || !autoPlan.readyTrips || autoPlan.readyTrips.length === 0) return;
+    try {
+      setConfirmingAutoPlan(true);
+      setError(null);
+      const payload = autoPlan.readyTrips.map((t) => ({
+        vehicleId: t.vehicleId,
+        driverId: t.driverId,
+        notes: `Tự động ghép chuyến tối ưu (${t.utilizationPct}% tải trọng)`,
+        stops: (t.stops || []).map((s, idx) => ({
+          contractId: s.contractId,
+          stopOrder: idx + 1,
+          buyerWarehouseId: s.buyerWarehouseId,
+          deliveryAddressSnapshot: s.deliveryAddress,
+          contactNameSnapshot: s.buyerName,
+          contactPhoneSnapshot: s.buyerPhone,
+          expectedWeightKg: s.qualifiedWeightKg,
+        })),
+      }));
+      const res = await fleetDispatchApi.confirmAutoDispatch(selectedHubId, payload);
+      setAutoPlan(null);
+      setSuccessMsg(`Đã tự động tạo ${res.createdCount || payload.length} chuyến giao hàng tối ưu!`);
+      setActiveTab('TRIPS');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi xác nhận tạo chuyến tự động');
+    } finally {
+      setConfirmingAutoPlan(false);
+    }
+  };
 
   const handleAcknowledgeAlert = async (alertId: number) => {
     const note = window.prompt('Ghi chú tiếp nhận cảnh báo:', 'Đã liên hệ tài xế và kiểm tra hệ thống làm lạnh.');
@@ -408,14 +489,46 @@ export default function AdminOutboundDispatchPage() {
   };
 
   // Mở hóa đơn / chứng từ quyết toán
-  const openInvoiceModal = (stop: any) => {
-    const contractCode = stop.contractCode || `HĐ-${stop.contractId}`;
-    const buyerName = stop.contactNameSnapshot || 'Kho Buyer';
-    const weight = stop.actualDeliveredWeightKg || stop.expectedWeightKg || 150;
-    const price = 45000;
-    const total = weight * price;
-    const deposit = Math.round(total * 0.3);
-    const balance = total - deposit;
+  const openInvoiceModal = (stop: OutboundDeliveryStopDto | any) => {
+    const escapeHtml = (val: unknown) =>
+      String(val ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const contractCode = stop.contractCode || stop.contract?.contractCode || `HĐ-${stop.contractId}`;
+    const buyerName = stop.contactNameSnapshot || stop.contract?.buyerName || 'Kho Buyer';
+    const deliveryAddress =
+      stop.resolvedDeliveryAddress || stop.deliveryAddressSnapshot || 'Kho Buyer tiếp nhận';
+    const productName =
+      stop.productName ||
+      stop.contract?.productName ||
+      stop.contract?.harvestLot?.productName ||
+      'Nông sản';
+    const weight = Number(stop.actualDeliveredWeightKg ?? stop.expectedWeightKg ?? 0);
+    const price = Number(
+      stop.unitPrice ??
+        stop.contract?.agreedPricePerKg ??
+        stop.contract?.offeredPricePerKg ??
+        stop.contract?.unitPrice ??
+        0
+    );
+    const total =
+      price > 0 && weight > 0
+        ? Math.round(weight * price)
+        : Number(stop.contract?.totalGoodsAmount ?? stop.contract?.totalAmount ?? 0);
+    const rawDeposit =
+      stop.contract?.depositReceived ??
+      stop.contract?.deposit30Amount ??
+      stop.contract?.depositAmount;
+    const deposit =
+      rawDeposit !== undefined && rawDeposit !== null && Number(rawDeposit) > 0
+        ? Math.round(Number(rawDeposit))
+        : Math.round(total * 0.3);
+    const balance = Math.max(0, total - deposit);
+    const contractStatus = String(stop.contract?.status || '').toUpperCase();
+    const isSettled = contractStatus === 'SETTLED';
 
     setInvoiceHtml(`
       <div style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: 0 auto;">
@@ -424,12 +537,12 @@ export default function AdminOutboundDispatchPage() {
           <p style="margin: 4px 0 0; font-size: 12px; color: #64748b;">CHỨNG TỪ QUYẾT TOÁN TÀI CHÍNH & BIÊN BẢN BÀN GIAO</p>
         </div>
         <div style="font-size: 13px; margin-bottom: 16px; line-height: 1.6;">
-          <p><strong>Mã hợp đồng:</strong> <span style="color: #10542c; font-family: monospace;">${contractCode}</span></p>
-          <p><strong>Khách hàng (Buyer):</strong> ${buyerName}</p>
-          <p><strong>Địa chỉ kho nhận:</strong> ${stop.deliveryAddressSnapshot || 'Kho Buyer tiếp nhận'}</p>
-          <p><strong>Sản phẩm nông sản:</strong> Lá É Phú Yên VietGAP</p>
-          <p><strong>Khối lượng thực nhận (Q4):</strong> <strong>${weight} kg</strong></p>
-          <p><strong>Đơn giá:</strong> 45.000 VNĐ / kg</p>
+          <p><strong>Mã hợp đồng:</strong> <span style="color: #10542c; font-family: monospace;">${escapeHtml(contractCode)}</span></p>
+          <p><strong>Khách hàng (Buyer):</strong> ${escapeHtml(buyerName)}</p>
+          <p><strong>Địa chỉ kho nhận:</strong> ${escapeHtml(deliveryAddress)}</p>
+          <p><strong>Sản phẩm nông sản:</strong> ${escapeHtml(productName)}</p>
+          <p><strong>Khối lượng thực nhận (Q4):</strong> <strong>${weight.toLocaleString('vi-VN')} kg</strong></p>
+          <p><strong>Đơn giá:</strong> ${price.toLocaleString('vi-VN')} VNĐ / kg</p>
         </div>
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px;">
           <tr style="background: #f1f5f9;">
@@ -437,7 +550,7 @@ export default function AdminOutboundDispatchPage() {
             <th style="padding: 10px; text-align: right; border: 1px solid #cbd5e1;">Số tiền (VNĐ)</th>
           </tr>
           <tr>
-            <td style="padding: 8px 10px; border: 1px solid #cbd5e1;">Tổng giá trị hàng thực nhận (150 kg)</td>
+            <td style="padding: 8px 10px; border: 1px solid #cbd5e1;">Tổng giá trị hàng thực nhận (${weight.toLocaleString('vi-VN')} kg)</td>
             <td style="padding: 8px 10px; text-align: right; border: 1px solid #cbd5e1; font-weight: bold;">${total.toLocaleString('vi-VN')} đ</td>
           </tr>
           <tr>
@@ -445,13 +558,18 @@ export default function AdminOutboundDispatchPage() {
             <td style="padding: 8px 10px; text-align: right; border: 1px solid #cbd5e1; color: #10542c;">- ${deposit.toLocaleString('vi-VN')} đ</td>
           </tr>
           <tr style="background: #ecfdf5; font-weight: bold;">
-            <td style="padding: 10px; border: 1px solid #cbd5e1; color: #047857;">Số tiền còn lại đã thanh toán (70%)</td>
+            <td style="padding: 10px; border: 1px solid #cbd5e1; color: #047857;">${isSettled ? 'Số tiền còn lại đã thanh toán (70%)' : 'Số tiền còn lại cần thanh toán (70%)'}</td>
             <td style="padding: 10px; text-align: right; border: 1px solid #cbd5e1; color: #047857; font-size: 14px;">${balance.toLocaleString('vi-VN')} đ</td>
           </tr>
         </table>
         <div style="text-align: center; padding: 14px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; font-size: 12px;">
-          <span style="color: #047857; font-weight: bold; font-size: 13px;">✓ ĐÃ QUYẾT TOÁN HOÀN TẤT 100% (TRẠNG THÁI: SETTLED)</span>
-          <p style="margin: 6px 0 0; color: #64748b; font-size: 11px;">Bút toán kế toán: Nợ TK 112 / Có TK 3388 -> Đã giải ngân Payout cho Nhà vườn</p>
+          ${
+            isSettled
+              ? `<span style="color: #047857; font-weight: bold; font-size: 13px;">✓ ĐÃ QUYẾT TOÁN HOÀN TẤT 100% (TRẠNG THÁI: SETTLED)</span>
+                 <p style="margin: 6px 0 0; color: #64748b; font-size: 11px;">Bút toán kế toán: Nợ TK 112 / Có TK 3388 -&gt; Đã giải ngân Payout cho Nhà vườn</p>`
+              : `<span style="color: #b45309; font-weight: bold; font-size: 13px;">CHỜ THANH TOÁN PHẦN CÒN LẠI (${escapeHtml(contractStatus || 'DELIVERED')})</span>
+                 <p style="margin: 6px 0 0; color: #64748b; font-size: 11px;">Buyer đã ký nhận hàng thực tế (Q4) và đang chờ tất toán 70% còn lại.</p>`
+          }
         </div>
       </div>
     `);
@@ -645,7 +763,8 @@ export default function AdminOutboundDispatchPage() {
         </div>
       )}
 
-      {/* 2. THANH CHỌN TRẠM TRUNG CHUYỂN (5 HUB CHÍNH THỨC) */}
+      {/* 2. THANH CHỌN TRẠM TRUNG CHUYỂN (CHỈ HIỆN VỚI ADMIN TOÀN HỆ THỐNG) */}
+      {!isManagerView && (
       <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
@@ -688,6 +807,7 @@ export default function AdminOutboundDispatchPage() {
           })}
         </div>
       </div>
+      )}
 
       <div className="space-y-5">
         {/* Banner thông báo */}
@@ -785,12 +905,12 @@ export default function AdminOutboundDispatchPage() {
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kho Tiếp Nhận</span>
-                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{stop.deliveryAddressSnapshot}</span>
+                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{(stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot}</span>
                           </div>
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sản Phẩm & Khối Lượng</span>
-                            <strong className="text-slate-900 block">Lá É Phú Yên VietGAP</strong>
+                            <strong className="text-slate-900 block">{stop.productName || stop.contract?.productName || 'Nông sản'}</strong>
                             <span className="text-emerald-800 font-mono font-bold text-xs block">Thực nhận Q4: {weight} kg</span>
                           </div>
 
@@ -902,12 +1022,12 @@ export default function AdminOutboundDispatchPage() {
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kho Tiếp Nhận</span>
-                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{stop.deliveryAddressSnapshot}</span>
+                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{(stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot}</span>
                           </div>
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sản Phẩm & Khối Lượng</span>
-                            <strong className="text-slate-900 block">Lá É Phú Yên VietGAP</strong>
+                            <strong className="text-slate-900 block">{stop.productName || stop.contract?.productName || 'Nông sản'}</strong>
                             <span className="text-emerald-800 font-mono font-bold text-xs block">Thực nhận Q4: {weight} kg</span>
                           </div>
 
@@ -926,48 +1046,150 @@ export default function AdminOutboundDispatchPage() {
           </div>
         )}
 
+        {/* Bản đồ điều phối đội xe & lộ trình giao hàng Outbound */}
+        <OutboundFleetMap
+          mode="OUTBOUND"
+          hub={currentHub}
+          vehicles={vehicles}
+          trips={trips}
+          coldAssets={coldAssets}
+          focusedTripId={focusedTripId}
+          onSelectTrip={setFocusedTripId}
+        />
+
         {/* Tab selector */}
-        <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-          <button
-            onClick={() => setActiveTab('ELIGIBLE')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              activeTab === 'ELIGIBLE'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-            }`}
-          >
-            <Boxes className="w-4 h-4" />
-            <span>Chờ Xuất Kho ({eligibleContracts.length})</span>
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setActiveTab('ELIGIBLE')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                activeTab === 'ELIGIBLE'
+                  ? 'bg-[#10542C] text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <Boxes className="w-4 h-4" />
+              <span>Chờ Xuất Kho ({eligibleContracts.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('TRIPS')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                activeTab === 'TRIPS'
+                  ? 'bg-[#10542C] text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <Route className="w-4 h-4" />
+              <span>Giám Sát Giao & Chuỗi Lạnh ({trips.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('COMPLETED')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                activeTab === 'COMPLETED'
+                  ? 'bg-[#10542C] text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Đã Nhận & Thanh Toán ({completedDeliveries.length})</span>
+            </button>
+          </div>
 
           <button
-            onClick={() => setActiveTab('TRIPS')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              activeTab === 'TRIPS'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-            }`}
+            type="button"
+            disabled={loadingAutoPlan || eligibleContracts.length === 0}
+            onClick={() => void handleAutoDispatchPlan()}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
           >
             <Route className="w-4 h-4" />
-            <span>Giám Sát Giao & Chuỗi Lạnh ({trips.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('COMPLETED')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              activeTab === 'COMPLETED'
-                ? 'bg-[#10542C] text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>Đã Nhận & Thanh Toán ({completedDeliveries.length})</span>
+            <span>{loadingAutoPlan ? 'Đang tối ưu...' : `Tự Động Điều Phối Tối Ưu (${eligibleContracts.length})`}</span>
           </button>
         </div>
 
         {/* 2. TAB 1: DANH SÁCH LÔ SẴN SÀNG GIAO & GHÉP CHUYẾN (MULTI) */}
         {activeTab === 'ELIGIBLE' && (
           <div className="space-y-4">
+            {/* KHU VỰC RIÊNG CHO ĐƠN PA3: BUYER TỰ ĐẾN KHO HONA LẤY HÀNG */}
+            {pa3SelfPickupContracts.length > 0 && (
+              <div className="p-4 rounded-3xl bg-blue-50/90 border-2 border-blue-200 space-y-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black text-blue-900 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                      <span>Đơn PA3 · Buyer Tự Đến Kho HoNa Lấy Hàng ({pa3SelfPickupContracts.length} đơn)</span>
+                    </h3>
+                    <p className="text-[11px] text-blue-700 mt-0.5">
+                      Các đơn này đã Đạt QC &amp; Buyer đã cọc 100% — không cần ghép xe giao chặng 2. Xuất kho và bàn giao trực tiếp cho Buyer tại cổng kho.
+                    </p>
+                  </div>
+                  <Link
+                    href="/portal/warehouse-qc"
+                    className="px-3 py-1.5 rounded-xl bg-white border border-blue-300 text-blue-800 text-[11px] font-bold hover:bg-blue-100 transition"
+                  >
+                    Mở Staff App Xuất Kho →
+                  </Link>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {pa3SelfPickupContracts.map((task: any) => (
+                    <div key={task.id} className="bg-white rounded-2xl p-3.5 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono font-black text-[#10542C]">{task.contract_code}</span>
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                            {task.crateRange || `${task.packageCount} thùng`}
+                          </span>
+                          {task.buyerTruckDispatched ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
+                              Xe thương lái đang đến
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold border border-amber-200">
+                              Chờ thương lái điều xe
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-bold text-slate-900 truncate">
+                          {task.product_name} · {task.weightKg} kg
+                        </div>
+                        <div className="text-[11px] text-slate-600 truncate">
+                          Buyer: <strong>{task.buyer_company || task.buyer_name}</strong> ({task.buyer_phone || '—'})
+                        </div>
+                        {task.buyerTruckDispatched && (
+                          <div className="text-[11px] text-emerald-800 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 font-semibold">
+                            Xe: <span className="font-mono font-bold">{task.outbound_truck_plate}</span> · Tài xế: {task.outbound_driver_name}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          Vị trí: {task.hub_warehouse_zone} · {task.hub_rack_bin} · Tem: {task.sealRange}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={handingOverPa3Id === task.id}
+                        onClick={() => {
+                          const rawDriver = String(task.outbound_driver_name || '');
+                          const phoneMatch = rawDriver.match(/\(([^)]+)\)/);
+                          const driverNameOnly = rawDriver.split('(')[0].trim() || String(task.buyer_name || task.buyer_company || '').trim();
+                          const driverPhoneOnly = (phoneMatch && phoneMatch[1]) ? phoneMatch[1].trim() : String(task.buyer_phone || '');
+                          setActivePa3HandoverTask(task);
+                          setPa3ReceiverName(driverNameOnly);
+                          setPa3ReceiverPhone(driverPhoneOnly);
+                          setPa3HandoverPlate(String(task.outbound_truck_plate || ''));
+                          setPa3SignatureText(driverNameOnly);
+                          setPa3HandoverNotes(`Đã kiểm đếm đủ ${task.crateRange || `${task.packageCount} thùng`} (${task.weightKg} kg) nguyên niêm phong tại ${task.hub_rack_bin}`);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-[11px] font-bold shrink-0 cursor-pointer transition"
+                      >
+                        Lập HĐ Vận Chuyển &amp; Ký Nhận
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {eligibleContracts.length === 0 ? (
               <div className="space-y-4">
                 <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 space-y-2">
@@ -1422,9 +1644,6 @@ export default function AdminOutboundDispatchPage() {
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                               Chi tiết các điểm dừng giao hàng ({stops.length} kho Thương Lái)
                             </span>
-                            <span className="text-[11px] text-slate-500">
-                              Quy trình: Đến điểm dừng $\rightarrow$ Tài xế lập ePOD $\rightarrow$ Buyer ký nhận $\rightarrow$ Quyết toán 70%
-                            </span>
                           </div>
 
                           <div className="grid grid-cols-1 gap-3">
@@ -1625,12 +1844,12 @@ export default function AdminOutboundDispatchPage() {
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kho Tiếp Nhận</span>
-                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{stop.deliveryAddressSnapshot}</span>
+                            <span className="text-slate-700 text-[11px] line-clamp-2 block">{(stop as any).resolvedDeliveryAddress || stop.deliveryAddressSnapshot}</span>
                           </div>
 
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sản Phẩm & Khối Lượng</span>
-                            <strong className="text-slate-900 block">Lá É Phú Yên VietGAP</strong>
+                            <strong className="text-slate-900 block">{stop.productName || stop.contract?.productName || 'Nông sản'}</strong>
                             <span className="text-emerald-800 font-mono font-bold text-xs block">Thực nhận Q4: {weight} kg</span>
                           </div>
 
@@ -1948,7 +2167,7 @@ export default function AdminOutboundDispatchPage() {
             {/* Chi tiết tài chính */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Tổng giá trị hàng thực nhận (150 kg):</span>
+                <span className="text-slate-600">Tổng giá trị hàng thực nhận:</span>
                 <strong className="font-mono text-slate-900">
                   {Number(settlementQuote.goods || 6750000).toLocaleString('vi-VN')} đ
                 </strong>
@@ -2153,6 +2372,363 @@ export default function AdminOutboundDispatchPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL ĐỀ XUẤT GHÉP CHUYẾN TỰ ĐỘNG TỐI ƯU (BEST-FIT) */}
+      {autoPlan && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-black text-slate-900">
+                  Phương Án Tự Động Điều Phối Tối Ưu — {autoPlan.hubName}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Chọn xe tải nhỏ nhất vừa đủ tải trọng &amp; thể tích cho {autoPlan.totalEligible} đơn PA2
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoPlan(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+
+            {autoPlan.readyTrips.length === 0 ? (
+              <div className="p-6 text-center bg-slate-50 rounded-2xl text-xs text-slate-600">
+                Chưa có chuyến xe sẵn sàng nào được ghép (kiểm tra lại xe &amp; tài xế rảnh tại Hub).
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {autoPlan.readyTrips.map((t, idx) => (
+                  <div key={`${t.vehicleId}-${idx}`} className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <strong className="font-mono text-sm text-[#10542C]">{t.plateNumber}</strong>
+                        <span className="text-slate-600 ml-2">({t.vehicleModel} · Tối đa {t.capacityKg} kg)</span>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                        {t.totalWeightKg} kg ({t.utilizationPct}% tải)
+                      </span>
+                    </div>
+                    <div className="text-slate-700">
+                      Tài xế: <strong>{t.driverName}</strong> ({t.driverPhone})
+                    </div>
+                    <div className="space-y-1 pt-1">
+                      {(t.stops || []).map((s, sIdx) => (
+                        <div key={s.contractId} className="bg-white rounded-xl px-3 py-2 border border-emerald-100 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="font-mono font-bold text-[#10542C]">#{sIdx + 1} {s.contractCode}</span>
+                            <span className="text-slate-700 ml-2">{s.productName} · {s.buyerName}</span>
+                            <span className="text-[11px] text-slate-500 block truncate">{s.deliveryAddress}</span>
+                          </div>
+                          <strong className="font-mono text-slate-800 shrink-0">{s.qualifiedWeightKg} kg</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setAutoPlan(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 font-bold text-xs cursor-pointer"
+              >
+                Đóng
+              </button>
+              {autoPlan.readyTrips.length > 0 && (
+                <button
+                  type="button"
+                  disabled={confirmingAutoPlan}
+                  onClick={() => void handleConfirmAutoDispatchPlan()}
+                  className="px-5 py-2 rounded-xl bg-[#10542C] hover:bg-emerald-900 disabled:opacity-60 text-white font-bold text-xs cursor-pointer"
+                >
+                  {confirmingAutoPlan ? 'Đang tạo chuyến...' : `Xác Nhận Tạo ${autoPlan.readyTrips.length} Chuyến Tự Động`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL HỢP ĐỒNG VẬN CHUYỂN & KÝ NHẬN BÀN GIAO TẠI KHO (PA3) */}
+      {activePa3HandoverTask && (() => {
+        const transportContractCode = `HDVC-PA3-${String(activePa3HandoverTask.contract_code || activePa3HandoverTask.id).replace(/^HD-/, '')}`;
+        const todayStr = new Date().toLocaleDateString('vi-VN');
+        const handlePrintPa3Contract = () => {
+          const win = window.open('', '_blank', 'width=900,height=780');
+          if (!win) {
+            window.print();
+            return;
+          }
+          win.document.write(`
+            <!doctype html>
+            <html>
+              <head>
+                <meta charset="utf-8" />
+                <title>Hợp Đồng Vận Chuyển &amp; Bàn Giao ${transportContractCode}</title>
+                <style>
+                  @page { size: A4; margin: 16mm; }
+                  body { font-family: 'Times New Roman', Times, serif; color: #111827; font-size: 13px; line-height: 1.55; }
+                  .center { text-align: center; }
+                  .bold { font-weight: bold; }
+                  .upper { text-transform: uppercase; }
+                  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+                  .box { border: 1px solid #cbd5e1; padding: 10px 12px; border-radius: 6px; }
+                  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+                  th, td { border: 1px solid #94a3b8; padding: 7px 10px; text-align: left; }
+                  th { background: #f1f5f9; }
+                  .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px; text-align: center; }
+                  .sig-name { margin-top: 52px; font-weight: bold; font-style: italic; }
+                </style>
+              </head>
+              <body>
+                <div class="center">
+                  <div class="bold upper">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                  <div class="bold">Độc lập - Tự do - Hạnh phúc</div>
+                  <div style="margin: 6px 0;">----------------***----------------</div>
+                  <h2 class="upper" style="margin: 10px 0 4px;">HỢP ĐỒNG VẬN CHUYỂN &amp; BIÊN BẢN BÀN GIAO HÀNG HÓA TẠI KHO (PA3)</h2>
+                  <div>Số: <strong>${transportContractCode}</strong> · Kèm HĐMB: <strong>${activePa3HandoverTask.contract_code}</strong> · Ngày lập: ${todayStr}</div>
+                </div>
+
+                <div class="grid">
+                  <div class="box">
+                    <div class="bold upper">BÊN A: ĐƠN VỊ GIAO HÀNG (KHO TRUNG CHUYỂN HONA FRESH)</div>
+                    <div>Trạm / Kho xuất: <strong>${currentHub.hubName}</strong></div>
+                    <div>Địa chỉ kho: ${currentHub.address}</div>
+                    <div>Vị trí lưu kho: ${activePa3HandoverTask.hub_warehouse_zone || 'Zone A'} · ${activePa3HandoverTask.hub_rack_bin || 'BIN A-01'}</div>
+                  </div>
+                  <div class="box">
+                    <div class="bold upper">BÊN B: BÊN MUA &amp; TỰ VẬN CHUYỂN (THƯƠNG LÁI)</div>
+                    <div>Đơn vị mua: <strong>${activePa3HandoverTask.buyer_company || activePa3HandoverTask.buyer_name}</strong></div>
+                    <div>Người mua: <strong>${activePa3HandoverTask.buyer_name || '—'}</strong> · SĐT: ${activePa3HandoverTask.buyer_phone || '—'}</div>
+                    <div>Biển số xe nhận hàng: <strong>${pa3HandoverPlate || '—'}</strong></div>
+                    <div>Tài xế nhận thay: <strong>${pa3ReceiverName || '—'}</strong> · SĐT tài xế: ${pa3ReceiverPhone || '—'}</div>
+                  </div>
+                </div>
+
+                <p class="bold" style="margin-top: 14px;">ĐIỀU 1. CHI TIẾT LÔ HÀNG BÀN GIAO ĐẠT CHUẨN QC</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Mã HĐMB</th>
+                      <th>Tên Nông Sản</th>
+                      <th>Khối Lượng Thực Xuất</th>
+                      <th>Số Thùng &amp; Mã Tem</th>
+                      <th>Trạng Thái QC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>${activePa3HandoverTask.contract_code}</td>
+                      <td>${activePa3HandoverTask.product_name}</td>
+                      <td><strong>${activePa3HandoverTask.weightKg} kg</strong></td>
+                      <td>${activePa3HandoverTask.crateRange || `${activePa3HandoverTask.packageCount} thùng`} (${activePa3HandoverTask.sealRange || '—'})</td>
+                      <td>Đạt chuẩn QC HoNa Fresh</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <p class="bold">ĐIỀU 2. TRÁCH NHIỆM VẬN CHUYỂN &amp; BẢO QUẢN CHUỖI LẠNH (PA3)</p>
+                <div>1. Bên B tự chịu trách nhiệm điều phương tiện biển số <strong>${pa3HandoverPlate || '—'}</strong> đến kho Bên A bốc xếp và bảo quản nhiệt độ nông sản (2°C – 6°C) kể từ thời điểm ký biên bản bàn giao.</div>
+                <div>2. Hai bên đã kiểm đếm đủ số thùng, nguyên vẹn tem niêm phong và đúng khối lượng tại cổng xuất kho.</div>
+
+                <p class="bold">ĐIỀU 3. NGHĨA VỤ THANH TOÁN HOÀN TẤT ĐƠN</p>
+                <div>Sau khi ký nhận bàn giao tại kho, Bên B có trách nhiệm hoàn tất thanh toán 100% giá trị hợp đồng (bao gồm phần 70% còn lại nếu chưa thanh toán đủ) trên hệ thống HoNa Fresh để đơn hàng được xác nhận hoàn tất.</div>
+                <div>Ghi chú bàn giao: ${pa3HandoverNotes || 'Không có'}</div>
+
+                <div class="sig-grid">
+                  <div>
+                    <div class="bold upper">ĐẠI DIỆN BÊN A (KHO HONA FRESH)</div>
+                    <div style="font-size: 11px;">(Ký, ghi rõ họ tên)</div>
+                    <div class="sig-name">Quản lý kho ${currentHub.hubCode}</div>
+                  </div>
+                  <div>
+                    <div class="bold upper">ĐẠI DIỆN BÊN B (TÀI XẾ KÝ THAY)</div>
+                    <div style="font-size: 11px;">(Ký thay cho ${activePa3HandoverTask.buyer_company || activePa3HandoverTask.buyer_name})</div>
+                    <div class="sig-name">Ký thay: ${pa3SignatureText || pa3ReceiverName || 'Chưa ký'}</div>
+                  </div>
+                </div>
+              </body>
+            </html>
+          `);
+          win.document.close();
+          win.focus();
+          setTimeout(() => win.print(), 250);
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-3xl rounded-3xl p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto text-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
+                    {transportContractCode} · Phương Án 3 (Tự Vận Chuyển)
+                  </span>
+                  <h3 className="text-base font-black text-slate-900">
+                    Hợp Đồng Vận Chuyển &amp; Ký Nhận Bàn Giao — {activePa3HandoverTask.contract_code}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintPa3Contract}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>In Hợp Đồng (A4)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivePa3HandoverTask(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold cursor-pointer"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              {/* Văn bản hợp đồng vận chuyển hiển thị trực quan để khách hàng đọc trước khi ký */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#FAFBF9] border border-slate-300 space-y-3 font-serif text-[12px] leading-relaxed text-slate-800">
+                <div className="text-center space-y-0.5">
+                  <div className="font-bold uppercase text-[11px]">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                  <div className="font-semibold text-[11px]">Độc lập - Tự do - Hạnh phúc</div>
+                  <div className="font-sans font-black text-sm text-[#10542C] pt-1">
+                    HỢP ĐỒNG VẬN CHUYỂN &amp; BIÊN BẢN BÀN GIAO HÀNG HÓA TẠI KHO (PA3)
+                  </div>
+                  <div className="font-mono text-[11px] text-slate-600">
+                    Số: <strong>{transportContractCode}</strong> · Ngày lập: {todayStr}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-sans text-[11px]">
+                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-0.5">
+                    <span className="font-bold text-[#10542C] uppercase block">Bên A · Kho Giao Hàng HoNa</span>
+                    <div>Trạm: <strong>{currentHub.hubName}</strong></div>
+                    <div>Kệ xuất: <strong className="font-mono">{activePa3HandoverTask.hub_warehouse_zone} · {activePa3HandoverTask.hub_rack_bin}</strong></div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-0.5">
+                    <span className="font-bold text-blue-700 uppercase block">Bên B · Thông Tin Người Mua &amp; Xe Nhận</span>
+                    <div>Đơn vị mua: <strong>{activePa3HandoverTask.buyer_company || activePa3HandoverTask.buyer_name}</strong></div>
+                    <div>Người mua: <strong>{activePa3HandoverTask.buyer_name}</strong> · SĐT: <span className="font-mono">{activePa3HandoverTask.buyer_phone || '—'}</span></div>
+                    <div>Xe nhận: <strong className="font-mono">{pa3HandoverPlate || '—'}</strong> · Tài xế ký thay: <strong>{pa3ReceiverName || '—'}</strong></div>
+                  </div>
+                </div>
+
+                <div className="font-sans text-[11px] bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-900">Điều 1 &amp; 2. Hàng hóa bàn giao &amp; Trách nhiệm vận chuyển:</div>
+                  <div>
+                    Bên A bàn giao cho Bên B lô <strong>{activePa3HandoverTask.product_name}</strong> đạt chuẩn QC với sản lượng{' '}
+                    <strong>{activePa3HandoverTask.weightKg} kg</strong> ({activePa3HandoverTask.crateRange || `${activePa3HandoverTask.packageCount} thùng`}, tem{' '}
+                    <span className="font-mono font-bold">{activePa3HandoverTask.sealRange}</span>). Bên B chịu trách nhiệm bảo quản chuỗi lạnh (2°C–6°C) từ khi xe rời cổng kho HoNa.
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Biển số xe nhận hàng *</label>
+                  <input
+                    type="text"
+                    value={pa3HandoverPlate}
+                    onChange={(e) => setPa3HandoverPlate(e.target.value)}
+                    placeholder="51C-889.99"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Người nhận / Tài xế *</label>
+                  <input
+                    type="text"
+                    value={pa3ReceiverName}
+                    onChange={(e) => setPa3ReceiverName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">SĐT liên hệ</label>
+                  <input
+                    type="text"
+                    value={pa3ReceiverPhone}
+                    onChange={(e) => setPa3ReceiverPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Đại diện Bên B · Tài xế ký thay cho {activePa3HandoverTask.buyer_company || activePa3HandoverTask.buyer_name} *
+                </label>
+                <input
+                  type="text"
+                  value={pa3SignatureText}
+                  onChange={(e) => setPa3SignatureText(e.target.value)}
+                  placeholder="Nhập họ tên tài xế ký thay xác nhận nhận đủ hàng..."
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-blue-200 bg-blue-50/40 font-serif italic text-sm text-blue-900 font-bold"
+                />
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Chữ ký này thể hiện tài xế đại diện ký thay cho Bên Mua khi nhận hàng tại cổng kho HoNa.
+                </span>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Ghi chú biên bản bàn giao</label>
+                <textarea
+                  rows={2}
+                  value={pa3HandoverNotes}
+                  onChange={(e) => setPa3HandoverNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px]">
+                Lưu ý: Sau khi ký nhận bàn giao tại kho (<strong>DELIVERED</strong>), nếu Buyer còn 70% tiền hàng chưa thanh toán thì cần thực hiện thanh toán nốt qua VietQR ở trang Buyer để chính thức hoàn tất đơn.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setActivePa3HandoverTask(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 font-bold cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  disabled={handingOverPa3Id === activePa3HandoverTask.id || !pa3ReceiverName.trim() || !pa3SignatureText.trim()}
+                  onClick={async () => {
+                    try {
+                      setHandingOverPa3Id(activePa3HandoverTask.id);
+                      await fleetDispatchApi.completeWarehouseOutboundHandover(activePa3HandoverTask.id, {
+                        handoverType: 'PA3_BUYER_PICKUP',
+                        receiverName: pa3ReceiverName.trim(),
+                        receiverPhone: pa3ReceiverPhone.trim(),
+                        truckPlate: pa3HandoverPlate.trim().toUpperCase(),
+                        signatureData: `PA3_SIGNED:${pa3SignatureText.trim()}`,
+                        notes: pa3HandoverNotes.trim(),
+                      });
+                      setActivePa3HandoverTask(null);
+                      setSuccessMsg(`Đã lập hợp đồng vận chuyển & ký nhận bàn giao đơn ${activePa3HandoverTask.contract_code}!`);
+                      await loadData();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Lỗi ký nhận bàn giao PA3');
+                    } finally {
+                      setHandingOverPa3Id(null);
+                    }
+                  }}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold cursor-pointer"
+                >
+                  {handingOverPa3Id === activePa3HandoverTask.id ? 'Đang lưu...' : 'Xác Nhận Ký Nhận & Bàn Giao (DELIVERED)'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

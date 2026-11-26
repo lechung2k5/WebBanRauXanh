@@ -4,6 +4,7 @@ import { portalFor } from '@/services/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import {
   ShoppingBag,
   Search,
@@ -17,9 +18,15 @@ import {
   ReceiptText,
   Sparkles,
   ShieldCheck,
+  Warehouse,
+  LayoutDashboard,
+  Handshake,
+  FileText,
+  AlertTriangle,
 } from 'lucide-react';
 import { AuthResponse, Product } from '@/types';
 import { getProducts, hybridSearchApi } from '@/services/api';
+import { useBuyerRealtimeBadges } from '@/hooks/useBuyerRealtimeBadges';
 
 interface NavbarProps {
   cartCount?: number;
@@ -56,6 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenAi,
 }) => {
+  const router = useRouter();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -75,6 +83,29 @@ export const Navbar: React.FC<NavbarProps> = ({
       false
     )
   );
+
+  const isBuyerUser = Boolean(
+    activeUser?.roles?.includes('ROLE_BUYER') &&
+    !activeUser.roles.includes('ROLE_ADMIN') &&
+    !isFarmerUser &&
+    !activeUser.roles.some((r) =>
+      ['ROLE_WAREHOUSE_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_DRIVER', 'ROLE_WAREHOUSE_QC'].includes(r)
+    )
+  );
+
+  const buyerBadges = useBuyerRealtimeBadges(isBuyerUser);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isUserMenuOpen]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [navbarSuggestions, setNavbarSuggestions] = useState<Product[]>([]);
   const [navMatchedRegion, setNavMatchedRegion] = useState<string | null>(null);
@@ -229,31 +260,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         }`}
       >
         <div className="max-w-[1240px] mx-auto px-4 h-full flex items-center justify-between">
-          {/* Trái: Slogan B2B Nông Sản */}
+          {/* Trái: Slogan ngắn B2B Nông Sản */}
           <div className="flex items-center gap-2 font-medium">
             <Sprout className="w-4 h-4 text-[#8BC34A]" />
-            <span className="hidden sm:inline font-bold">Sàn Thương Mại Nông Sản B2B Việt Nam</span>
-            <span className="text-white/70 hidden md:inline">• Cầu nối số trực tiếp Nông Trại & Thương Lái • 0% Phí Trung Gian</span>
+            <span className="font-bold text-xs">Sàn Thương Mại Nông Sản B2B Việt Nam</span>
           </div>
 
-          {/* Phải: Chuyển đổi đối tượng giao dịch & Điểm nhận hàng */}
-          <div className="flex items-center gap-4 text-xs">
-            <div className="hidden lg:flex items-center gap-1.5 text-emerald-200">
-              <span className="bg-emerald-800/80 px-2 py-0.5 rounded text-[11px] font-bold">500+ HTX & Vựa Nông Sản</span>
-            </div>
-
-            <div
-              onClick={onOpenLocation}
-              className="flex items-center gap-1.5 cursor-pointer hover:text-[#8BC34A] transition-colors py-1 group select-none"
-              title="Đổi địa chỉ giao kho / chợ đầu mối"
-            >
-              <MapPin className="w-3.5 h-3.5 text-[#8BC34A] shrink-0" />
-              <span className="text-white/80">Kho nhận hàng:</span>
-              <span className="font-bold underline decoration-[#8BC34A] decoration-1 underline-offset-2 max-w-[180px] truncate">
-                {currentLocation || 'Chợ Đầu Mối Thủ Đức'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-white/70 group-hover:translate-y-0.5 transition-transform" />
-            </div>
+          {/* Phải: Thông tin ngắn gọn */}
+          <div className="hidden sm:flex items-center gap-2 text-xs text-emerald-200">
+            <span className="bg-emerald-800/80 px-2 py-0.5 rounded text-[11px] font-bold">
+              500+ HTX &amp; Vựa Nông Sản
+            </span>
           </div>
         </div>
       </div>
@@ -464,6 +481,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </Link>
               )}
 
+              {/* Nút Vào Nhanh Không Gian Quản Lý Kho / Kế Toán */}
+              {!activeUser?.roles?.includes('ROLE_ADMIN') && activeUser?.roles?.includes('ROLE_WAREHOUSE_MANAGER') && (
+                <Link
+                  href="/manager/dashboard"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
+                >
+                  <Warehouse className="w-4 h-4 text-[#8BC34A]" />
+                  <span className="hidden md:inline">Quản Lý Kho</span>
+                  <span className="md:hidden">Kho</span>
+                </Link>
+              )}
+              {!activeUser?.roles?.includes('ROLE_ADMIN') &&
+                !activeUser?.roles?.includes('ROLE_WAREHOUSE_MANAGER') &&
+                activeUser?.roles?.includes('ROLE_ACCOUNTANT') && (
+                <Link
+                  href="/admin/accounting"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#10542C] hover:bg-[#0C3E20] rounded-xl transition-all shadow-sm border border-[#8BC34A]/40 shrink-0"
+                >
+                  <ReceiptText className="w-4 h-4 text-[#8BC34A]" />
+                  <span className="hidden md:inline">Kế Toán Sàn</span>
+                  <span className="md:hidden">Kế toán</span>
+                </Link>
+              )}
+
               {/* Nút Theo dõi Hợp Đồng / Lô Đặt Cọc - Điểm dừng mép phải của ô tìm kiếm co giãn */}
               <button
                 ref={contractBtnRef}
@@ -507,11 +548,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* Khối Tài Khoản */}
               {activeUser ? (
-                <div className="relative shrink-0">
+                <div className="relative shrink-0" ref={userMenuRef}>
                   <button
                     type="button"
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                    className="flex items-center gap-2 p-1.5 pl-2 bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl border border-[#EAECE8] transition-colors cursor-pointer"
+                    className="relative flex items-center gap-2 p-1.5 pl-2 bg-[#F4F5F1] hover:bg-[#EAECE8] rounded-xl border border-[#EAECE8] transition-colors cursor-pointer"
                   >
                     <div className="w-7 h-7 rounded-full bg-[#10542C] text-white flex items-center justify-center text-xs font-bold shrink-0">
                       {activeUser.fullName?.charAt(0) || activeUser.username.charAt(0).toUpperCase()}
@@ -519,12 +560,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="text-xs font-bold text-[#2C3E2E] max-w-[80px] truncate hidden sm:inline">
                       {activeUser.fullName || activeUser.username}
                     </span>
+                    {isBuyerUser && buyerBadges.totalAlertsCount > 0 && (
+                      <span className="bg-[#E53935] text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none">
+                        {buyerBadges.totalAlertsCount}
+                      </span>
+                    )}
                     <ChevronDown className="w-3.5 h-3.5 text-[#6B7280] shrink-0" />
                   </button>
 
                   {/* Dropdown Menu khách hàng */}
                   {isUserMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-[#EAECE8] py-1.5 z-50 text-xs">
+                    <div
+                      className={`absolute right-0 mt-2 ${
+                        isBuyerUser ? 'w-64' : 'w-48'
+                      } bg-white rounded-xl shadow-xl border border-[#EAECE8] py-1.5 z-50 text-xs`}
+                    >
                       <div className="px-3 py-2 border-b border-[#EAECE8]">
                         <p className="font-bold text-[#2C3E2E] truncate">
                           {activeUser.fullName || activeUser.username}
@@ -552,14 +602,87 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </Link>
                       )}
                       {activeUser?.roles && !activeUser.roles.includes('ROLE_ADMIN') && !isFarmerUser && portalFor(activeUser.roles) !== '/' && (
-                        <Link
-                          href={portalFor(activeUser.roles)}
-                          onClick={() => setIsUserMenuOpen(false)}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const target = portalFor(activeUser.roles);
+                            setIsUserMenuOpen(false);
+                            router.push(target);
+                          }}
                           className="w-full text-left px-3 py-2 text-[#10542C] hover:bg-[#EAF5E9] font-bold flex items-center gap-2 cursor-pointer border-b border-[#EAECE8]"
                         >
                           <ShieldCheck className="w-4 h-4 text-[#4CAF50]" />
                           <span>Không gian làm việc</span>
-                        </Link>
+                        </button>
+                      )}
+                      {isBuyerUser && (
+                        <div className="py-1 border-b border-[#EAECE8]">
+                          <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                            Chức năng Thương lái
+                          </p>
+                          {[
+                            {
+                              id: 'overview',
+                              label: 'Tổng Quan',
+                              icon: LayoutDashboard,
+                              badge: 0,
+                              badgeClass: '',
+                            },
+                            {
+                              id: 'negotiations',
+                              label: 'Đơn Đàm Phán Giá',
+                              icon: Handshake,
+                              badge: buyerBadges.negotiationsCount,
+                              badgeClass: 'bg-amber-100 text-amber-800',
+                            },
+                            {
+                              id: 'contracts',
+                              label: 'Quản Lý Hợp Đồng',
+                              icon: FileText,
+                              badge: buyerBadges.contractsCount,
+                              badgeClass: 'bg-emerald-100 text-emerald-800',
+                            },
+                            {
+                              id: 'claims',
+                              label: 'Khiếu Nại & Bồi Thường',
+                              icon: AlertTriangle,
+                              badge: buyerBadges.claimsCount,
+                              badgeClass: 'bg-red-100 text-red-700',
+                            },
+                            {
+                              id: 'profile',
+                              label: 'Hồ Sơ & Kho Tiếp Nhận',
+                              icon: UserIcon,
+                              badge: 0,
+                              badgeClass: '',
+                            },
+                          ].map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setIsUserMenuOpen(false);
+                                  router.push(`/portal/buyer?tab=${item.id}&standalone=1`);
+                                }}
+                                className="w-full text-left px-3 py-2 text-[#2C3E2E] hover:bg-[#F4F5F1] flex items-center justify-between gap-2 cursor-pointer transition-colors"
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <Icon className="w-4 h-4 text-[#4CAF50] shrink-0" />
+                                  <span className="truncate">{item.label}</span>
+                                </span>
+                                {item.badge > 0 && (
+                                  <span
+                                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full shrink-0 ${item.badgeClass}`}
+                                  >
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                       <button
                         onClick={() => {

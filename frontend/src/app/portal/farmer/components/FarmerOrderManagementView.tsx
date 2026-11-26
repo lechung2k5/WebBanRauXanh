@@ -45,6 +45,7 @@ import { HarvestPackagingModal } from '@/components/farmer/HarvestPackagingModal
 import B2bContractViewModal, { B2bContractModalData } from '@/components/common/B2bContractViewModal';
 import { formatDateVi, formatStatusVi, formatFulfillmentStatusVi } from '@/utils/formatters';
 import { b2bWebSocket } from '@/services/websocketService';
+import { ContractLiveTrackingMap } from '@/components/common/ContractLiveTrackingMap';
 
 interface FarmerOrderManagementViewProps {
   onNavigateToPostSale: (contractId: number) => void;
@@ -92,10 +93,15 @@ function computeClientStep(rawStatus?: string, depositStatus?: string, rawFulfil
   const ds = String(depositStatus || '').trim().toUpperCase();
 
   if (s === 'COMPLETED' || s === 'SETTLED' || fs === 'COMPLETED') return 6;
-  if (s === 'DELIVERED' || s === 'IN_TRANSIT' || s === 'OUTBOUND_DISPATCHED' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
-  if (s === 'QC_PASSED' || s === 'AT_HUB_QC' || s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || fs === 'HUB_DELIVERED') return 4;
-  if (s === 'PACKAGING_APPROVED' || s === 'HARVESTED' || fs === 'HARVESTED') return 3;
-  if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' || fs === 'HARVESTING' || fs === 'WAITING_HARVEST') return 2;
+  if (s === 'DELIVERED' || s === 'IN_TRANSIT' || fs === 'DELIVERED' || fs === 'IN_TRANSIT') return 5;
+  if (s === 'QC_PASSED' || s === 'READY_OUTBOUND' || s === 'OUTBOUND_DISPATCHED' || s === 'QC_FAILED' || s === 'AT_HUB_QC' || fs === 'HUB_DELIVERED' || fs === 'QC_FAILED' || fs === 'QC_RETURNED_REFUNDED') return 4;
+  if (s === 'IN_TRANSIT_HUB' || s === 'PICKUP_DISPATCHED' || s === 'PACKAGING_APPROVED' || fs === 'PACKAGING_APPROVED') return 3;
+  if (
+    s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID' ||
+    s === 'HARVEST_SUBMITTED' || s === 'HARVEST_REJECTED' || s === 'HARVESTED' ||
+    fs === 'HARVEST_SUBMITTED' || fs === 'HARVESTED' ||
+    fs === 'HARVESTING' || fs === 'WAITING_HARVEST'
+  ) return 2;
   return 1;
 }
 
@@ -113,8 +119,9 @@ function computeClientStepName(rawStatus?: string, depositStatus?: string, rawFu
   if (s === 'AT_HUB_QC' || fs === 'HUB_DELIVERED') return 'Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)';
   if (s === 'IN_TRANSIT_HUB') return 'Tài Xế Đã Lấy Hàng · Đang Vận Chuyển Về Trạm Hub';
   if (s === 'PICKUP_DISPATCHED') return 'Đã Điều Phối Xe Gom · Tài Xế Đang Tới Vườn Lấy Hàng';
-  if (s === 'PACKAGING_APPROVED' || isApproved) return 'BQT Đã Duyệt Bao Bì · Sẵn Sàng Điều Xe Gom';
-  if (s === 'HARVESTED' || fs === 'HARVESTED') return 'Đã Đóng Gói (QR Code) · Chờ BQT Duyệt Bao Bì';
+  if (s === 'PACKAGING_APPROVED' || isApproved) return 'BQT Đã Duyệt Bao Bì · Đã Thu Hoạch Xong & Chờ Điều Xe';
+  if (s === 'HARVEST_REJECTED') return 'BQT Yêu Cầu Làm Lại Nghiệm Thu · Vui Lòng Cập Nhật';
+  if (s === 'HARVEST_SUBMITTED' || fs === 'HARVEST_SUBMITTED' || s === 'HARVESTED' || fs === 'HARVESTED') return 'Đã Nộp Nghiệm Thu · Chờ BQT Duyệt Đóng Gói';
   if (s === 'ACTIVE' || s === 'DEPOSIT_PAID' || ds === 'DEPOSIT_PAID') return 'Đã Cọc 30% · Nhà Vườn Chuẩn Bị Thu Hoạch và Đóng Gói';
   return 'Chờ Buyer Đặt Cọc 30% Escrow';
 }
@@ -140,6 +147,175 @@ export default function FarmerOrderManagementView({
   const [farmPickupAddress, setFarmPickupAddress] = useState<string>('');
   const [harvestNotes, setHarvestNotes] = useState<string>('Rau thu hoạch sáng sớm, cuống tươi ráo sương, tỷ lệ loại 1 đạt 98%');
   const [submittingVerification, setSubmittingVerification] = useState<boolean>(false);
+  const [liveTrackingContract, setLiveTrackingContract] = useState<any | null>(null);
+  const [qcDetailContract, setQcDetailContract] = useState<any | null>(null);
+
+  const openPrintQcReportA4 = (c: any) => {
+    const win = window.open('', '_blank', 'width=900,height=780');
+    if (!win) {
+      setQcDetailContract(c);
+      return;
+    }
+
+    const isQcReturned = c.qcStatus === 'QC_RETURNED' || c.fulfillmentStatus === 'QC_RETURNED_REFUNDED';
+    const isQcFailed = !isQcReturned && (c.qcStatus === 'QC_FAILED' || c.status === 'QC_FAILED');
+    const isFailed = isQcReturned || isQcFailed;
+
+    const brixVal = Number(c.qcBrix ?? 12.5);
+    const nitrateVal = Number(c.qcNitratePpm ?? 220);
+    const pesticideSafe = c.qcPesticideSafe !== false;
+    const tempVal = Number(c.farmHandoverTemp ?? 4.0);
+
+    const inspectDate = c.qcPassedAt ? new Date(c.qcPassedAt) : new Date();
+    const dayStr = String(inspectDate.getDate()).padStart(2, '0');
+    const monthStr = String(inspectDate.getMonth() + 1).padStart(2, '0');
+    const yearStr = String(inspectDate.getFullYear());
+    const harvestDateStr = c.harvestedAt
+      ? new Date(c.harvestedAt).toLocaleDateString('vi-VN')
+      : c.createdAt
+      ? new Date(c.createdAt).toLocaleDateString('vi-VN')
+      : `${dayStr}/${monthStr}/${yearStr}`;
+
+    const q3Weight = Number(c.inboundNetWeightKg || c.actualHarvestWeightKg || c.quantityKg || 0);
+    const overallResult = isQcReturned
+      ? 'Không đạt (Đã lập biên bản hoàn hàng & hoàn cọc)'
+      : isQcFailed
+      ? 'Không đạt'
+      : 'Đạt chuẩn QA/QC HoNa Fresh';
+    const recommendation = c.deliveryNotes
+      ? c.deliveryNotes
+      : isFailed
+      ? 'Cô lập lô hàng không đạt chuẩn, lập biên bản hoàn trả Nhà vườn và hoàn cọc 30% Escrow cho Thương lái.'
+      : `Lô hàng đạt chuẩn VietGAP (${q3Weight.toLocaleString('vi-VN')} kg). Cho phép lưu kho mát tại ${c.hubWarehouseZone || 'Zone A'} / ${c.hubRackBin || 'BIN A-01'} và ưu tiên xuất kho theo FEFO.`;
+
+    const actionGuide = isFailed
+      ? `1. Tạm khóa lô hàng ${c.lotCode || c.contractCode} trên hệ thống xuất kho Outbound.\n2. Thông báo Nhà vườn (${c.farmerName || 'Chủ vườn'}) nhận lại hàng hoàn trả tại trạm ${c.hubName || 'HoNa Fresh'}.\n3. Kiểm tra lại quy trình canh tác (Brix/Nitrate/BVTV) trước khi mở bán lô kế tiếp.`
+      : `1. Tiếp nhận bảo quản liên tục ở dải nhiệt độ 2.0°C – 6.0°C tại ${c.hubWarehouseZone || 'Zone A'} / ${c.hubRackBin || 'BIN A-01'}.\n2. Mở khóa ghép chuyến giao hàng Outbound tới kho Thương lái (${c.buyerName || 'Buyer'}).\n3. Đối soát và giải ngân Payout cho Nhà vườn sau khi hoàn tất ePOD.`;
+
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Báo Cáo Kiểm Soát Chất Lượng (QA/QC) - ${c.contractCode}</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body { font-family: "Times New Roman", Times, serif; color: #0f172a; font-size: 13px; line-height: 1.5; max-width: 820px; margin: 0 auto; padding: 16px; }
+            .no-print { display: flex; justify-content: flex-end; gap: 8px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px dashed #cbd5e1; font-family: Arial, sans-serif; }
+            @media print { .no-print { display: none !important; } body { padding: 0; max-width: none; } }
+            table.header-box { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+            table.header-box td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: center; vertical-align: top; }
+            h2.sec { font-size: 13.5px; font-weight: bold; margin: 14px 0 6px; }
+            p.line { margin: 4px 0; }
+            table.criteria { width: 100%; border-collapse: collapse; margin: 8px 0 12px; }
+            table.criteria th, table.criteria td { border: 1px solid #64748b; padding: 7px 9px; font-size: 12.5px; }
+            table.criteria th { background: #f1f5f9; text-align: center; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="no-print">
+            <button onclick="window.print()" style="background:#10542c;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:bold;cursor:pointer;">In Báo Cáo QC (A4)</button>
+            <button onclick="window.close()" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:8px 14px;border-radius:8px;font-weight:bold;cursor:pointer;">Đóng</button>
+          </div>
+
+          <table class="header-box">
+            <tr>
+              <td style="width:42%;">
+                <div style="font-weight:bold;">Bộ phận</div>
+                <div style="margin-top:6px;">Phòng Kiểm Định Chất Lượng (QA/QC)<br/>Hệ thống HoNa Fresh</div>
+              </td>
+              <td style="width:58%;">
+                <div style="font-weight:bold;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                <div style="font-weight:bold;">Độc lập - Tự do - Hạnh phúc</div>
+                <div>---------</div>
+                <div style="margin-top:6px;font-style:italic;">Ngày ${dayStr} Tháng ${monthStr} Năm ${yearStr}</div>
+              </td>
+            </tr>
+          </table>
+
+          <div style="text-align:center;margin:10px 0 16px;">
+            <div style="font-size:16px;font-weight:bold;">BÁO CÁO</div>
+            <div style="font-size:15px;font-weight:bold;margin-top:2px;">KIỂM SOÁT CHẤT LƯỢNG SẢN PHẨM (QA/QC)</div>
+          </div>
+
+          <h2 class="sec">1. Thông tin sản phẩm</h2>
+          <p class="line"><strong>Tên sản phẩm:</strong> ${c.productName || 'Nông sản VietGAP'} (Khối lượng: ${q3Weight.toLocaleString('vi-VN')} kg)</p>
+          <p class="line"><strong>Mã sản phẩm / Hợp đồng:</strong> ${c.contractCode}</p>
+          <p class="line"><strong>Ngày sản xuất / Thu hoạch:</strong> ${harvestDateStr}</p>
+          <p class="line"><strong>Lô sản xuất / Mã PUC:</strong> ${c.lotCode || 'LOT-VG'} ${c.pucCode ? `· ${c.pucCode}` : ''}</p>
+
+          <h2 class="sec">2. Thông tin bộ phận/ đơn vị kiểm tra</h2>
+          <p class="line"><strong>Tên người kiểm tra:</strong> Kỹ thuật viên KCS HoNa Fresh</p>
+          <p class="line"><strong>Chức vụ:</strong> Chuyên viên Kiểm soát Chất lượng (QA/QC) — ${c.hubName || 'Trạm Trung Chuyển HoNa Fresh'}</p>
+          <p class="line"><strong>Ngày kiểm tra:</strong> ${inspectDate.toLocaleString('vi-VN')}</p>
+
+          <h2 class="sec">3. Tiêu chí kiểm soát chất lượng</h2>
+          <table class="criteria">
+            <thead>
+              <tr>
+                <th style="width:45px;">STT</th>
+                <th>Tiêu chí kiểm tra</th>
+                <th>Tiêu chuẩn đầu ra</th>
+                <th>Kết quả kiểm tra</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="text-align:center;">1</td>
+                <td>Độ ngọt / Chất lượng (Brix)</td>
+                <td style="text-align:center;">≥ 10.0 °Bx</td>
+                <td style="text-align:center;font-weight:bold;">${brixVal} °Bx</td>
+                <td style="text-align:center;font-weight:bold;color:${brixVal >= 10 ? '#15803d' : '#be123c'};">${brixVal >= 10 ? 'Đạt' : 'Không đạt'}</td>
+              </tr>
+              <tr>
+                <td style="text-align:center;">2</td>
+                <td>Dư lượng Nitrate (NO₃⁻)</td>
+                <td style="text-align:center;">≤ 300 ppm</td>
+                <td style="text-align:center;font-weight:bold;">${nitrateVal} ppm</td>
+                <td style="text-align:center;font-weight:bold;color:${nitrateVal <= 300 ? '#15803d' : '#be123c'};">${nitrateVal <= 300 ? 'Đạt' : 'Vượt ngưỡng'}</td>
+              </tr>
+              <tr>
+                <td style="text-align:center;">3</td>
+                <td>Dư lượng thuốc BVTV (Test nhanh)</td>
+                <td style="text-align:center;">Âm tính (0%)</td>
+                <td style="text-align:center;font-weight:bold;">${pesticideSafe ? 'Âm tính' : 'Dương tính'}</td>
+                <td style="text-align:center;font-weight:bold;color:${pesticideSafe ? '#15803d' : '#be123c'};">${pesticideSafe ? 'An toàn' : 'Không đạt'}</td>
+              </tr>
+              <tr>
+                <td style="text-align:center;">4</td>
+                <td>Nhiệt độ bảo quản & Cảm quan</td>
+                <td style="text-align:center;">2.0°C – 6.0°C, tươi ráo</td>
+                <td style="text-align:center;font-weight:bold;">${tempVal.toFixed(1)} °C</td>
+                <td style="text-align:center;font-weight:bold;color:#15803d;">Đạt chuỗi lạnh</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2 class="sec">4. Đánh giá tổng quát</h2>
+          <p class="line" style="padding-left:14px;">- <strong>Kết quả chung:</strong> <span style="font-weight:bold;color:${isFailed ? '#be123c' : '#15803d'};">${overallResult}</span></p>
+          <p class="line" style="padding-left:14px;">- <strong>Khuyến nghị:</strong> ${recommendation}</p>
+
+          <h2 class="sec">5. Hướng dẫn triển khai xử lý & bảo quản</h2>
+          <div style="white-space:pre-line;padding-left:14px;">${actionGuide}</div>
+
+          <div style="display:flex;justify-content:space-between;gap:24px;margin-top:26px;text-align:center;">
+            <div style="flex:1;">
+              <div style="font-weight:bold;">ĐẠI DIỆN NHÀ VƯỜN</div>
+              <div style="font-size:11px;color:#475569;margin-bottom:46px;">(Đã đối soát kết quả)</div>
+              <div style="font-weight:bold;">${c.farmerName || 'Nhà vườn cung ứng'}</div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:bold;">NGƯỜI KIỂM TRA (QA/QC)</div>
+              <div style="font-size:11px;color:#475569;margin-bottom:46px;">(Ký xác thực điện tử)</div>
+              <div style="font-weight:bold;">KTV KCS HoNa Fresh</div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
 
   const openHarvestVerificationModal = (contract: B2bSyncContract) => {
     const defaultQty = contract.quantityKg || 100;
@@ -259,10 +435,14 @@ export default function FarmerOrderManagementView({
             productName: ac.productName || 'Nông sản VietGAP',
             buyerName: ac.buyerName || 'Khách mua sỉ',
             buyerPhone: ac.buyerPhone || '0901234567',
-            buyerCompany: ac.buyerName || 'Khách mua sỉ',
-            farmerName: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            buyerCompany: (ac as any).buyerCompany || ac.buyerName || 'Khách mua sỉ',
+            buyerAddress: (ac as any).buyerAddress || (ac as any).deliveryAddress || ac.hubName || '',
+            farmerName: (ac as any).farmerName || ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
             farmerPhone: ac.farmerPhone || '0912345678',
-            farmerCompany: ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            farmerCompany: (ac as any).farmerCompany || ac.farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+            farmerAddress: (ac as any).farmerAddress || (ac as any).farmPickupAddress || '',
+            pucCode: (ac as any).pucCode || '',
+            shippingOption: (ac as any).shippingOption || (ac as any).shipping_option || 'CROSS_DOCKING_HUB',
             quantityKg: Number(ac.quantity) || 0,
             agreedPricePerKg: Number(ac.unitPrice) || 0,
             totalAmount: Number(ac.totalAmount) || 0,
@@ -274,11 +454,11 @@ export default function FarmerOrderManagementView({
             fulfillmentStatus: rawFulfillment,
             fulfillmentStep: fStep,
             fulfillmentStatusName: fName,
-            truckLicensePlate: ac.pickupTruckPlate || ac.truckType || '49C-198.86 (Xe Thùng Lạnh)',
-            truckDriverName: ac.pickupDriverName || 'Tài xế HoNa Fresh',
-            truckDriverPhone: ac.pickupDriverPhone || '0944556677',
+            truckLicensePlate: ac.pickupTruckPlate || ac.truckType || '',
+            truckDriverName: ac.pickupDriverName || '',
+            truckDriverPhone: ac.pickupDriverPhone || '',
             truckTempCurrent: 4.0,
-            deliveryAddress: ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
+            deliveryAddress: (ac as any).buyerAddress || (ac as any).deliveryAddress || ac.hubName || 'Trạm Trung Chuyển Đức Trọng',
             deliveryTimeSlot: ac.hubDeliveryDate || '06:00 - 09:00',
             finalPaidStatus: (ac.settlementId || (ac as any).settledAt || (ac as any).remainingPaymentStatus === 'PAID' || rawStatus === 'SETTLED' || rawStatus === 'COMPLETED' || fStep === 6) ? 'PAID' : 'UNPAID',
             epodSignedAt: (ac as any).epodDeliveredAt || (ac as any).epodSignedAt || ((ac as any).epodSignatureUrl ? ((ac as any).epodDeliveredAt || new Date().toISOString()) : undefined),
@@ -301,6 +481,7 @@ export default function FarmerOrderManagementView({
             harvestProofImageUrl: (ac as any).harvest_proof_image_url || (ac as any).harvestProofImageUrl,
             qrCodeData: (ac as any).qr_code_data || (ac as any).qrCodeData,
             farmPickupAddress: (ac as any).farm_pickup_address || (ac as any).farmPickupAddress,
+            deliveryNotes: (ac as any).deliveryNotes || (ac as any).delivery_notes || '',
             notes: (ac as any).notes || (ac as any).harvest_notes,
             createdAt: ac.createdAt || new Date().toISOString(),
           } as any;
@@ -397,6 +578,7 @@ export default function FarmerOrderManagementView({
             if (c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()) {
               return {
                 ...c,
+                status: !c.status || c.status === 'AGREED' || c.status === 'RFQ_SENT' ? 'DEPOSIT_PAID' : c.status,
                 depositStatus: 'DEPOSIT_PAID',
                 depositPaidAt: new Date().toISOString(),
                 fulfillmentStep: c.fulfillmentStep <= 1 ? 2 : c.fulfillmentStep,
@@ -407,6 +589,93 @@ export default function FarmerOrderManagementView({
           })
         );
         setActionSuccessMsg(`Hợp đồng ${code} vừa nhận cọc 30% Escrow thành công! Bạn có thể bắt đầu thu hoạch.`);
+      } else if (rawStatus === 'AT_HUB_QC' && code) {
+        setContracts((prev) =>
+          prev.map((c) => {
+            if (c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()) {
+              return {
+                ...c,
+                status: 'AT_HUB_QC',
+                fulfillmentStatus: 'AT_HUB_QC',
+                fulfillmentStep: 4,
+                fulfillmentStatusName: 'Đã Tới Trạm Hub · Đang Kiểm Định QC (Brix / Nitrat)',
+              };
+            }
+            return c;
+          })
+        );
+        setActionSuccessMsg(`Xe lạnh đã đưa nông sản Hợp đồng ${code} về trạm Hub! Đang tiến hành kiểm định QC & lưu kho.`);
+      } else if (rawStatus === 'IN_TRANSIT' && code) {
+        const cData = payload?.contract || {};
+        setContracts((prev) =>
+          prev.map((c) => {
+            if (c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()) {
+              return {
+                ...c,
+                status: 'IN_TRANSIT',
+                fulfillmentStatus: 'IN_TRANSIT',
+                fulfillmentStep: 5,
+                fulfillmentStatusName: 'Xe Lạnh Đang Vận Chuyển Tới Kho Buyer',
+                outboundTruckPlate: cData.outboundTruckPlate || (c as any).outboundTruckPlate,
+                outboundDriverName: cData.outboundDriverName || (c as any).outboundDriverName,
+                driverGpsLat: cData.driverGpsLat ?? (c as any).driverGpsLat,
+                driverGpsLng: cData.driverGpsLng ?? (c as any).driverGpsLng,
+              } as any;
+            }
+            return c;
+          })
+        );
+        setActionSuccessMsg(`Chuyến xe lạnh giao Hợp đồng ${code} đã xuất bến! Bạn có thể xem đường đi GPS trực tiếp.`);
+      } else if ((rawStatus === 'PACKAGING_REJECTED' || rawStatus === 'HARVEST_REJECTED') && code) {
+        const rejectReason = payload?.reason || payload?.contract?.delivery_notes || payload?.contract?.deliveryNotes || '';
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()
+              ? { ...c, status: 'HARVEST_REJECTED', packagingApproved: false, deliveryNotes: rejectReason || (c as any).deliveryNotes }
+              : c
+          )
+        );
+        setActionSuccessMsg(`Ban Quản Trị yêu cầu làm lại nghiệm thu cho Hợp đồng ${code}${rejectReason ? `: ${rejectReason}` : '.'}`);
+      } else if ((rawStatus === 'BALANCE_PAID' || rawStatus === 'DELIVERED') && code) {
+        const isPaid100 = rawStatus === 'BALANCE_PAID';
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()
+              ? {
+                  ...c,
+                  status: 'DELIVERED',
+                  fulfillmentStatus: isPaid100 ? 'COMPLETED' : 'DELIVERED',
+                  fulfillmentStep: isPaid100 ? 6 : 5,
+                  fulfillmentStatusName: isPaid100
+                    ? 'Hoàn Thành · Buyer Đã Thanh Toán Đủ 100%'
+                    : 'Đã Giao Hàng · Chờ Buyer Thanh Toán 70% Còn Lại',
+                  ...(isPaid100 ? { remainingPaymentStatus: 'PAID' } : {}),
+                }
+              : c
+          )
+        );
+        setActionSuccessMsg(
+          isPaid100
+            ? `Thương lái đã thanh toán đủ 70% còn lại cho Hợp đồng ${code} · Đơn đã hoàn thành, chờ Kế toán giải ngân!`
+            : `Hợp đồng ${code} đã giao hàng thành công!`
+        );
+      } else if (rawStatus === 'SETTLED' && code) {
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.contractCode && c.contractCode.trim().toUpperCase() === code.trim().toUpperCase()
+              ? {
+                  ...c,
+                  status: 'SETTLED',
+                  fulfillmentStatus: 'SETTLED',
+                  fulfillmentStep: 6,
+                  fulfillmentStatusName: 'Giao Dịch Thành Công · Đã Quyết Toán 100%',
+                  remainingPaymentStatus: 'PAID',
+                  finalPaidStatus: 'PAID',
+                }
+              : c
+          )
+        );
+        setActionSuccessMsg(`Sàn HoNa Fresh đã giải ngân hoàn tất cho Hợp đồng ${code}!`);
       } else {
         setActionSuccessMsg(`Hợp đồng ${code || ''} vừa được cập nhật thời gian thực!`);
       }
@@ -427,8 +696,22 @@ export default function FarmerOrderManagementView({
       debouncedReloadContracts(600);
     });
 
+    const unsubDispatch = b2bWebSocket.subscribeDispatch((payload) => {
+      const action = String(payload?.action || '').toUpperCase();
+      if (
+        action.includes('OUTBOUND_TRIP') ||
+        action.includes('TRIP_RETURNING') ||
+        action.includes('TRIP_ARRIVED') ||
+        action.includes('TRIP_COMPLETED') ||
+        action.includes('STOP_LOADED')
+      ) {
+        debouncedReloadContracts(300);
+      }
+    });
+
     return () => {
       unsubContracts();
+      unsubDispatch();
       unsubscribe();
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -637,19 +920,49 @@ export default function FarmerOrderManagementView({
       ) : (
         <div className="space-y-4">
           {filteredContracts.map((contract) => {
-            const isDepositPaid = contract.depositStatus === 'DEPOSIT_PAID';
+            const cStatusUpper = String(contract.status || '').toUpperCase();
+            const isDepositPaid =
+              contract.depositStatus === 'DEPOSIT_PAID' ||
+              [
+                'DEPOSIT_PAID',
+                'ACTIVE',
+                'HARVESTING',
+                'HARVEST_SUBMITTED',
+                'HARVEST_REJECTED',
+                'HARVESTED',
+                'PACKAGING_APPROVED',
+                'PICKUP_DISPATCHED',
+                'IN_TRANSIT_HUB',
+                'AT_HUB_QC',
+                'QC_PASSED',
+                'OUTBOUND_DISPATCHED',
+                'IN_TRANSIT',
+                'DELIVERED',
+                'SETTLED',
+                'COMPLETED',
+              ].includes(cStatusUpper);
+            const isHarvestRejected =
+              String(contract.status || '').toUpperCase() === 'HARVEST_REJECTED';
             const isHarvestDone = Boolean(
-              (contract as any).isHarvestDone ||
-              contract.actualHarvestWeightKg ||
-              contract.fulfillmentStatusName?.includes('Đã Thu Hoạch') ||
-              contract.fulfillmentStatusName?.includes('Đã Nộp') ||
-              contract.fulfillmentStep > 2
+              !isHarvestRejected &&
+              (
+                (contract as any).isHarvestDone ||
+                contract.actualHarvestWeightKg ||
+                String(contract.status || '').toUpperCase() === 'HARVEST_SUBMITTED' ||
+                String((contract as any).fulfillmentStatus || '').toUpperCase() === 'HARVEST_SUBMITTED' ||
+                contract.fulfillmentStatusName?.includes('Đã Thu Hoạch') ||
+                contract.fulfillmentStatusName?.includes('Đã Nộp') ||
+                contract.fulfillmentStep > 2
+              )
             );
             const isPackagingApproved = Boolean(
-              (contract as any).packagingApproved ||
-              contract.pickupTruckPlate ||
-              contract.fulfillmentStep >= 3 ||
-              contract.fulfillmentStatusName?.includes('Đã Duyệt Đóng Gói')
+              !isHarvestRejected &&
+              (
+                (contract as any).packagingApproved ||
+                contract.pickupTruckPlate ||
+                contract.fulfillmentStep >= 3 ||
+                contract.fulfillmentStatusName?.includes('Đã Duyệt')
+              )
             );
             const isWaitingAdminApproval = isHarvestDone && !isPackagingApproved;
             const isHarvesting = (contract as any).isHarvesting || (contract.fulfillmentStep === 2 && !isHarvestDone);
@@ -726,7 +1039,12 @@ export default function FarmerOrderManagementView({
                           : 'bg-amber-50 text-amber-800 border border-amber-200'
                       }`}
                     >
-                      {isWaitingAdminApproval ? (
+                      {isHarvestRejected ? (
+                        <>
+                          <Clock className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Mốc 2/6: BQT Yêu Cầu Làm Lại Nghiệm Thu</span>
+                        </>
+                      ) : isWaitingAdminApproval ? (
                         <>
                           <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
                           <span>Mốc 2/6: Đã Nộp Nghiệm Thu · Chờ BQT Duyệt Đóng Gói</span>
@@ -792,7 +1110,17 @@ export default function FarmerOrderManagementView({
                   <div className="space-y-2 p-3.5 rounded-2xl bg-gray-50/80 border border-gray-100">
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Vận Chuyển & Bàn Giao</span>
                     {contract.fulfillmentStep < 3 && !isPackagingApproved ? (
-                      isWaitingAdminApproval ? (
+                      isHarvestRejected ? (
+                        <div className="space-y-1.5 py-1">
+                          <div className="flex items-center gap-1.5 text-rose-900 bg-rose-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-rose-300">
+                            <Clock className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>BQT yêu cầu làm lại nghiệm thu</span>
+                          </div>
+                          <p className="text-xs text-rose-800 leading-relaxed font-medium">
+                            Lý do: {(contract as any).deliveryNotes || 'Vui lòng kiểm tra lại ảnh cân, tem dán hoặc số liệu và nộp lại cho BQT duyệt.'}
+                          </p>
+                        </div>
+                      ) : isWaitingAdminApproval ? (
                         <div className="space-y-1.5 py-1">
                           <div className="flex items-center gap-1.5 text-amber-900 bg-amber-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-amber-300">
                             <Clock className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
@@ -820,7 +1148,7 @@ export default function FarmerOrderManagementView({
                           </p>
                         </div>
                       )
-                    ) : contract.fulfillmentStep < 3 && isPackagingApproved ? (
+                    ) : isPackagingApproved && !contract.pickupTruckPlate && contract.fulfillmentStep <= 3 ? (
                       <div className="space-y-1.5 py-1">
                         <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -839,28 +1167,66 @@ export default function FarmerOrderManagementView({
                       </div>
                     ) : contract.fulfillmentStep === 4 ? (
                       <div className="space-y-1.5 py-0.5">
-                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>Đã Nhập Kho HoNa & QC Đạt Chuẩn</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs pt-0.5">
-                          <span className="text-gray-500">Khu vực lưu:</span>
-                          <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
-                            {(contract as any).hubWarehouseZone || 'Zone A (Lạnh mát 2-6°C)'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-500">Tọa độ kệ:</span>
-                          <span className="font-mono font-bold text-gray-800">
-                            {(contract as any).hubRackBin || 'Kệ R-02 Ô B-04'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
-                          <span>Nhiệt độ kho:</span>
-                          <span className="font-mono font-bold text-emerald-700">
-                            4.0°C (Chuẩn 2-6°C)
-                          </span>
-                        </div>
+                        {(contract as any).fulfillmentStatus === 'QC_RETURNED_REFUNDED' || contract.qcStatus === 'QC_RETURNED' ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-rose-800 bg-rose-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-rose-300">
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>Không Đạt QC · Đã Lập Biên Bản Hoàn Hàng & Hoàn Cọc</span>
+                            </div>
+                            {(contract as any).deliveryNotes && (
+                              <p className="text-[11px] text-rose-800 leading-relaxed">{(contract as any).deliveryNotes}</p>
+                            )}
+                          </div>
+                        ) : contract.qcStatus === 'QC_FAILED' || contract.status === 'QC_FAILED' ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-rose-800 bg-rose-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-rose-300">
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>Không Đạt Kiểm Định QC · Chờ Hoàn Hàng</span>
+                            </div>
+                            <p className="text-[11px] text-rose-800 leading-relaxed">
+                              Lý do: {(contract as any).deliveryNotes || 'Chỉ số kiểm định chưa đạt chuẩn HoNa Fresh.'}
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-300">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>
+                                {contract.qcStatus === 'QC_PASSED' || contract.status === 'QC_PASSED'
+                                  ? 'Đã Đạt Chuẩn QC & Lưu Kho HoNa'
+                                  : 'Đã Nhập Kho HoNa · Đang Chờ Kiểm Định QC'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs pt-0.5">
+                              <span className="text-gray-500">Khu vực lưu:</span>
+                              <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                                {(contract as any).hubWarehouseZone || 'Zone A (Lạnh mát 2-6°C)'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500">Tọa độ kệ:</span>
+                              <span className="font-mono font-bold text-gray-800">
+                                {(contract as any).hubRackBin || 'Kệ R-01 Ô A-01'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-xs text-gray-700 pt-1 border-t border-gray-100">
+                              <span>Nhiệt độ kho:</span>
+                              <span className="font-mono font-bold text-emerald-700">
+                                4.0°C (Chuẩn 2-6°C)
+                              </span>
+                            </div>
+                            {(contract.qcStatus === 'QC_PASSED' || contract.status === 'QC_PASSED') && (
+                              <button
+                                type="button"
+                                onClick={() => setQcDetailContract(contract)}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-[#10542C] hover:underline pt-1 cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Xem Biên Bản Kiểm Định QC</span>
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     ) : contract.fulfillmentStep === 5 ? (
                       <div className="space-y-1.5 py-0.5">
@@ -886,6 +1252,14 @@ export default function FarmerOrderManagementView({
                             4.0°C (Chuẩn 2-6°C)
                           </span>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setLiveTrackingContract(contract)}
+                          className="w-full mt-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Xem Đường Đi GPS Tài Xế</span>
+                        </button>
                       </div>
                     ) : contract.fulfillmentStep === 6 ? (
                       <div className="space-y-1.5 py-0.5">
@@ -978,10 +1352,10 @@ export default function FarmerOrderManagementView({
                     {[
                       { step: 1, label: '1. Chốt & Cọc' },
                       { step: 2, label: '2. Thu Hoạch' },
-                      { step: 3, label: '3. Xe Lạnh' },
-                      { step: 4, label: '4. Giao Hàng' },
-                      { step: 5, label: '5. Ký Nhận Hàng' },
-                      { step: 6, label: '6. Quyết Toán' },
+                      { step: 3, label: '3. Lấy Hàng' },
+                      { step: 4, label: '4. Kiểm Định & Lưu Kho' },
+                      { step: 5, label: '5. Giao Hàng' },
+                      { step: 6, label: '6. Hoàn Tất' },
                     ].map((m) => {
                       const isDone = contract.fulfillmentStep >= m.step;
                       const isCurrent = contract.fulfillmentStep === m.step;
@@ -1010,19 +1384,24 @@ export default function FarmerOrderManagementView({
                     <span className={`font-bold px-3 py-1.5 rounded-xl border flex items-center gap-2 ${
                       isWaitingAdminApproval
                         ? 'text-amber-900 bg-amber-50 border-amber-300'
-                        : isPackagingApproved && contract.fulfillmentStep <= 2
+                        : isPackagingApproved && !contract.pickupTruckPlate && contract.fulfillmentStep <= 3
                         ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
                         : 'text-[#10542C] bg-emerald-50 border-emerald-200'
                     }`}>
-                      {isWaitingAdminApproval ? (
+                      {isHarvestRejected ? (
+                        <>
+                          <Clock className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Mốc 2/6: BQT Yêu Cầu Làm Lại Nghiệm Thu</span>
+                        </>
+                      ) : isWaitingAdminApproval ? (
                         <>
                           <Clock className="w-4 h-4 text-amber-600 animate-pulse" />
                           <span>Mốc 2/6: Đã Nộp Nghiệm Thu · Chờ BQT Duyệt Đóng Gói</span>
                         </>
-                      ) : isPackagingApproved && contract.fulfillmentStep <= 2 ? (
+                      ) : isPackagingApproved && !contract.pickupTruckPlate && contract.fulfillmentStep <= 3 ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>Mốc 2/6: BQT Đã Duyệt Đóng Gói · Chờ Xe Lạnh Đến Lấy</span>
+                          <span>Mốc 3/6: BQT Đã Duyệt Đóng Gói · Chờ Xe Lạnh Đến Lấy</span>
                         </>
                       ) : (
                         <>
@@ -1037,6 +1416,18 @@ export default function FarmerOrderManagementView({
                     {/* Thao tác Thu hoạch của Nông dân khi hợp đồng đã nhận cọc */}
                     {isDepositPaid && (
                       (() => {
+                        if (isHarvestRejected) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setHarvestVerificationContract(contract)}
+                              className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition cursor-pointer"
+                            >
+                              <Scale className="w-4 h-4" />
+                              <span>Làm Lại Nghiệm Thu & Đóng Gói</span>
+                            </button>
+                          );
+                        }
                         if (isWaitingAdminApproval) {
                           return (
                             <div className="flex items-center gap-1.5">
@@ -1129,10 +1520,13 @@ export default function FarmerOrderManagementView({
                           buyerCompany: contract.buyerCompany || 'Công Ty TNHH Thu Mua Sỉ Nông Sản Sài Gòn',
                           buyerRepresentative: contract.buyerName || 'Trần Thị Thương',
                           buyerPhone: contract.buyerPhone || '0987.654.321',
-                          farmerName: contract.farmerName || 'HTX Nông Nghiệp Đà Lạt GAP',
-                          farmerCompany: contract.farmerCompany || 'HTX Nông Nghiệp Đà Lạt GAP',
-                          farmerRepresentative: 'Nguyễn Văn Nông',
+                          buyerAddress: (contract as any).buyerAddress || contract.deliveryAddress || '',
+                          farmerName: (contract as any).farmerName || contract.farmerCompany || 'HTX Nông Nghiệp Đà Lạt GAP',
+                          farmerCompany: contract.farmerCompany || (contract as any).farmName || 'HTX Nông Nghiệp Đà Lạt GAP',
+                          farmerRepresentative: (contract as any).farmerName || contract.farmerCompany || '',
                           farmerPhone: contract.farmerPhone || '0912.345.678',
+                          farmerAddress: (contract as any).farmerAddress || (contract as any).farmPickupAddress || '',
+                          farmerPuc: (contract as any).pucCode || '',
                           quantityKg: contract.quantityKg,
                           unitPrice: contract.agreedPricePerKg,
                           totalAmount: contract.totalAmount,
@@ -1165,21 +1559,59 @@ export default function FarmerOrderManagementView({
                       <span>Xem Hợp Đồng B2B</span>
                     </button>
 
-                    {/* Nút Xem chi tiết Vận chuyển & Biên bản -> CHỈ MỞ KHI BQT ĐÃ DUYỆT ĐÓNG GÓI HOẶC ĐÃ ĐIỀU XE */}
-                    {isPackagingApproved || contract.fulfillmentStep >= 3 ? (
+                    {/* Nút Xem Biên Bản Kiểm Định QC & Theo dõi GPS ngay trên thẻ hợp đồng */}
+                    {(contract.qcStatus === 'QC_PASSED' ||
+                      contract.status === 'QC_PASSED' ||
+                      contract.qcStatus === 'QC_FAILED' ||
+                      contract.status === 'QC_FAILED' ||
+                      contract.qcStatus === 'QC_RETURNED' ||
+                      contract.fulfillmentStep >= 4) ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openPrintQcReportA4(contract)}
+                          className="flex items-center gap-1.5 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Xem Biên Bản Kiểm Định QC</span>
+                        </button>
+                        {contract.fulfillmentStep === 5 && (
+                          <button
+                            type="button"
+                            onClick={() => setLiveTrackingContract(contract)}
+                            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl transition shadow-xs cursor-pointer"
+                          >
+                            <MapPin className="w-3.5 h-3.5" />
+                            <span>Đường Đi GPS</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : isPackagingApproved || contract.fulfillmentStep === 3 ? (
                       <button
                         type="button"
-                        onClick={() => onNavigateToPostSale(contract.id)}
+                        onClick={() => setReviewingContract(contract)}
                         className="flex items-center gap-2 bg-[#10542C] hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-xs cursor-pointer active:scale-98"
                       >
-                        <span>Xem Chi Tiết Vận Chuyển & Biên Bản</span>
+                        <span>Xem Biên Bản Đóng Gói</span>
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => {
-                          if (isWaitingAdminApproval) {
+                          if (isHarvestRejected) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setHarvestVerificationContract(contract)}
+                              className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition cursor-pointer"
+                            >
+                              <Scale className="w-4 h-4" />
+                              <span>Làm Lại Nghiệm Thu & Đóng Gói</span>
+                            </button>
+                          );
+                        }
+                        if (isWaitingAdminApproval) {
                             alert('Biên bản nghiệm thu & đóng gói đang chờ Ban Quản Trị HoNa phê duyệt đạt chuẩn. Sau khi Admin duyệt quy cách và phân công xe lạnh, hệ thống sẽ mở khóa theo dõi hành trình xe lạnh.');
                           } else {
                             alert('Hợp đồng chưa nghiệm thu đóng gói. Vui lòng bấm "Nghiệm Thu Thu Hoạch & Đóng Gói" trước.');
@@ -1480,6 +1912,257 @@ export default function FarmerOrderManagementView({
         role="FARMER"
         onClose={() => setViewingContract(null)}
       />
+
+      {/* Modal Bản đồ Theo dõi Đường đi GPS Tài xế */}
+      {liveTrackingContract && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-3xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  Theo Dõi Lộ Trình Giao Hàng GPS — {liveTrackingContract.contractCode}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Vị trí GPS xe tải lạnh được cập nhật trực tiếp từ chuyến giao hàng HoNa Express
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveTrackingContract(null)}
+                className="p-1.5 rounded-full hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <ContractLiveTrackingMap contract={liveTrackingContract} height={380} />
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xem Biên Bản Kiểm Định QC Chuẩn Nghiệp Vụ B2B */}
+      {qcDetailContract && (() => {
+        const isQcReturned =
+          qcDetailContract.qcStatus === 'QC_RETURNED' ||
+          qcDetailContract.fulfillmentStatus === 'QC_RETURNED_REFUNDED';
+        const isQcFailed =
+          !isQcReturned &&
+          (qcDetailContract.qcStatus === 'QC_FAILED' || qcDetailContract.status === 'QC_FAILED');
+        const brixVal = Number(qcDetailContract.qcBrix ?? 12.5);
+        const nitrateVal = Number(qcDetailContract.qcNitratePpm ?? 220);
+        const pesticideSafe = qcDetailContract.qcPesticideSafe !== false;
+        const tempVal = Number(qcDetailContract.farmHandoverTemp ?? 4.0);
+        const q1Weight = Number(qcDetailContract.quantityKg || 0);
+        const q2Weight = Number(qcDetailContract.actualHarvestWeightKg || q1Weight);
+        const q3Weight = Number(qcDetailContract.inboundNetWeightKg || q2Weight);
+        const inspectedTime = qcDetailContract.qcPassedAt
+          ? new Date(qcDetailContract.qcPassedAt).toLocaleString('vi-VN')
+          : new Date().toLocaleString('vi-VN');
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-xs max-h-[92vh] flex flex-col">
+              {/* Quốc hiệu & Tiêu đề Biên bản */}
+              <div className="px-6 py-4 bg-gradient-to-r from-[#0F3820] to-[#10542C] text-white flex items-start justify-between gap-4 shrink-0">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>HỆ THỐNG NÔNG SẢN B2B HONA FRESH · PHÒNG KIỂM ĐỊNH KCS</span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black tracking-tight">
+                    BIÊN BẢN KIỂM ĐỊNH CHẤT LƯỢNG NÔNG SẢN (QC)
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-emerald-100/90 font-mono">
+                    <span>Số BB: QC-{qcDetailContract.contractCode}</span>
+                    <span>·</span>
+                    <span>Thời gian: {inspectedTime}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQcDetailContract(null)}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4 overflow-y-auto">
+                {/* 1. Kết luận kiểm định */}
+                <div
+                  className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${
+                    isQcReturned || isQcFailed
+                      ? 'bg-rose-50 border-rose-300 text-rose-900'
+                      : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                  }`}
+                >
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-80 block">
+                      Kết luận thẩm định chất lượng lô hàng
+                    </span>
+                    <strong className="text-sm">
+                      {isQcReturned
+                        ? 'KHÔNG ĐẠT CHUẨN QC — ĐÃ LẬP BIÊN BẢN HOÀN HÀNG & HOÀN CỌC'
+                        : isQcFailed
+                        ? 'KHÔNG ĐẠT CHUẨN QC — TẠM ĐÓNG BĂNG CHỜ XỬ LÝ HOÀN TRẢ'
+                        : 'ĐẠT CHUẨN KIỂM ĐỊNH CHẤT LƯỢNG VIETGAP / HONA FRESH'}
+                    </strong>
+                  </div>
+                  <span
+                    className={`px-3 py-1 rounded-full text-white font-bold text-[11px] ${
+                      isQcReturned || isQcFailed ? 'bg-rose-600' : 'bg-emerald-600'
+                    }`}
+                  >
+                    {isQcReturned ? 'HOÀN HÀNG' : isQcFailed ? 'KHÔNG ĐẠT' : '✓ PASS QC'}
+                  </span>
+                </div>
+
+                {/* 2. Thông tin pháp lý 2 bên & Vị trí lưu kho */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Thông tin hợp đồng & Lô hàng</span>
+                    <p>Hợp đồng: <strong className="font-mono text-[#10542C]">{qcDetailContract.contractCode}</strong></p>
+                    <p>Nông sản: <strong>{qcDetailContract.productName}</strong></p>
+                    <p>Mã lô / PUC: <strong className="font-mono">{qcDetailContract.lotCode || 'LOT-VG'} · {qcDetailContract.pucCode || 'VN-PUC'}</strong></p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Đối tác & Điểm kiểm định</span>
+                    <p>Nhà vườn: <strong>{qcDetailContract.farmerCompany || qcDetailContract.farmerName || 'Nhà vườn VietGAP'}</strong></p>
+                    <p>Thương lái: <strong>{qcDetailContract.buyerName || 'Thương lái B2B'}</strong></p>
+                    <p>Vị trí lưu kho: <strong className="font-mono text-slate-900">{qcDetailContract.hubWarehouseZone || 'Zone A'} / {qcDetailContract.hubRackBin || 'BIN A-01'}</strong></p>
+                  </div>
+                </div>
+
+                {/* 3. Bảng đối soát sản lượng Q1 -> Q2 -> Q3 */}
+                <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                  <div className="px-3.5 py-2 bg-slate-100 border-b border-slate-200 font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                    I. Đối Soát Sản Lượng Nghiệm Thu Tại Trạm
+                  </div>
+                  <div className="grid grid-cols-3 divide-x divide-slate-200 text-center p-3 bg-white">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Cam kết HĐ (Q1)</span>
+                      <strong className="font-mono text-sm text-slate-800">{q1Weight.toLocaleString()} kg</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Thực thu tại vườn (Q2)</span>
+                      <strong className="font-mono text-sm text-slate-800">{q2Weight.toLocaleString()} kg</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Đạt chuẩn nhập kho (Q3)</span>
+                      <strong className={`font-mono text-sm ${isQcFailed || isQcReturned ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {isQcFailed || isQcReturned ? '0 kg (Từ chối)' : `${q3Weight.toLocaleString()} kg`}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Bảng chỉ tiêu kỹ thuật KCS */}
+                <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                  <div className="px-3.5 py-2 bg-slate-100 border-b border-slate-200 font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                    II. Kết Quả Phân Tích Chỉ Tiêu An Toàn Thực Phẩm
+                  </div>
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase text-slate-500">
+                        <th className="py-2 px-3">Chỉ tiêu kiểm tra</th>
+                        <th className="py-2 px-3">Ngưỡng chuẩn VietGAP</th>
+                        <th className="py-2 px-3">Kết quả đo</th>
+                        <th className="py-2 px-3 text-right">Đánh giá</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="py-2 px-3 font-medium">Độ ngọt / Chất lượng (Brix)</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">≥ 10.0 °Bx</td>
+                        <td className="py-2 px-3 font-mono font-bold">{brixVal} °Bx</td>
+                        <td className="py-2 px-3 text-right font-bold">
+                          <span className={brixVal >= 10 ? 'text-emerald-700' : 'text-rose-600'}>
+                            {brixVal >= 10 ? 'Đạt' : 'Không đạt'}
+                          </span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-medium">Dư lượng Nitrate (NO₃⁻)</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">≤ 300 ppm</td>
+                        <td className="py-2 px-3 font-mono font-bold">{nitrateVal} ppm</td>
+                        <td className="py-2 px-3 text-right font-bold">
+                          <span className={nitrateVal <= 300 ? 'text-emerald-700' : 'text-rose-600'}>
+                            {nitrateVal <= 300 ? 'Đạt' : 'Vượt ngưỡng'}
+                          </span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-medium">Test nhanh thuốc BVTV</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">Âm tính (0%)</td>
+                        <td className="py-2 px-3 font-bold">{pesticideSafe ? 'Âm tính' : 'Dương tính'}</td>
+                        <td className="py-2 px-3 text-right font-bold">
+                          <span className={pesticideSafe ? 'text-emerald-700' : 'text-rose-600'}>
+                            {pesticideSafe ? 'An toàn' : 'Không đạt'}
+                          </span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-medium">Nhiệt độ bảo quản đầu vào</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">2.0°C – 6.0°C</td>
+                        <td className="py-2 px-3 font-mono font-bold">{tempVal.toFixed(1)} °C</td>
+                        <td className="py-2 px-3 text-right font-bold text-emerald-700">Đạt chuỗi lạnh</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 5. Ghi chú / Căn cứ xử lý nghiệp vụ */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-[11px] text-amber-950 space-y-1">
+                  <strong className="block">III. Ghi chú KCS & Căn cứ xử lý tiếp theo:</strong>
+                  {qcDetailContract.deliveryNotes ? (
+                    <p>{qcDetailContract.deliveryNotes}</p>
+                  ) : isQcFailed || isQcReturned ? (
+                    <p>
+                      Lô hàng không đáp ứng tiêu chuẩn chất lượng cam kết tại hợp đồng. Kho HoNa Fresh tiến hành lập biên bản hoàn trả hàng về Nhà vườn và hoàn trả 30% tiền cọc Escrow cho Thương lái theo quy định.
+                    </p>
+                  ) : (
+                    <p>
+                      Lô hàng đủ điều kiện lưu kho mát FEFO và xuất giao chặng cuối (Outbound) tới kho Thương lái. Khoản giải ngân Payout cho Nhà vườn sẽ được thực hiện sau khi Thương lái ký nhận biên bản ePOD.
+                    </p>
+                  )}
+                </div>
+
+                {/* 6. Chữ ký điện tử 2 bên */}
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200 text-center">
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Đại Diện Trạm Kiểm Định KCS</span>
+                    <strong className="text-[#10542C] block">KTV QC HoNa Fresh</strong>
+                    <span className="text-[10px] text-emerald-700 font-mono block">✓ Đã ký số điện tử</span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Xác Nhận Nhà Vườn Cung Ứng</span>
+                    <strong className="text-slate-900 block">{qcDetailContract.farmerName || 'Chủ Nông Trại'}</strong>
+                    <span className="text-[10px] text-slate-500 font-mono block">Đã đối soát kết quả kiểm định</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 font-bold text-slate-700 cursor-pointer flex items-center gap-1.5"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>In Biên Bản</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQcDetailContract(null)}
+                  className="px-5 py-2 rounded-xl bg-[#10542C] hover:bg-emerald-900 font-bold text-white cursor-pointer"
+                >
+                  Đóng Biên Bản
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

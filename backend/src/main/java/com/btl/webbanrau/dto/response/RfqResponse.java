@@ -30,6 +30,8 @@ public class RfqResponse {
     private String rejectReason;
     private LocalDate deliveryDate;
     private String hubLocation;
+    private String shippingOption;
+    private String notes;
     private String status;
     private String statusLabel;
     private String nextActor;

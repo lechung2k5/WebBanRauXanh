@@ -52,9 +52,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 1. Công khai các endpoint Swagger, Auth, xem Sản phẩm, xem Danh mục, Webhook SePay, WebSocket B2B, Chat B2B
                         .requestMatchers("/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error", "/sepay/**", "/ws-b2b/**", "/chat/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/products/**", "/categories/**", "/harvest-lots/**", "/procurements").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/procurements").hasAnyRole("BUYER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/procurements/*/quotes").hasAnyRole("FARMER", "COOPERATIVE", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/procurements/*/quotes").hasAnyRole("BUYER", "ADMIN")
                         .requestMatchers("/auth/me", "/auth/profile", "/auth/logout-all", "/auth/google-link").authenticated()
                         .requestMatchers(HttpMethod.POST, "/uploads/images").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/iot/warehouse-telemetry").permitAll()
                         .requestMatchers(HttpMethod.GET, "/cold-assets/public-status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/orders/code/**").permitAll()
@@ -79,8 +83,8 @@ public class SecurityConfig {
                         // 3. Portal Thương Lái: BUYER hoặc ADMIN
                         .requestMatchers("/buyer/**", "/rfq/**", "/contracts/buyer/**", "/escrow/deposit/**").hasAnyRole("BUYER", "ADMIN")
 
-                        // 4. Portal Trạm Trung Chuyển & QC: WAREHOUSE_QC hoặc ADMIN
-                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**", "/warehouse/**").hasAnyRole("WAREHOUSE_QC", "ADMIN")
+                        // 4. Portal Trạm Trung Chuyển & QC: WAREHOUSE_QC, WAREHOUSE_MANAGER hoặc ADMIN
+                        .requestMatchers("/hub-inspections/**", "/cold-assets/manage/**", "/warehouse/**").hasAnyRole("WAREHOUSE_QC", "WAREHOUSE_MANAGER", "ADMIN")
 
                         // 5. Portal Tài Xế Lạnh: DRIVER hoặc ADMIN
                         .requestMatchers("/driver/**", "/shipments/epod/**").hasAnyRole("DRIVER", "ADMIN")
@@ -89,9 +93,15 @@ public class SecurityConfig {
                         .requestMatchers("/accounting/**", "/escrow/settlement/**", "/invoices/**").hasAnyRole("ACCOUNTANT", "ADMIN")
 
                         // Hợp đồng dùng chung giữa 2 bên
-                        .requestMatchers("/portal/contracts").hasAnyRole("FARMER", "BUYER", "ADMIN")
+                        .requestMatchers("/portal/contracts", "/portal/contracts/**").hasAnyRole("FARMER", "BUYER", "ADMIN")
 
-                        // Quản lý Đơn hàng & Quản trị viên
+                        // Quản lý Đơn hàng & Quản trị viên & Quản lý kho & Kế toán
+                        .requestMatchers("/admin/accounting/**", "/admin/contracts/*/settle", "/admin/contracts/*/settlement-quote").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "ACCOUNTANT")
+                        .requestMatchers(HttpMethod.GET, "/admin/settings").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "ACCOUNTANT")
+                        .requestMatchers(HttpMethod.GET, "/admin/warehouses/*/layout", "/admin/warehouses/*/iot/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE_QC")
+                        .requestMatchers(HttpMethod.POST, "/admin/warehouses/*/iot/simulate").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE_QC")
+                        .requestMatchers(HttpMethod.POST, "/admin/contracts/*/warehouse-inbound", "/admin/contracts/*/qc-reject").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE_QC")
+                        .requestMatchers("/admin/dashboard/**", "/admin/contracts/**", "/admin/dispatch/**", "/admin/fleet/**", "/admin/inbound-dispatch/**", "/admin/outbound-dispatch/**", "/admin/warehouses/**", "/admin/warehouse-storage/**", "/admin/qc/**", "/admin/hub-inspections/**", "/admin/cold-assets/**", "/admin/claims/**", "/admin/shipments/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER")
                         .requestMatchers("/orders/**").hasRole("ADMIN")
                         .requestMatchers("/admin/**", "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/products/**", "/categories/**").hasRole("ADMIN")

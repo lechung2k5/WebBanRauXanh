@@ -122,6 +122,11 @@ public class BuyerController {
         return ApiResponse.success("Đã ký nhận ePOD", buyer.signEpod(id, request));
     }
 
+    @PostMapping("/contracts/{id}/self-pickup-dispatch")
+    public ApiResponse<Map<String, Object>> dispatchSelfPickup(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        return ApiResponse.success("Đã đăng ký xe đến kho HoNa lấy hàng", buyer.dispatchSelfPickup(id, body));
+    }
+
     @GetMapping("/contracts/{id}/qr-final-payment")
     public ApiResponse<Map<String, Object>> finalPaymentQr(@PathVariable Long id) { return ApiResponse.success(buyer.finalPaymentQr(id)); }
 

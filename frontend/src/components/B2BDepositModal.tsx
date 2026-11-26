@@ -53,9 +53,11 @@ export default function B2BDepositModal({
 
   const { currentUser } = useApp();
   const moq = product.moq || 500;
+  const maxAvailable = product.availableVolume || product.totalLotVolume || product.stockQuantity || 50000;
+  const effectiveMin = Math.min(moq, maxAvailable);
   const basePrice = product.price || 12000;
 
-  const [quantity, setQuantity] = useState<number>(moq);
+  const [quantity, setQuantity] = useState<number>(effectiveMin);
   const [traderName, setTraderName] = useState('');
   const [traderPhone, setTraderPhone] = useState('');
   const [traderCompany, setTraderCompany] = useState('');
@@ -403,10 +405,11 @@ export default function B2BDepositModal({
                 <div className="relative">
                   <input
                     type="number"
-                    min={moq}
+                    min={effectiveMin}
+                    max={maxAvailable}
                     step={100}
                     value={quantity}
-                    onChange={(e) => setQuantity(Math.max(moq, Number(e.target.value)))}
+                    onChange={(e) => setQuantity(Math.min(maxAvailable, Math.max(effectiveMin, Number(e.target.value))))}
                     className="w-full bg-[#F9F9F5] border border-[#E5E7EB] rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#10542C] focus:outline-none focus:border-[#10542C]"
                     required
                   />
@@ -414,9 +417,12 @@ export default function B2BDepositModal({
                     kg
                   </span>
                 </div>
+                <p className="text-[10px] text-[#6B7280] mt-1">
+                  Khả dụng còn lại của lô: <strong className="text-[#10542C]">{maxAvailable.toLocaleString('vi-VN')} kg</strong>
+                </p>
                 {/* Nút chọn nhanh */}
                 <div className="flex gap-1.5 mt-1.5">
-                  {Array.from(new Set([moq, 1000, 2000, 5000, 10000])).filter((qty) => qty >= moq).sort((a, b) => a - b).map((qty) => (
+                  {Array.from(new Set([effectiveMin, 1000, 2000, 5000, 10000, maxAvailable])).filter((qty) => qty >= effectiveMin && qty <= maxAvailable).sort((a, b) => a - b).map((qty) => (
                     <button
                       key={qty}
                       type="button"

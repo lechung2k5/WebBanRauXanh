@@ -220,29 +220,65 @@ public class InboundDispatchOptimizationService {
             return buildResult(hub, waitingLots.size(), proposedTrips, unassigned);
         }
 
-        // Pool of available drivers that haven't been assigned yet
+        // Pool of available vehicles (sorted ascending by capacity/volume for Best-Fit right-sizing) & drivers
+        List<FleetVehicle> vehiclePoolAsc = new ArrayList<>(availableVehicles);
+        vehiclePoolAsc.sort(Comparator.comparing(FleetVehicle::getCapacityKg)
+                .thenComparing(FleetVehicle::getVolumeM3));
         List<FleetDriver> driverPool = new ArrayList<>(availableDrivers);
         int tripCounter = 1;
 
-        // Iterate through vehicles and pack lots (Greedy Dual-Constraint Bin Packing)
+        // Best-Fit Dual-Constraint Bin Packing:
+        // - Nếu tổng hàng còn lại vừa trong 1 xe -> chọn xe NHỎ NHẤT đủ tải & thể tích (tránh lấy xe 8 tấn chở 200kg)
+        // - Nếu tổng hàng vượt sức chứa 1 xe -> ưu tiên xe lớn nhất để giảm số chuyến, phần dư vòng sau lại chọn xe nhỏ nhất vừa khít
         List<Map<String, Object>> remainingLots = new ArrayList<>(waitingLots);
 
-        for (FleetVehicle vehicle : availableVehicles) {
-            if (remainingLots.isEmpty()) break;
+        while (!remainingLots.isEmpty() && !vehiclePoolAsc.isEmpty() && !driverPool.isEmpty()) {
+            BigDecimal totalRemainingWeight = remainingLots.stream()
+                    .map(l -> (BigDecimal) l.get("computedWeightKg"))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal totalRemainingVolume = remainingLots.stream()
+                    .map(l -> (BigDecimal) l.get("computedVolumeM3"))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            // Find an eligible driver from driverPool for this vehicle
+            FleetVehicle selectedVehicle = null;
             FleetDriver matchedDriver = null;
-            for (FleetDriver d : driverPool) {
-                if (isDriverEligible(d.getLicenseClass(), vehicle.getCapacityKg())) {
-                    matchedDriver = d;
-                    break;
+
+            // 1. Tìm xe nhỏ nhất (Best-Fit) chứa được toàn bộ phần hàng còn lại
+            for (FleetVehicle v : vehiclePoolAsc) {
+                if (v.getCapacityKg().compareTo(totalRemainingWeight) >= 0
+                        && v.getVolumeM3().compareTo(totalRemainingVolume) >= 0) {
+                    FleetDriver d = findEligibleDriver(driverPool, v.getCapacityKg());
+                    if (d != null) {
+                        selectedVehicle = v;
+                        matchedDriver = d;
+                        break;
+                    }
                 }
             }
 
-            if (matchedDriver == null) {
-                log.info("Không có tài xế phù hợp cho xe {} (Tải trọng {} kg)", vehicle.getPlateNumber(), vehicle.getCapacityKg());
-                continue;
+            // 2. Nếu không xe nào chở hết một lần, chọn xe lớn nhất có tài xế phù hợp và chở được ít nhất 1 đơn
+            if (selectedVehicle == null) {
+                for (int i = vehiclePoolAsc.size() - 1; i >= 0; i--) {
+                    FleetVehicle v = vehiclePoolAsc.get(i);
+                    FleetDriver d = findEligibleDriver(driverPool, v.getCapacityKg());
+                    if (d == null) continue;
+                    boolean fitsAny = remainingLots.stream().anyMatch(lot ->
+                            ((BigDecimal) lot.get("computedWeightKg")).compareTo(v.getCapacityKg()) <= 0 &&
+                            ((BigDecimal) lot.get("computedVolumeM3")).compareTo(v.getVolumeM3()) <= 0);
+                    if (fitsAny) {
+                        selectedVehicle = v;
+                        matchedDriver = d;
+                        break;
+                    }
+                }
             }
+
+            if (selectedVehicle == null || matchedDriver == null) {
+                break;
+            }
+
+            FleetVehicle vehicle = selectedVehicle;
+            vehiclePoolAsc.remove(vehicle);
 
             BigDecimal currentWeight = BigDecimal.ZERO;
             BigDecimal currentVolume = BigDecimal.ZERO;
@@ -340,6 +376,15 @@ public class InboundDispatchOptimizationService {
         }
 
         return buildResult(hub, waitingLots.size(), proposedTrips, unassigned);
+    }
+
+    private FleetDriver findEligibleDriver(List<FleetDriver> driverPool, BigDecimal capacityKg) {
+        for (FleetDriver d : driverPool) {
+            if (isDriverEligible(d.getLicenseClass(), capacityKg)) {
+                return d;
+            }
+        }
+        return null;
     }
 
     private DispatchOptimizationResultDto buildResult(WarehouseHub hub, int totalLots,

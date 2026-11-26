@@ -1,7 +1,9 @@
 'use client';
 
 import React from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { Product } from '@/types';
+import { useApp } from '@/context/AppContext';
 import {
   Building2,
   MapPin,
@@ -32,6 +34,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onNegotiate,
   layout = 'horizontal',
 }) => {
+  const { currentUser } = useApp();
+  const router = useRouter();
+  const pathname = usePathname();
+  const isBuyerAccount = Boolean(
+    currentUser?.roles?.some((r) => ['ROLE_BUYER', 'BUYER'].includes(r)),
+  );
+  const requireBuyerAuth = () => {
+    if (!currentUser) {
+      router.push(`/dang-nhap?redirect=${encodeURIComponent(pathname || '/san-pham')}`);
+      return false;
+    }
+    if (!isBuyerAccount) {
+      return false;
+    }
+    return true;
+  };
   const formatVND = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
   };
@@ -68,8 +86,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       : 'bg-blue-50 text-blue-800 border-blue-200';
 
   return (
-    <div className={`group bg-white rounded-2xl border border-[#EAECE8] shadow-xs hover:shadow-lg hover:border-[#10542C]/40 transition-all duration-300 flex items-stretch overflow-hidden ${layout === 'grid' ? 'flex-col' : 'flex-col md:flex-row'}`}>
-      {/* CỘT 1: Ảnh sản phẩm sạch sẽ - Không để badge đè lên che khuất ảnh */}
+    <div className={`group bg-white rounded-3xl border border-[#EAECE8] shadow-xs hover:-translate-y-1 hover:shadow-xl hover:border-[#4CAF50]/40 transition-all duration-300 flex items-stretch overflow-hidden ${layout === 'grid' ? 'flex-col' : 'flex-col md:flex-row'}`}>
+      {/* CỘT 1: Ảnh sản phẩm sạch sẽ - Hiệu ứng zoom mượt */}
       <div
         onClick={() => onViewDetail && onViewDetail(product)}
         className={`relative shrink-0 overflow-hidden bg-[#F9F9F5] cursor-pointer ${layout === 'grid' ? 'w-full aspect-[16/9]' : 'w-full md:w-64 lg:w-72 aspect-16/10 md:aspect-auto'}`}
@@ -77,7 +95,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <img
           src={product.imageUrl}
           alt={product.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={(e) => {
@@ -88,9 +106,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }
           }}
         />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
         {/* Subtle pill nhỏ ở góc ảnh hiển thị tiến độ vụ mùa */}
         <div className="absolute top-3 left-3">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold text-white bg-black/60 backdrop-blur-md shadow-xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold text-white bg-black/55 backdrop-blur-md shadow-xs border border-white/15">
             <span className="w-1.5 h-1.5 rounded-full bg-[#8BC34A] animate-pulse" />
             {harvestStageText}
           </span>
@@ -226,35 +245,32 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
 
-        {/* 2 Nút hành động B2B chính */}
-        <div className="space-y-2 pt-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onNegotiate) onNegotiate(product);
-              else if (onViewDetail) onViewDetail(product);
-            }}
-            className="w-full py-2.5 bg-white hover:bg-[#F0F5F1] text-[#10542C] border border-[#10542C] rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
-            title="Đàm phán giá sỉ trực tiếp với HTX"
-          >
-            <Scale className="w-3.5 h-3.5" />
-            <span>Đàm phán giá sỉ (RFQ)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onNegotiate) onNegotiate(product);
-              else if (onViewDetail) onViewDetail(product);
-            }}
-            className="w-full py-2.5 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
-            title="Đàm phán hoặc đặt cọc giữ lô hàng"
-          >
-            <Package className="w-3.5 h-3.5 text-[#8BC34A]" />
-            <span>Liên hệ đặt cọc lô ({moqText})</span>
-          </button>
+        {/* Nút hành động B2B chính (Chỉ dành cho tài khoản Thương lái - Buyer) */}
+        <div className="pt-1">
+          {currentUser && !isBuyerAccount ? (
+            <div
+              className="w-full py-2.5 px-3 bg-gray-100 text-gray-500 border border-gray-200 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
+              title="Chỉ tài khoản có quyền Thương lái (Buyer) mới được đàm phán & đặt cọc lô"
+            >
+              <Scale className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <span>Chỉ dành cho Thương lái (Buyer)</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!requireBuyerAuth()) return;
+                if (onNegotiate) onNegotiate(product);
+                else if (onViewDetail) onViewDetail(product);
+              }}
+              className="relative overflow-hidden shimmer-hover w-full py-3 bg-[#10542C] hover:bg-[#0C3E20] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95 cursor-pointer"
+              title="Đàm phán giá sỉ và đặt cọc giữ lô hàng"
+            >
+              <Scale className="w-4 h-4 text-[#8BC34A]" />
+              <span>Đàm phán &amp; Đặt cọc lô ({moqText})</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

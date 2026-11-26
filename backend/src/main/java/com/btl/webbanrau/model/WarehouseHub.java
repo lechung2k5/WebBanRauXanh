@@ -36,6 +36,10 @@ public class WarehouseHub extends BaseEntity {
     private String managerName;
 
     @Builder.Default
+    @Column(name = "total_capacity_kg", precision = 12, scale = 2)
+    private BigDecimal totalCapacityKg = new BigDecimal("50000.00");
+
+    @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 }

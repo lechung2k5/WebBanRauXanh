@@ -76,6 +76,53 @@ export const DEFAULT_OFFICIAL_HUBS: WarehouseHubDto[] = [
   },
 ];
 
+export interface WarehouseBinDto {
+  id: number;
+  warehouseId: number;
+  zoneId: number;
+  rackCode: string;
+  binCode: string;
+  maxWeightKg: number;
+  usedKg: number;
+  availableKg: number;
+  utilizationPct: number;
+  packageCount: number;
+  status: 'ACTIVE' | 'MAINTENANCE';
+  notes?: string;
+  contracts: any[];
+}
+
+export interface WarehouseZoneDto {
+  id: number;
+  warehouseId: number;
+  zoneCode: string;
+  zoneName: string;
+  description?: string;
+  tempMin: number;
+  tempMax: number;
+  humidityTarget: number;
+  humidityMin?: number;
+  humidityMax?: number;
+  capacityKg: number;
+  usedKg: number;
+  availableKg: number;
+  utilizationPct: number;
+  packageCount: number;
+  status: 'ACTIVE' | 'MAINTENANCE';
+  bins: WarehouseBinDto[];
+}
+
+export interface WarehouseLayoutDto {
+  hub: WarehouseHubDto & { totalCapacityKg?: number };
+  totalCapacityKg: number;
+  totalUsedKg: number;
+  totalAvailableKg: number;
+  utilizationPct: number;
+  totalZones: number;
+  totalBins: number;
+  zones: WarehouseZoneDto[];
+}
+
 export interface FleetVehicleDto {
   id: number;
   plateNumber: string;
@@ -91,6 +138,7 @@ export interface FleetVehicleDto {
 
 export interface FleetDriverDto {
   id: number;
+  warehouseId?: number;
   driverCode: string;
   fullName: string;
   phone: string;
@@ -98,6 +146,9 @@ export interface FleetDriverDto {
   licenseClass: string;
   status: 'AVAILABLE' | 'ASSIGNED' | 'ON_TRIP' | 'OFF_DUTY';
   experienceYears: number;
+  username?: string;
+  email?: string;
+  userId?: number;
 }
 
 export interface WaitingLotDto {
@@ -243,13 +294,23 @@ export const fleetDispatchApi = {
   updateVehicleStatus: (id: number, status: string) =>
     api<FleetVehicleDto>(`admin/dispatch/vehicles/${id}/status`, 'PATCH', { status }),
 
-  // Drivers
-  getDrivers: (warehouseId: number, status?: string) =>
-    api<FleetDriverDto[]>(`admin/dispatch/drivers?warehouseId=${warehouseId}${status ? `&status=${status}` : ''}`),
+  // Drivers & Staff
+  getDrivers: (warehouseId?: number, status?: string, role?: string) => {
+    const params = new URLSearchParams();
+    if (warehouseId !== undefined && warehouseId !== null) params.set('warehouseId', String(warehouseId));
+    if (status) params.set('status', status);
+    if (role) params.set('role', role);
+    const qs = params.toString();
+    return api<FleetDriverDto[]>(`admin/dispatch/drivers${qs ? `?${qs}` : ''}`);
+  },
   createDriver: (data: any) =>
     api<FleetDriverDto>('admin/dispatch/drivers', 'POST', data),
+  updateDriver: (id: number, data: any) =>
+    api<FleetDriverDto>(`admin/dispatch/drivers/${id}`, 'PUT', data),
   updateDriverStatus: (id: number, status: string) =>
     api<FleetDriverDto>(`admin/dispatch/drivers/${id}/status`, 'PATCH', { status }),
+  deleteDriver: (id: number) =>
+    api<any>(`admin/dispatch/drivers/${id}`, 'DELETE'),
 
   // Dispatching
   getWaitingLots: (warehouseId?: number) =>
@@ -334,6 +395,38 @@ export const fleetDispatchApi = {
       .catch(() => api<any[]>(`admin/dispatch/inventory${warehouseId ? `?warehouseId=${warehouseId}` : ''}`)),
   submitWarehouseInboundQc: (contractId: number, data: any) =>
     api<any>(`admin/contracts/${contractId}/warehouse-inbound`, 'POST', data),
+  rejectWarehouseQc: (contractId: number, data: any) =>
+    api<any>(`admin/contracts/${contractId}/qc-reject`, 'POST', data),
+  processQcReturnRefund: (contractId: number, data: any) =>
+    api<any>(`admin/contracts/${contractId}/qc-return-refund`, 'POST', data),
+
+  // Staff App Outbound Picking & Handover (Xuất kho tại kệ)
+  getWarehouseOutboundTasks: (warehouseId?: number) =>
+    api<{ pa2Tasks: any[]; pa3Tasks: any[]; totalPending: number }>(
+      `warehouse/outbound/tasks${warehouseId ? `?warehouseId=${warehouseId}` : ''}`
+    ),
+  startWarehouseOutboundPicking: (contractId: number) =>
+    api<any>(`warehouse/outbound/contracts/${contractId}/start-picking`, 'POST', {}),
+  confirmWarehouseOutboundPicked: (
+    contractId: number,
+    data: {
+      pickedPackages: number;
+      actualWeightKg: number;
+      outboundTemp: number;
+      notes?: string;
+    }
+  ) => api<any>(`warehouse/outbound/contracts/${contractId}/confirm-picked`, 'POST', data),
+  completeWarehouseOutboundHandover: (
+    contractId: number,
+    data: {
+      handoverType: 'PA2_TRUCK' | 'PA3_BUYER_PICKUP';
+      receiverName: string;
+      receiverPhone?: string;
+      truckPlate?: string;
+      signatureData?: string;
+      notes?: string;
+    }
+  ) => api<any>(`warehouse/outbound/contracts/${contractId}/complete-handover`, 'POST', data),
 
   // Outbound Dispatch actions (Phase 1)
   getEligibleOutboundContracts: (hubId: number) =>
@@ -348,18 +441,37 @@ export const fleetDispatchApi = {
     api<OutboundDeliveryTripDto>(`admin/outbound-dispatch/trips/${tripId}`),
   cancelOutboundTrip: (tripId: number, reason: string) =>
     api<any>(`admin/outbound-dispatch/trips/${tripId}/cancel`, 'POST', { reason }),
+  getAutoDispatchPlan: (hubId: number) =>
+    api<AutoDispatchPlanDto>(`admin/outbound-dispatch/auto-plan?hubId=${hubId}`),
+  confirmAutoDispatch: (hubId: number, trips: ConfirmOutboundTripRequest[]) =>
+    api<{ createdCount: number; tripCodes: string[] }>(`admin/outbound-dispatch/auto-confirm?hubId=${hubId}`, 'POST', trips),
 
   // Driver Outbound Execution (Phase 2)
   getMyOutboundTrips: () =>
     api<OutboundDeliveryTripDto[]>('driver/outbound-trips/my-trips'),
   getDriverOutboundTripDetail: (tripId: number) =>
     api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}`),
-  departOutboundTrip: (tripId: number) =>
-    api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}/depart`, 'POST'),
+  departOutboundTrip: (
+    tripId: number,
+    data?: {
+      dispatcherName?: string;
+      dispatcherSignatureData?: string;
+      driverPickupSignatureData?: string;
+      departurePhotoUrl?: string;
+      notes?: string;
+    }
+  ) =>
+    api<OutboundDeliveryTripDto>(`admin/outbound-dispatch/trips/${tripId}/depart`, 'POST', data || {})
+      .catch(() => api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}/depart`, 'POST', data || {})),
+  updateTripGps: (tripId: number, lat: number, lng: number) =>
+    api<OutboundDeliveryTripDto>(`driver/outbound-trips/${tripId}/gps`, 'POST', { lat, lng })
+      .catch(() => api<OutboundDeliveryTripDto>(`admin/outbound-dispatch/trips/${tripId}/gps`, 'POST', { lat, lng })),
   arriveOutboundStop: (stopId: number) =>
-    api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/arrive`, 'POST'),
+    api<OutboundDeliveryStopDto>(`admin/outbound-dispatch/stops/${stopId}/arrive`, 'POST')
+      .catch(() => api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/arrive`, 'POST')),
   submitDriverOutboundEpod: (stopId: number, data: DriverOutboundEpodRequest) =>
-    api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/submit-epod`, 'POST', data),
+    api<OutboundDeliveryStopDto>(`admin/outbound-dispatch/stops/${stopId}/submit-epod`, 'POST', data)
+      .catch(() => api<OutboundDeliveryStopDto>(`driver/outbound-trips/stops/${stopId}/submit-epod`, 'POST', data)),
 
   // Buyer Outbound Confirmation & ePOD (Phase 2)
   getBuyerPendingDeliveries: () =>
@@ -376,7 +488,61 @@ export const fleetDispatchApi = {
     api<any>(`admin/outbound-dispatch/contracts/${contractId}/settlement-quote`),
   confirmSettlement: (contractId: number, data?: any) =>
     api<any>(`admin/outbound-dispatch/contracts/${contractId}/confirm-settlement`, 'POST', data || {}),
+
+  // Warehouse Zones, Racks & 3D Digital Twin Layout
+  getWarehouseLayout: (hubId: number) =>
+    api<WarehouseLayoutDto>(`admin/warehouses/${hubId}/layout`),
+  updateWarehouseHub: (hubId: number, data: any) =>
+    api<WarehouseHubDto>(`admin/warehouses/${hubId}`, 'PUT', data),
+  createWarehouseZone: (hubId: number, data: any) =>
+    api<WarehouseZoneDto>(`admin/warehouses/${hubId}/zones`, 'POST', data),
+  updateWarehouseZone: (zoneId: number, data: any) =>
+    api<WarehouseZoneDto>(`admin/warehouses/zones/${zoneId}`, 'PUT', data),
+  deleteWarehouseZone: (zoneId: number) =>
+    api<any>(`admin/warehouses/zones/${zoneId}`, 'DELETE'),
+  createWarehouseBins: (zoneId: number, data: any) =>
+    api<WarehouseBinDto[]>(`admin/warehouses/zones/${zoneId}/bins`, 'POST', data),
+  updateWarehouseBin: (binId: number, data: any) =>
+    api<WarehouseBinDto>(`admin/warehouses/bins/${binId}`, 'PUT', data),
+  deleteWarehouseBin: (binId: number) =>
+    api<any>(`admin/warehouses/bins/${binId}`, 'DELETE'),
+  moveContractBin: (contractId: number, targetBinId: number) =>
+    api<any>(`admin/warehouses/contracts/${contractId}/move-bin`, 'POST', { targetBinId }),
+
+  // Warehouse IoT (Wokwi ESP32 + Simulator)
+  getWarehouseIotLatest: (hubId: number) =>
+    api<WarehouseZoneTelemetryDto[]>(`admin/warehouses/${hubId}/iot/latest`),
+  getWarehouseIotHistory: (hubId: number, zoneCode?: string, limit = 30) =>
+    api<WarehouseZoneTelemetryDto[]>(
+      `admin/warehouses/${hubId}/iot/history?${zoneCode ? `zoneCode=${encodeURIComponent(zoneCode)}&` : ''}limit=${limit}`
+    ),
+  simulateWarehouseIot: (
+    hubId: number,
+    data: { zoneCode: string; temperature: number; humidity: number; deviceId?: string }
+  ) =>
+    api<WarehouseZoneTelemetryDto>(`admin/warehouses/${hubId}/iot/simulate`, 'POST', data),
 };
+
+export interface WarehouseZoneTelemetryDto {
+  id: number | null;
+  hubId: number;
+  hubName?: string;
+  zoneId?: number | null;
+  zoneCode: string;
+  zoneName?: string;
+  deviceId: string;
+  source: 'WOKWI' | 'SIMULATOR' | 'BASELINE' | string;
+  temperature: number;
+  humidity: number;
+  tempMin: number;
+  tempMax: number;
+  humidityTarget: number;
+  humidityMin?: number;
+  humidityMax?: number;
+  alert: boolean;
+  alertMessage?: string | null;
+  recordedAt?: string | null;
+}
 
 export interface EligibleOutboundContractDto {
   contractId: number;
@@ -457,6 +623,9 @@ export interface OutboundDeliveryStopDto {
   vehiclePlate?: string;
   driverName?: string;
   hubName?: string;
+  productName?: string;
+  unitPrice?: number;
+  packageCount?: number;
   contract?: any;
 }
 
@@ -477,4 +646,46 @@ export interface OutboundDeliveryTripDto {
   vehicle: FleetVehicleDto;
   driver: FleetDriverDto;
   stops: OutboundDeliveryStopDto[];
+  transportContractCode?: string;
+  dispatcherName?: string;
+  dispatcherSignatureData?: string;
+  driverPickupSignatureData?: string;
+  departurePhotoUrl?: string;
+  transportContractSignedAt?: string;
+}
+
+export interface AutoDispatchReadyTripDto {
+  vehicleId: number;
+  plateNumber: string;
+  vehicleModel: string;
+  capacityKg: number;
+  volumeM3: number;
+  driverId: number;
+  driverName: string;
+  driverPhone?: string;
+  totalWeightKg: number;
+  totalVolumeM3: number;
+  utilizationPct: number;
+  stops: EligibleOutboundContractDto[];
+}
+
+export interface AutoDispatchQueuedTripDto {
+  vehicleId: number;
+  plateNumber: string;
+  vehicleModel: string;
+  capacityKg: number;
+  currentVehicleStatus: string;
+  estimatedReason: string;
+  totalWeightKg: number;
+  totalVolumeM3: number;
+  stops: EligibleOutboundContractDto[];
+}
+
+export interface AutoDispatchPlanDto {
+  hubId: number;
+  hubName: string;
+  totalEligible: number;
+  readyTrips: AutoDispatchReadyTripDto[];
+  queuedTrips: AutoDispatchQueuedTripDto[];
+  unassignedContracts: EligibleOutboundContractDto[];
 }

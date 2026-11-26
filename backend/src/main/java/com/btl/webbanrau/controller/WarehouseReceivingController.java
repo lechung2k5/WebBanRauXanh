@@ -53,6 +53,7 @@ public class WarehouseReceivingController {
         String sql = """
             SELECT c.id, c.contract_code, c.lot_id, c.status, c.fulfillment_status,
                    c.hub_name, c.hub_warehouse_zone, c.hub_rack_bin, c.hub_inbound_at,
+                   c.hub_delivery_date, r.delivery_date AS buyer_delivery_date,
                    c.max_storage_days, c.qc_status, c.qc_passed_at, c.qc_cert_url,
                    c.qc_brix, c.qc_nitrate_ppm, c.qc_pesticide_safe,
                    c.actual_harvest_weight_kg, c.offered_weight_kg, c.package_count, c.package_type,
@@ -63,10 +64,11 @@ public class WarehouseReceivingController {
                    c.created_at, c.updated_at
             FROM b2b_contracts c
             LEFT JOIN harvest_lots hl ON c.lot_id = hl.id
+            LEFT JOIN rfq_negotiations r ON c.rfq_id = r.id
             LEFT JOIN users u ON c.farmer_id = u.id
             LEFT JOIN users b ON c.buyer_id = b.id
-            WHERE c.status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND', 'PICKUP_DISPATCHED', 'OUTBOUND_DISPATCHED')
-               OR c.fulfillment_status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND')
+            WHERE c.status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND', 'PICKUP_DISPATCHED', 'OUTBOUND_DISPATCHED')
+               OR c.fulfillment_status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND')
             ORDER BY c.hub_inbound_at ASC NULLS LAST, c.updated_at DESC
         """;
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);

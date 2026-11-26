@@ -20,7 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/admin/dispatch")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MANAGER')")
 public class AdminFleetController {
 
     private final FleetManagementService fleetManagementService;
@@ -62,18 +62,26 @@ public class AdminFleetController {
         return ApiResponse.success("Đã cập nhật trạng thái phương tiện", fleetManagementService.updateVehicleStatus(id, status));
     }
 
-    // --- DRIVERS ---
+    // --- DRIVERS & STAFF ---
     @GetMapping("/drivers")
-    public Object listDrivers(@RequestParam Long warehouseId, @RequestParam(required = false) String status) {
-        if ("AVAILABLE".equalsIgnoreCase(status)) {
+    public Object listDrivers(
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String role) {
+        if ("AVAILABLE".equalsIgnoreCase(status) && warehouseId != null) {
             return ApiResponse.success(fleetManagementService.getAvailableDriversByHub(warehouseId));
         }
-        return ApiResponse.success(fleetManagementService.getDriversByHub(warehouseId));
+        return ApiResponse.success(fleetManagementService.getStaff(warehouseId, role));
     }
 
     @PostMapping("/drivers")
     public Object createDriver(@Valid @RequestBody FleetDriverRequest request) {
-        return ApiResponse.success("Đã thêm tài xế mới vào danh sách đội xe", fleetManagementService.createDriver(request));
+        return ApiResponse.success("Đã thêm nhân viên mới vào kho", fleetManagementService.createDriver(request));
+    }
+
+    @PutMapping("/drivers/{id}")
+    public Object updateDriver(@PathVariable Long id, @Valid @RequestBody FleetDriverRequest request) {
+        return ApiResponse.success("Đã cập nhật thông tin nhân viên", fleetManagementService.updateDriver(id, request));
     }
 
     @PatchMapping("/drivers/{id}/status")
@@ -82,7 +90,13 @@ public class AdminFleetController {
         if (status == null || status.isBlank()) {
             throw new IllegalArgumentException("Trạng thái không được để trống");
         }
-        return ApiResponse.success("Đã cập nhật trạng thái tài xế", fleetManagementService.updateDriverStatus(id, status));
+        return ApiResponse.success("Đã cập nhật trạng thái nhân viên", fleetManagementService.updateDriverStatus(id, status));
+    }
+
+    @DeleteMapping("/drivers/{id}")
+    public Object deleteDriver(@PathVariable Long id) {
+        fleetManagementService.deleteDriver(id);
+        return ApiResponse.success("Đã xóa nhân viên khỏi hệ thống", null);
     }
 
     // --- DISPATCH CORE ---
@@ -153,8 +167,8 @@ public class AdminFleetController {
             LEFT JOIN harvest_lots hl ON c.lot_id = hl.id
             LEFT JOIN users u ON c.farmer_id = u.id
             LEFT JOIN users b ON c.buyer_id = b.id
-            WHERE c.status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND', 'PICKUP_DISPATCHED', 'OUTBOUND_DISPATCHED')
-               OR c.fulfillment_status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'READY_OUTBOUND')
+            WHERE c.status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND', 'PICKUP_DISPATCHED', 'OUTBOUND_DISPATCHED')
+               OR c.fulfillment_status IN ('IN_TRANSIT_HUB', 'AT_HUB_QC', 'HUB_DELIVERED', 'QC_PASSED', 'QC_FAILED', 'READY_OUTBOUND')
             ORDER BY c.hub_inbound_at ASC NULLS LAST, c.updated_at DESC
         """;
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);

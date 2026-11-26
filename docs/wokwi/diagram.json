@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "author": "Hona Fresh Warehouse IoT",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -60,
+      "left": 180,
+      "attrs": { "temperature": "3.8", "humidity": "90" }
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd1",
+      "top": -70,
+      "left": 300,
+      "attrs": { "pins": "i2c", "address": "0x27" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": 120,
+      "left": 180,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 175,
+      "left": 170,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 115,
+      "left": 280,
+      "attrs": { "volume": "0.5" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "dht1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "dht1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "dht1:SDA", "esp:15", "green", [ "v0" ] ],
+    [ "lcd1:VCC", "esp:5V", "red", [ "h0" ] ],
+    [ "lcd1:GND", "esp:GND.1", "black", [ "h0" ] ],
+    [ "lcd1:SDA", "esp:21", "blue", [ "h0" ] ],
+    [ "lcd1:SCL", "esp:22", "yellow", [ "h0" ] ],
+    [ "esp:2", "r1:1", "orange", [ "v0" ] ],
+    [ "r1:2", "led1:A", "orange", [ "v0" ] ],
+    [ "led1:C", "esp:GND.2", "black", [ "v0" ] ],
+    [ "bz1:1", "esp:GND.3", "black", [ "v0" ] ],
+    [ "bz1:2", "esp:4", "purple", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

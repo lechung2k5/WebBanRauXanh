@@ -15,6 +15,9 @@ function getBrokerUrl(): string {
   if (process.env.NEXT_PUBLIC_WS_URL) {
     return process.env.NEXT_PUBLIC_WS_URL;
   }
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return `${process.env.NEXT_PUBLIC_API_URL.replace(/^http/i, 'ws').replace(/\/+$/, '')}/ws-b2b`;
+  }
   const host = window.location.hostname || 'localhost';
   // Spring Boot context-path là /api/v1 nên endpoint đầy đủ là /api/v1/ws-b2b
   return `ws://${host}:8080/api/v1/ws-b2b`;
@@ -223,6 +226,19 @@ class B2bStompService {
 
   public subscribeDispatch(callback: (payload: any) => void): () => void {
     return this.subscribe('/topic/dispatch', (payload) => {
+      callback(payload);
+    });
+  }
+
+  public subscribeProcurements(callback: (payload: any) => void): () => void {
+    return this.subscribe('/topic/procurements', (payload) => {
+      callback(payload);
+    });
+  }
+
+  public subscribeWarehouseIot(hubId: number | undefined, callback: (payload: any) => void): () => void {
+    const topic = hubId ? `/topic/warehouse-iot/${hubId}` : '/topic/warehouse-iot';
+    return this.subscribe(topic, (payload) => {
       callback(payload);
     });
   }

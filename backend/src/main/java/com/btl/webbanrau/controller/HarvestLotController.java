@@ -53,4 +53,10 @@ public class HarvestLotController {
         }
         return ResponseEntity.ok(ApiResponse.success(lot));
     }
+
+    @GetMapping("/farmers")
+    @Operation(summary = "Lấy danh sách hồ sơ các Nhà vườn & Hợp tác xã đang hoạt động trên hệ thống")
+    public ResponseEntity<ApiResponse<java.util.List<com.btl.webbanrau.dto.response.FarmerPublicProfileResponse>>> getPublicFarmers() {
+        return ResponseEntity.ok(ApiResponse.success(harvestLotService.getPublicFarmers()));
+    }
 }

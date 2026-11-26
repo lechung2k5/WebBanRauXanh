@@ -126,7 +126,7 @@ public class TokenService {
             }
         }
         return AuthResponse.builder().id(u.getId()).username(u.getUsername()).fullName(fullName).email(u.getEmail())
-            .phone(u.getPhone()).address(address).roles(u.getRoles().stream().map(Role::getName).toList()).enabled(u.isEnabled())
+            .phone(u.getPhone()).address(address).roles(u.getRoles().stream().map(Role::getName).toList()).assignedHubId(u.getAssignedHubId()).enabled(u.isEnabled())
             .emailVerified(u.isEmailVerified()).companyName(u.getCompanyName()).taxCode(u.getTaxCode()).warehouseAddress(u.getWarehouseAddress())
             .bankAccountNo(u.getBankAccountNo()).bankName(u.getBankName()).householdFarmer(u.isHouseholdFarmer()).individualBuyer(u.isIndividualBuyer()).pucCode(u.getPucCode())
             .certification(u.getCertification()).certificationUrl(certUrl).kycStatus(u.getKycStatus()).kycNote(u.getKycNote()).profileComplete(profileComplete(u)).build();

@@ -300,9 +300,14 @@ export default function B2BNegotiationModal({
           });
         } else {
           await updateBuyerRfqApi(editingRfq.id, {
+            harvestLotId: Number(editingRfq.harvestLotId || product.harvestLotId || product.id) || 1,
+            quantityKg: quantity,
+            proposedPricePerKg: targetPrice,
+            desiredDeliveryDate: deliveryDate,
             requestedQuantityKg: quantity,
             targetPricePerKg: targetPrice,
             deliveryLocation,
+            shippingOption,
             notes,
           });
         }
@@ -1186,8 +1191,11 @@ export default function B2BNegotiationModal({
                 <div className="flex items-baseline gap-2 text-xs">
                   <span className="text-[11px] text-[#6B7280]">Cước logistics:</span>
                   <span className="font-bold text-[#10542C]">
-                    {shippingOption === 'farm_pickup' ? '0 đ (Khách nhận tại Kho HoNa)' : `+ ${formatVND(shippingFee)}`}
+                    + {formatVND(shippingFee)}
                   </span>
+                  {shippingOption === 'farm_pickup' && (
+                    <span className="text-[10px] text-rose-700 font-bold bg-rose-100 px-1.5 py-0.2 rounded">Gom vườn & lưu kho (Miễn chặng 2)</span>
+                  )}
                   {shippingOption === 'farm_delivery' && (
                     <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.2 rounded">Tiết kiệm ghép xe</span>
                   )}

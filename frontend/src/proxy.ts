@@ -16,12 +16,13 @@ function parseJwt(token: string): { roles?: string[]; sub?: string; exp?: number
 }
 
 function getPortalRoute(roles: string[] = []): string {
-  if (roles.includes('ROLE_ADMIN')) return '/admin';
+  if (roles.includes('ROLE_ADMIN')) return '/admin/dashboard';
+  if (roles.includes('ROLE_WAREHOUSE_MANAGER')) return '/manager/dashboard';
+  if (roles.includes('ROLE_ACCOUNTANT')) return '/admin/accounting';
   if (roles.includes('ROLE_FARMER')) return '/portal/farmer';
   if (roles.includes('ROLE_BUYER')) return '/portal/buyer';
   if (roles.includes('ROLE_WAREHOUSE_QC')) return '/portal/warehouse-qc';
   if (roles.includes('ROLE_DRIVER')) return '/portal/driver';
-  if (roles.includes('ROLE_ACCOUNTANT')) return '/portal/accountant';
   return '/';
 }
 
@@ -43,7 +44,10 @@ export function proxy(request: NextRequest) {
   }
 
   // 2. Bảo vệ các Route Quản trị & Portal theo RBAC
-  const isProtectedPortal = pathname.startsWith('/portal') || pathname.startsWith('/admin');
+  const isProtectedPortal =
+    pathname.startsWith('/portal') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/manager');
   if (isProtectedPortal) {
     if (!hasSession) {
       const loginUrl = new URL('/dang-nhap', request.url);
@@ -53,7 +57,19 @@ export function proxy(request: NextRequest) {
 
     // Kiểm tra chi tiết quyền truy cập theo từng Portal
     if (roles.length > 0) {
-      if (pathname.startsWith('/admin') && !roles.includes('ROLE_ADMIN')) {
+      const isAdmin = roles.includes('ROLE_ADMIN');
+      const isWarehouseManager = roles.includes('ROLE_WAREHOUSE_MANAGER');
+      const isAccountant = roles.includes('ROLE_ACCOUNTANT');
+
+      if (pathname.startsWith('/admin')) {
+        if (!isAdmin && !isAccountant) {
+          return NextResponse.redirect(new URL(getPortalRoute(roles), request.url));
+        }
+        if (!isAdmin && isAccountant && !pathname.startsWith('/admin/accounting')) {
+          return NextResponse.redirect(new URL('/admin/accounting', request.url));
+        }
+      }
+      if (pathname.startsWith('/manager') && !isWarehouseManager && !isAdmin) {
         return NextResponse.redirect(new URL(getPortalRoute(roles), request.url));
       }
       if (pathname.startsWith('/portal/farmer') && !roles.includes('ROLE_FARMER') && !roles.includes('ROLE_ADMIN')) {
@@ -81,6 +97,7 @@ export const config = {
   matcher: [
     '/portal/:path*',
     '/admin/:path*',
+    '/manager/:path*',
     '/dang-nhap',
     '/dang-ky',
   ],
