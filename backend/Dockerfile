@@ -1,18 +1,14 @@
 # =============================================================================
-# Stage 1: Build Spring Boot JAR (Java 21 + Gradle)
+# Stage 1: Build Spring Boot JAR (Gradle 8.10.2 + Java 21)
 # =============================================================================
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM gradle:8.10.2-jdk21-alpine AS builder
 WORKDIR /app
 
-# Copy Gradle wrapper & build scripts first to leverage Docker layer cache
-COPY gradlew .
-COPY gradle gradle
 COPY build.gradle settings.gradle ./
-RUN chmod +x gradlew && ./gradlew dependencies --no-daemon || true
+RUN gradle dependencies --no-daemon || true
 
-# Copy source code and build bootJar
 COPY src src
-RUN ./gradlew bootJar -x test --no-daemon
+RUN gradle bootJar -x test --no-daemon
 
 # =============================================================================
 # Stage 2: Lightweight Production Runtime (JRE 21 Alpine, non-root user)
